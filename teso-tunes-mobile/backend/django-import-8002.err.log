@@ -1,0 +1,7 @@
+Watching for file changes with StatReloader
+[16/Jun/2026 09:34:06] "GET /api/songs/ HTTP/1.1" 200 42588
+[16/Jun/2026 09:34:06,906] - Broken pipe from ('127.0.0.1', 49992)
+[16/Jun/2026 09:34:19] "GET /api/artists/ HTTP/1.1" 200 5526
+[16/Jun/2026 09:34:19,968] - Broken pipe from ('127.0.0.1', 64395)
+[16/Jun/2026 09:34:30] "GET /api/artists/ HTTP/1.1" 200 5526
+[16/Jun/2026 09:34:30] "GET /api/songs/ HTTP/1.1" 200 42588

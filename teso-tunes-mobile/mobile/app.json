@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Teso Tunes",
+    "slug": "teso-tunes",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#09090B"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "android": {
+      "package": "com.tesotunes.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#09090B"
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
+    },
+    "plugins": [
+      "expo-audio"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "24fa8927-8f4c-4358-b1e7-80a33c2ddcc7"
+      }
+    }
+  }
+}

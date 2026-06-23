@@ -1,0 +1,12 @@
+backend/venv/
+backend/db.sqlite3
+backend/media/
+backend-js/node_modules/
+backend-js/js-server*.log
+backend-js/data/db.json
+backend-js/uploads/
+mobile/node_modules/
+.expo/
+*.pyc
+__pycache__/
+.DS_Store

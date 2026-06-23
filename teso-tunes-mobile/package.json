@@ -1,0 +1,13 @@
+{
+  "name": "teso-tunes",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "backend": "npm --prefix backend-js run start",
+    "backend:install": "npm --prefix backend-js install",
+    "backend:import-django": "npm --prefix backend-js run import:django",
+    "start": "npm --prefix mobile run start",
+    "android": "npm --prefix mobile run android",
+    "mobile:install": "npm --prefix mobile install"
+  }
+}
