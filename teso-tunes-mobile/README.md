@@ -36,6 +36,7 @@ http://127.0.0.1:8000/api/artists/
 http://127.0.0.1:8000/api/songs/
 http://127.0.0.1:8000/api/featured-artists/
 http://127.0.0.1:8000/api/featured-songs/
+http://127.0.0.1:8000/api/hub/search-documents/
 ```
 
 Default local admin login:
@@ -87,6 +88,58 @@ export const API_BASE_URL = "http://192.168.1.15:8000/api";
 3. Run `npx expo start` inside the `mobile` folder.
 4. Scan the QR code with Expo Go.
 5. Make sure the JavaScript backend is running with `npm run backend`.
+
+## Test TesoHub Website to Music App Links
+
+Use this loop while building:
+
+1. Start the music backend:
+
+```powershell
+cd "C:\Users\HP\Documents\teso music app\teso-tunes-mobile"
+npm run backend
+```
+
+2. Start the Expo app:
+
+```powershell
+cd "C:\Users\HP\Documents\teso music app\teso-tunes-mobile\mobile"
+npx expo start
+```
+
+3. Copy the line printed in the Expo terminal:
+
+```text
+Expo Go deep link base: exp://YOUR_LOCAL_IP:8081/--/
+```
+
+4. In the TesoHub website folder, create or update `.env.local`:
+
+```env
+MUSIC_API_BASE_URL=http://YOUR_LOCAL_IP:8000
+NEXT_PUBLIC_EXPO_GO_BASE_URL=exp://YOUR_LOCAL_IP:8081/--/
+```
+
+Use your laptop IPv4 address for phone testing. Keep `localhost` only when testing everything in a desktop browser.
+
+5. Start the TesoHub website:
+
+```powershell
+cd "C:\Users\HP\Desktop\TesoHub_Runnable_Prototype_With_Logo\TesoHub_real"
+npm run dev
+```
+
+6. Open the TesoHub website on the same phone that has Expo Go open.
+7. Search for music, for example `Sparo`, `Akogo`, or `Teso`.
+8. Tap `Open in App`.
+9. The button should show an `exp://.../--/song/1` or `exp://.../--/artist/1` target, then Expo Go should open the matching player or artist screen.
+
+Production APK links will use the custom scheme directly:
+
+```text
+tesohubmusic://song/1
+tesohubmusic://artist/1
+```
 
 ## Troubleshooting
 

@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 
+import { incrementSongPlay } from "../api/musicApi";
+
 const PlayerContext = createContext(null);
 
 export function PlayerProvider({ children }) {
@@ -11,6 +13,9 @@ export function PlayerProvider({ children }) {
   const repeatRef = useRef(false);
   const shuffleRef = useRef(false);
   const finishHandledRef = useRef(false);
+  const lastCountedSongIdRef = useRef(null);
+  const currentTimeRef = useRef(0);
+  const durationRef = useRef(0);
   const [currentSong, setCurrentSong] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -45,10 +50,28 @@ export function PlayerProvider({ children }) {
     }
 
     soundRef.current = null;
+    currentTimeRef.current = 0;
+    durationRef.current = 0;
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
     setDidFinish(false);
+  }
+
+  function setSafeCurrentTime(seconds) {
+    const safeTime = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+    currentTimeRef.current = safeTime;
+    setCurrentTime(safeTime);
+  }
+
+  function setSafeDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return durationRef.current;
+    }
+
+    durationRef.current = seconds;
+    setDuration(seconds);
+    return seconds;
   }
 
   function handleSongFinished() {
@@ -76,14 +99,21 @@ export function PlayerProvider({ children }) {
   function syncPlaybackStatus(status) {
     if (!status?.isLoaded) {
       setIsPlaying(false);
-      setCurrentTime(0);
+      setSafeCurrentTime(0);
       setDidFinish(false);
       return;
     }
 
+    const nextDuration = Number.isFinite(status.duration)
+      ? Math.max(0, status.duration)
+      : durationRef.current;
+    const safeDuration = setSafeDuration(nextDuration);
+    const nextTime = Number.isFinite(status.currentTime)
+      ? Math.max(0, Math.min(status.currentTime, safeDuration || status.currentTime))
+      : currentTimeRef.current;
+
     setIsPlaying(Boolean(status.playing) && !status.didJustFinish);
-    setCurrentTime(Number.isFinite(status.currentTime) ? Math.max(0, status.currentTime) : 0);
-    setDuration(Number.isFinite(status.duration) ? Math.max(0, status.duration) : 0);
+    setSafeCurrentTime(nextTime);
     setDidFinish(Boolean(status.didJustFinish));
 
     if (status.didJustFinish && !finishHandledRef.current) {
@@ -108,6 +138,42 @@ export function PlayerProvider({ children }) {
     }, 250);
   }
 
+  function recordPlayCount(song) {
+    const songId = song?.id;
+    if (!songId || lastCountedSongIdRef.current === songId) return;
+
+    lastCountedSongIdRef.current = songId;
+    incrementSongPlay(songId);
+  }
+
+  function findCurrentQueueIndex() {
+    const currentId = currentSongRef.current?.id;
+    return queueRef.current.findIndex((song) => song?.id === currentId);
+  }
+
+  function playQueueSongAt(index) {
+    const queue = queueRef.current;
+    if (!Array.isArray(queue) || queue.length === 0) return;
+
+    const safeIndex = (index + queue.length) % queue.length;
+    const nextSong = queue[safeIndex];
+    if (nextSong) {
+      playSong(nextSong, queue);
+    }
+  }
+
+  function playNextSong() {
+    const index = findCurrentQueueIndex();
+    if (index < 0) return;
+    playQueueSongAt(index + 1);
+  }
+
+  function playPreviousSong() {
+    const index = findCurrentQueueIndex();
+    if (index < 0) return;
+    playQueueSongAt(index - 1);
+  }
+
   function playSong(song, queue = []) {
     if (!song || isBusyRef.current) return;
 
@@ -121,6 +187,8 @@ export function PlayerProvider({ children }) {
       queueRef.current = [song];
     }
     setIsPlaying(false);
+    currentTimeRef.current = 0;
+    durationRef.current = 0;
     setCurrentTime(0);
     setDuration(0);
     setDidFinish(false);
@@ -145,6 +213,7 @@ export function PlayerProvider({ children }) {
       }
 
       player.play();
+      recordPlayCount(song);
       syncPlaybackStatus(player.currentStatus || {
         isLoaded: player.isLoaded,
         playing: player.playing,
@@ -168,25 +237,30 @@ export function PlayerProvider({ children }) {
 
   function clampTime(seconds) {
     if (!Number.isFinite(seconds)) return 0;
-    if (duration <= 0) return Math.max(0, seconds);
-    return Math.min(Math.max(0, seconds), duration);
+    const safeDuration = durationRef.current;
+    if (safeDuration <= 0) return Math.max(0, seconds);
+    return Math.min(Math.max(0, seconds), safeDuration);
   }
 
   async function seekTo(seconds) {
     const player = soundRef.current;
-    if (!player?.seekTo) return;
+    const safeDuration = durationRef.current;
+    if (!player?.seekTo || safeDuration <= 0 || !Number.isFinite(safeDuration)) return;
 
     const nextTime = clampTime(seconds);
+    setSafeCurrentTime(nextTime);
+    setDidFinish(false);
+
     try {
       await player.seekTo(nextTime);
-      setCurrentTime(nextTime);
+      setSafeCurrentTime(nextTime);
       setDidFinish(false);
-      syncPlayerStatusSoon(player);
-    } catch (error) {}
+    } catch (error) {
+    }
   }
 
   function seekBy(seconds) {
-    seekTo(currentTime + seconds);
+    seekTo(currentTimeRef.current + seconds);
   }
 
   function seekToProgress(nextProgress) {
@@ -251,6 +325,8 @@ export function PlayerProvider({ children }) {
       isPlaying,
       isRepeatOn,
       isShuffleOn,
+      playNextSong,
+      playPreviousSong,
       playSong,
       progress: duration > 0 ? Math.min(currentTime / duration, 1) : 0,
       seekBy,

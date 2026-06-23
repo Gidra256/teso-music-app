@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getSongs } from "../api/musicApi";
+import { BACKEND_CONNECTION_ERROR, getSongs } from "../api/musicApi";
 import CategoryFilter from "../components/CategoryFilter";
 import MiniPlayer from "../components/MiniPlayer";
 import SearchBar from "../components/SearchBar";
@@ -14,12 +14,18 @@ export default function SongsScreen() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    getSongs().then((items) => {
-      setSongs(items);
-      setLoading(false);
-    });
+    getSongs()
+      .then((items) => {
+        setError("");
+        setSongs(items);
+      })
+      .catch((loadError) => {
+        setError(loadError?.message || BACKEND_CONNECTION_ERROR);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const filteredSongs = useMemo(() => {
@@ -41,6 +47,8 @@ export default function SongsScreen() {
       </View>
       {loading ? (
         <ActivityIndicator color={colors.primary} style={styles.loader} />
+      ) : error ? (
+        <Text style={styles.errorText}>{error}</Text>
       ) : (
         <FlatList
           data={filteredSongs}
@@ -77,5 +85,12 @@ const styles = StyleSheet.create({
   },
   loader: {
     marginTop: 30,
+  },
+  errorText: {
+    color: colors.softText,
+    fontSize: 15,
+    lineHeight: 22,
+    padding: spacing.page,
+    textAlign: "center",
   },
 });

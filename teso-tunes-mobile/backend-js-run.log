@@ -1,0 +1,8 @@
+
+> teso-tunes@1.0.0 backend
+> npm --prefix backend-js run start
+
+
+> teso-tunes-backend-js@1.0.0 start
+> node server.js
+

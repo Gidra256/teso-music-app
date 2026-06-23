@@ -15,7 +15,8 @@ const LEGACY_MEDIA_DIR = path.join(__dirname, "..", "backend", "media");
 const PORT = Number(process.env.PORT || 8000);
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "TesoAdmin@2026";
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || crypto.randomBytes(32).toString("hex");
+const ADMIN_TOKEN =
+  process.env.ADMIN_TOKEN || crypto.randomBytes(32).toString("hex");
 
 const app = express();
 app.use(cors());
@@ -44,15 +45,21 @@ const upload = multer({
 });
 
 function uploadFolderFor(fieldname) {
-  if (fieldname === "photo_file") return path.join(UPLOADS_DIR, "artists", "photos");
-  if (fieldname === "audio_upload") return path.join(UPLOADS_DIR, "songs", "audio");
-  if (fieldname === "cover_upload") return path.join(UPLOADS_DIR, "songs", "covers");
+  if (fieldname === "photo_file")
+    return path.join(UPLOADS_DIR, "artists", "photos");
+  if (fieldname === "audio_upload")
+    return path.join(UPLOADS_DIR, "songs", "audio");
+  if (fieldname === "cover_upload")
+    return path.join(UPLOADS_DIR, "songs", "covers");
   return UPLOADS_DIR;
 }
 
 function uploadUrlFor(file) {
   if (!file) return "";
-  const relative = path.relative(UPLOADS_DIR, file.path).split(path.sep).join("/");
+  const relative = path
+    .relative(UPLOADS_DIR, file.path)
+    .split(path.sep)
+    .join("/");
   return `/uploads/${relative}`;
 }
 
@@ -101,7 +108,8 @@ function seedDb() {
       id: artistIndex * 2 + songIndex + 1,
       artist: artist.id,
       title,
-      audio_file: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+      audio_file:
+        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
       cover_image: `https://picsum.photos/seed/teso-song-${artist.id}-${songIndex + 1}/800/800`,
       genre: ["Teso Fusion", "Afrobeat", "Gospel"][songIndex % 3],
       lyrics: "",
@@ -109,7 +117,7 @@ function seedDb() {
       release_date: "",
       is_featured: artist.is_featured && songIndex === 0,
       created_at: createdAt,
-    }))
+    })),
   );
 
   return {
@@ -132,15 +140,20 @@ function absoluteUrl(req, value) {
 }
 
 function likeCount(db, songId) {
-  return db.songLikes.filter((like) => Number(like.song) === Number(songId)).length;
+  return db.songLikes.filter((like) => Number(like.song) === Number(songId))
+    .length;
 }
 
 function followerCount(db, artistId) {
-  return db.artistFollows.filter((follow) => Number(follow.artist) === Number(artistId)).length;
+  return db.artistFollows.filter(
+    (follow) => Number(follow.artist) === Number(artistId),
+  ).length;
 }
 
 function serializeSong(db, req, song) {
-  const artist = db.artists.find((item) => Number(item.id) === Number(song.artist));
+  const artist = db.artists.find(
+    (item) => Number(item.id) === Number(song.artist),
+  );
   return {
     id: song.id,
     artist: song.artist,
@@ -160,7 +173,9 @@ function serializeSong(db, req, song) {
 }
 
 function serializeArtist(db, req, artist, includeSongs = false) {
-  const songs = db.songs.filter((song) => Number(song.artist) === Number(artist.id));
+  const songs = db.songs.filter(
+    (song) => Number(song.artist) === Number(artist.id),
+  );
   const serialized = {
     id: artist.id,
     name: artist.name,
@@ -181,8 +196,86 @@ function serializeArtist(db, req, artist, includeSongs = false) {
   return serialized;
 }
 
+function makeHubSearchDocuments(db, req) {
+  const artistDocuments = db.artists.map((artist) => {
+    const songs = db.songs.filter(
+      (song) => Number(song.artist) === Number(artist.id),
+    );
+
+    return {
+      id: `music_artist_${artist.id}`,
+      entity_type: "music_artist",
+      entity_id: artist.id,
+      title: artist.name,
+      subtitle: artist.category || "Teso Artist",
+      description:
+        artist.bio || `${artist.name} is a Teso music artist on TesoHub Music.`,
+      category: "Music",
+      type: "Artist",
+      district: artist.location || "Teso",
+      tags: [
+        "music",
+        "artist",
+        "teso",
+        artist.name,
+        artist.category || "",
+        artist.location || "",
+      ].filter(Boolean),
+      image_url: absoluteUrl(req, artist.photo),
+      web_url: `/preview/music_artist_${artist.id}`,
+      app_deep_link: `tesohubmusic://artist/${artist.id}`,
+      is_verified: Boolean(artist.is_featured),
+      popularity_score: followerCount(db, artist.id) + songs.length,
+      is_active: true,
+      source: "tesohub-music",
+      created_at: artist.created_at,
+    };
+  });
+
+  const songDocuments = db.songs.map((song) => {
+    const artist = db.artists.find(
+      (item) => Number(item.id) === Number(song.artist),
+    );
+
+    return {
+      id: `music_song_${song.id}`,
+      entity_type: "music_track",
+      entity_id: song.id,
+      title: song.title,
+      subtitle: artist?.name ? `By ${artist.name}` : "Teso Music",
+      description: `${song.title} by ${
+        artist?.name || "a Teso artist"
+      }. ${song.genre || "Teso music"} available on TesoHub Music.`,
+      category: "Music",
+      type: "Song",
+      district: artist?.location || "Teso",
+      tags: [
+        "music",
+        "song",
+        "teso",
+        song.title,
+        song.genre || "",
+        artist?.name || "",
+        artist?.category || "",
+        artist?.location || "",
+      ].filter(Boolean),
+      image_url: absoluteUrl(req, song.cover_image),
+      web_url: `/preview/music_song_${song.id}`,
+      app_deep_link: `tesohubmusic://song/${song.id}`,
+      is_verified: Boolean(song.is_featured),
+      popularity_score: Number(song.play_count || 0) + likeCount(db, song.id),
+      is_active: true,
+      source: "tesohub-music",
+      created_at: song.created_at,
+    };
+  });
+
+  return [...songDocuments, ...artistDocuments];
+}
 function sortArtists(artists) {
-  return [...artists].sort((first, second) => first.name.localeCompare(second.name));
+  return [...artists].sort((first, second) =>
+    first.name.localeCompare(second.name),
+  );
 }
 
 function sortSongs(songs) {
@@ -228,7 +321,8 @@ app.get("/api/artists/", async (req, res) => {
   const category = String(req.query.category || "").toLowerCase();
   const search = String(req.query.search || "").toLowerCase();
   const artists = sortArtists(db.artists).filter((artist) => {
-    const categoryMatches = !category || artist.category.toLowerCase() === category;
+    const categoryMatches =
+      !category || artist.category.toLowerCase() === category;
     const searchMatches = !search || artist.name.toLowerCase().includes(search);
     return categoryMatches && searchMatches;
   });
@@ -237,7 +331,9 @@ app.get("/api/artists/", async (req, res) => {
 
 app.get("/api/artists/:id/", async (req, res) => {
   const db = await loadDb();
-  const artist = db.artists.find((item) => Number(item.id) === Number(req.params.id));
+  const artist = db.artists.find(
+    (item) => Number(item.id) === Number(req.params.id),
+  );
   if (!artist) return res.status(404).json({ detail: "Artist not found." });
   res.json(serializeArtist(db, req, artist, true));
 });
@@ -247,8 +343,11 @@ app.get("/api/songs/", async (req, res) => {
   const category = String(req.query.category || "").toLowerCase();
   const search = String(req.query.search || "").toLowerCase();
   const songs = sortSongs(db.songs).filter((song) => {
-    const artist = db.artists.find((item) => Number(item.id) === Number(song.artist));
-    const categoryMatches = !category || artist?.category?.toLowerCase() === category;
+    const artist = db.artists.find(
+      (item) => Number(item.id) === Number(song.artist),
+    );
+    const categoryMatches =
+      !category || artist?.category?.toLowerCase() === category;
     const searchMatches =
       !search ||
       song.title.toLowerCase().includes(search) ||
@@ -257,33 +356,103 @@ app.get("/api/songs/", async (req, res) => {
   });
   res.json(songs.map((song) => serializeSong(db, req, song)));
 });
+app.get("/api/hub/search-documents/", async (req, res) => {
+  const db = await loadDb();
+  const search = String(req.query.q || "").toLowerCase();
 
+  let documents = makeHubSearchDocuments(db, req);
+
+  if (search) {
+    documents = documents.filter((item) => {
+      const text = [
+        item.title,
+        item.subtitle,
+        item.description,
+        item.category,
+        item.type,
+        item.district,
+        ...(item.tags || []),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return text.includes(search);
+    });
+  }
+
+  res.json(documents);
+});
 app.get("/api/songs/:id/", async (req, res) => {
   const db = await loadDb();
-  const song = db.songs.find((item) => Number(item.id) === Number(req.params.id));
+  const song = db.songs.find(
+    (item) => Number(item.id) === Number(req.params.id),
+  );
   if (!song) return res.status(404).json({ detail: "Song not found." });
   res.json(serializeSong(db, req, song));
 });
 
+app.post("/api/songs/:id/play/", async (req, res) => {
+  try {
+    const db = await loadDb();
+    const song = db.songs.find(
+      (item) => Number(item.id) === Number(req.params.id),
+    );
+
+    if (!song) {
+      return res.status(404).json({ detail: "Song not found." });
+    }
+
+    song.play_count = numberOrZero(song.play_count) + 1;
+    await saveDb(db);
+
+    res.json({
+      id: song.id,
+      play_count: song.play_count,
+      song: serializeSong(db, req, song),
+    });
+  } catch (error) {
+    console.error("Failed to record song play:", error);
+    res.status(500).json({ detail: "Could not record song play." });
+  }
+});
+
 app.get("/api/featured-artists/", async (req, res) => {
   const db = await loadDb();
-  res.json(sortArtists(db.artists.filter((artist) => artist.is_featured)).map((artist) => serializeArtist(db, req, artist)));
+  res.json(
+    sortArtists(db.artists.filter((artist) => artist.is_featured)).map(
+      (artist) => serializeArtist(db, req, artist),
+    ),
+  );
 });
 
 app.get("/api/featured-songs/", async (req, res) => {
   const db = await loadDb();
-  res.json(sortSongs(db.songs.filter((song) => song.is_featured)).map((song) => serializeSong(db, req, song)));
+  res.json(
+    sortSongs(db.songs.filter((song) => song.is_featured)).map((song) =>
+      serializeSong(db, req, song),
+    ),
+  );
 });
 
 app.post("/api/songs/:id/like/", async (req, res) => {
   const db = await loadDb();
-  const song = db.songs.find((item) => Number(item.id) === Number(req.params.id));
+  const song = db.songs.find(
+    (item) => Number(item.id) === Number(req.params.id),
+  );
   const deviceId = getDeviceId(req);
   if (!song) return res.status(404).json({ detail: "Song not found." });
-  if (!deviceId) return res.status(400).json({ detail: "device_id is required." });
-  const exists = db.songLikes.some((like) => Number(like.song) === Number(song.id) && like.device_id === deviceId);
+  if (!deviceId)
+    return res.status(400).json({ detail: "device_id is required." });
+  const exists = db.songLikes.some(
+    (like) =>
+      Number(like.song) === Number(song.id) && like.device_id === deviceId,
+  );
   if (!exists) {
-    db.songLikes.push({ song: song.id, device_id: deviceId, created_at: new Date().toISOString() });
+    db.songLikes.push({
+      song: song.id,
+      device_id: deviceId,
+      created_at: new Date().toISOString(),
+    });
     await saveDb(db);
   }
   res.json({ liked: true, like_count: likeCount(db, song.id) });
@@ -291,24 +460,41 @@ app.post("/api/songs/:id/like/", async (req, res) => {
 
 app.post("/api/songs/:id/unlike/", async (req, res) => {
   const db = await loadDb();
-  const song = db.songs.find((item) => Number(item.id) === Number(req.params.id));
+  const song = db.songs.find(
+    (item) => Number(item.id) === Number(req.params.id),
+  );
   const deviceId = getDeviceId(req);
   if (!song) return res.status(404).json({ detail: "Song not found." });
-  if (!deviceId) return res.status(400).json({ detail: "device_id is required." });
-  db.songLikes = db.songLikes.filter((like) => !(Number(like.song) === Number(song.id) && like.device_id === deviceId));
+  if (!deviceId)
+    return res.status(400).json({ detail: "device_id is required." });
+  db.songLikes = db.songLikes.filter(
+    (like) =>
+      !(Number(like.song) === Number(song.id) && like.device_id === deviceId),
+  );
   await saveDb(db);
   res.json({ liked: false, like_count: likeCount(db, song.id) });
 });
 
 app.post("/api/artists/:id/follow/", async (req, res) => {
   const db = await loadDb();
-  const artist = db.artists.find((item) => Number(item.id) === Number(req.params.id));
+  const artist = db.artists.find(
+    (item) => Number(item.id) === Number(req.params.id),
+  );
   const deviceId = getDeviceId(req);
   if (!artist) return res.status(404).json({ detail: "Artist not found." });
-  if (!deviceId) return res.status(400).json({ detail: "device_id is required." });
-  const exists = db.artistFollows.some((follow) => Number(follow.artist) === Number(artist.id) && follow.device_id === deviceId);
+  if (!deviceId)
+    return res.status(400).json({ detail: "device_id is required." });
+  const exists = db.artistFollows.some(
+    (follow) =>
+      Number(follow.artist) === Number(artist.id) &&
+      follow.device_id === deviceId,
+  );
   if (!exists) {
-    db.artistFollows.push({ artist: artist.id, device_id: deviceId, created_at: new Date().toISOString() });
+    db.artistFollows.push({
+      artist: artist.id,
+      device_id: deviceId,
+      created_at: new Date().toISOString(),
+    });
     await saveDb(db);
   }
   res.json({ followed: true, follower_count: followerCount(db, artist.id) });
@@ -316,17 +502,29 @@ app.post("/api/artists/:id/follow/", async (req, res) => {
 
 app.post("/api/artists/:id/unfollow/", async (req, res) => {
   const db = await loadDb();
-  const artist = db.artists.find((item) => Number(item.id) === Number(req.params.id));
+  const artist = db.artists.find(
+    (item) => Number(item.id) === Number(req.params.id),
+  );
   const deviceId = getDeviceId(req);
   if (!artist) return res.status(404).json({ detail: "Artist not found." });
-  if (!deviceId) return res.status(400).json({ detail: "device_id is required." });
-  db.artistFollows = db.artistFollows.filter((follow) => !(Number(follow.artist) === Number(artist.id) && follow.device_id === deviceId));
+  if (!deviceId)
+    return res.status(400).json({ detail: "device_id is required." });
+  db.artistFollows = db.artistFollows.filter(
+    (follow) =>
+      !(
+        Number(follow.artist) === Number(artist.id) &&
+        follow.device_id === deviceId
+      ),
+  );
   await saveDb(db);
   res.json({ followed: false, follower_count: followerCount(db, artist.id) });
 });
 
 app.post("/admin-api/login", (req, res) => {
-  if (req.body?.username === ADMIN_USERNAME && req.body?.password === ADMIN_PASSWORD) {
+  if (
+    req.body?.username === ADMIN_USERNAME &&
+    req.body?.password === ADMIN_PASSWORD
+  ) {
     return res.json({ token: ADMIN_TOKEN, username: ADMIN_USERNAME });
   }
   return res.status(401).json({ detail: "Invalid admin login." });
@@ -334,49 +532,65 @@ app.post("/admin-api/login", (req, res) => {
 
 app.get("/admin-api/artists", requireAdmin, async (req, res) => {
   const db = await loadDb();
-  res.json(sortArtists(db.artists).map((artist) => serializeArtist(db, req, artist)));
+  res.json(
+    sortArtists(db.artists).map((artist) => serializeArtist(db, req, artist)),
+  );
 });
 
-app.post("/admin-api/artists", requireAdmin, upload.single("photo_file"), async (req, res) => {
-  const db = await loadDb();
-  const now = new Date().toISOString();
-  const artist = {
-    id: db.nextIds.artist++,
-    name: req.body.name || "Untitled Artist",
-    category: req.body.category || "Other Secular Artists",
-    bio: req.body.bio || "",
-    photo: uploadUrlFor(req.file) || req.body.photo || "",
-    location: req.body.location || "",
-    is_featured: boolValue(req.body.is_featured),
-    created_at: now,
-  };
-  db.artists.push(artist);
-  await saveDb(db);
-  res.status(201).json(serializeArtist(db, req, artist));
-});
+app.post(
+  "/admin-api/artists",
+  requireAdmin,
+  upload.single("photo_file"),
+  async (req, res) => {
+    const db = await loadDb();
+    const now = new Date().toISOString();
+    const artist = {
+      id: db.nextIds.artist++,
+      name: req.body.name || "Untitled Artist",
+      category: req.body.category || "Other Secular Artists",
+      bio: req.body.bio || "",
+      photo: uploadUrlFor(req.file) || req.body.photo || "",
+      location: req.body.location || "",
+      is_featured: boolValue(req.body.is_featured),
+      created_at: now,
+    };
+    db.artists.push(artist);
+    await saveDb(db);
+    res.status(201).json(serializeArtist(db, req, artist));
+  },
+);
 
-app.put("/admin-api/artists/:id", requireAdmin, upload.single("photo_file"), async (req, res) => {
-  const db = await loadDb();
-  const artist = db.artists.find((item) => Number(item.id) === Number(req.params.id));
-  if (!artist) return res.status(404).json({ detail: "Artist not found." });
-  Object.assign(artist, {
-    name: req.body.name || artist.name,
-    category: req.body.category || artist.category,
-    bio: req.body.bio ?? artist.bio,
-    photo: uploadUrlFor(req.file) || req.body.photo || artist.photo,
-    location: req.body.location ?? artist.location,
-    is_featured: boolValue(req.body.is_featured),
-  });
-  await saveDb(db);
-  res.json(serializeArtist(db, req, artist));
-});
+app.put(
+  "/admin-api/artists/:id",
+  requireAdmin,
+  upload.single("photo_file"),
+  async (req, res) => {
+    const db = await loadDb();
+    const artist = db.artists.find(
+      (item) => Number(item.id) === Number(req.params.id),
+    );
+    if (!artist) return res.status(404).json({ detail: "Artist not found." });
+    Object.assign(artist, {
+      name: req.body.name || artist.name,
+      category: req.body.category || artist.category,
+      bio: req.body.bio ?? artist.bio,
+      photo: uploadUrlFor(req.file) || req.body.photo || artist.photo,
+      location: req.body.location ?? artist.location,
+      is_featured: boolValue(req.body.is_featured),
+    });
+    await saveDb(db);
+    res.json(serializeArtist(db, req, artist));
+  },
+);
 
 app.delete("/admin-api/artists/:id", requireAdmin, async (req, res) => {
   const db = await loadDb();
   const id = Number(req.params.id);
   db.artists = db.artists.filter((artist) => Number(artist.id) !== id);
   db.songs = db.songs.filter((song) => Number(song.artist) !== id);
-  db.artistFollows = db.artistFollows.filter((follow) => Number(follow.artist) !== id);
+  db.artistFollows = db.artistFollows.filter(
+    (follow) => Number(follow.artist) !== id,
+  );
   await saveDb(db);
   res.json({ deleted: true });
 });
@@ -389,7 +603,10 @@ app.get("/admin-api/songs", requireAdmin, async (req, res) => {
 app.post(
   "/admin-api/songs",
   requireAdmin,
-  upload.fields([{ name: "audio_upload", maxCount: 1 }, { name: "cover_upload", maxCount: 1 }]),
+  upload.fields([
+    { name: "audio_upload", maxCount: 1 },
+    { name: "cover_upload", maxCount: 1 },
+  ]),
   async (req, res) => {
     const db = await loadDb();
     const now = new Date().toISOString();
@@ -397,8 +614,12 @@ app.post(
       id: db.nextIds.song++,
       artist: Number(req.body.artist),
       title: req.body.title || "Untitled Song",
-      audio_file: uploadUrlFor(req.files?.audio_upload?.[0]) || req.body.audio_file || "",
-      cover_image: uploadUrlFor(req.files?.cover_upload?.[0]) || req.body.cover_image || "",
+      audio_file:
+        uploadUrlFor(req.files?.audio_upload?.[0]) || req.body.audio_file || "",
+      cover_image:
+        uploadUrlFor(req.files?.cover_upload?.[0]) ||
+        req.body.cover_image ||
+        "",
       genre: req.body.genre || "",
       lyrics: req.body.lyrics || "",
       play_count: numberOrZero(req.body.play_count),
@@ -409,22 +630,33 @@ app.post(
     db.songs.push(song);
     await saveDb(db);
     res.status(201).json(serializeSong(db, req, song));
-  }
+  },
 );
 
 app.put(
   "/admin-api/songs/:id",
   requireAdmin,
-  upload.fields([{ name: "audio_upload", maxCount: 1 }, { name: "cover_upload", maxCount: 1 }]),
+  upload.fields([
+    { name: "audio_upload", maxCount: 1 },
+    { name: "cover_upload", maxCount: 1 },
+  ]),
   async (req, res) => {
     const db = await loadDb();
-    const song = db.songs.find((item) => Number(item.id) === Number(req.params.id));
+    const song = db.songs.find(
+      (item) => Number(item.id) === Number(req.params.id),
+    );
     if (!song) return res.status(404).json({ detail: "Song not found." });
     Object.assign(song, {
       artist: Number(req.body.artist || song.artist),
       title: req.body.title || song.title,
-      audio_file: uploadUrlFor(req.files?.audio_upload?.[0]) || req.body.audio_file || song.audio_file,
-      cover_image: uploadUrlFor(req.files?.cover_upload?.[0]) || req.body.cover_image || song.cover_image,
+      audio_file:
+        uploadUrlFor(req.files?.audio_upload?.[0]) ||
+        req.body.audio_file ||
+        song.audio_file,
+      cover_image:
+        uploadUrlFor(req.files?.cover_upload?.[0]) ||
+        req.body.cover_image ||
+        song.cover_image,
       genre: req.body.genre ?? song.genre,
       lyrics: req.body.lyrics ?? song.lyrics,
       play_count: numberOrZero(req.body.play_count ?? song.play_count),
@@ -433,7 +665,7 @@ app.put(
     });
     await saveDb(db);
     res.json(serializeSong(db, req, song));
-  }
+  },
 );
 
 app.delete("/admin-api/songs/:id", requireAdmin, async (req, res) => {

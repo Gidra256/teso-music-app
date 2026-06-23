@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
-import { getArtist } from "../api/musicApi";
+import { BACKEND_CONNECTION_ERROR, getArtist } from "../api/musicApi";
 import MiniPlayer from "../components/MiniPlayer";
 import SongCard from "../components/SongCard";
 import { useEngagement } from "../context/EngagementContext";
@@ -13,16 +13,50 @@ export default function ArtistDetailScreen({ route }) {
   const { getArtistFollowerCount, isArtistFollowed, toggleArtistFollow } = useEngagement();
   const [artist, setArtist] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const artistId = route?.params?.id;
 
   useEffect(() => {
-    getArtist(route.params.id).then((item) => {
-      setArtist(item);
-      setLoading(false);
-    });
-  }, [route.params.id]);
+    let mounted = true;
+    setLoading(true);
+
+    getArtist(artistId)
+      .then((item) => {
+        if (!mounted) return;
+        setError("");
+        setArtist(item);
+      })
+      .catch((loadError) => {
+        if (!mounted) return;
+        setError(loadError?.message || BACKEND_CONNECTION_ERROR);
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [artistId]);
 
   if (loading) {
     return <ActivityIndicator color={colors.primary} style={styles.loader} />;
+  }
+
+  if (error) {
+    return (
+      <View style={styles.safe}>
+        <Text style={styles.empty}>{error}</Text>
+      </View>
+    );
+  }
+
+  if (!artist) {
+    return (
+      <View style={styles.safe}>
+        <Text style={styles.empty}>Artist could not be found.</Text>
+      </View>
+    );
   }
 
   const followed = isArtistFollowed(artist.id);
@@ -147,5 +181,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     flex: 1,
     paddingTop: 80,
+  },
+  empty: {
+    color: colors.softText,
+    fontSize: 16,
+    padding: spacing.page,
+    textAlign: "center",
   },
 });

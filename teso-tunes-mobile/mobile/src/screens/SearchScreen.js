@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getSongs } from "../api/musicApi";
+import { BACKEND_CONNECTION_ERROR, getSongs } from "../api/musicApi";
 import MiniPlayer from "../components/MiniPlayer";
 import SearchBar from "../components/SearchBar";
 import SongCard from "../components/SongCard";
@@ -11,9 +11,17 @@ import { colors, spacing } from "../theme";
 export default function SearchScreen() {
   const [query, setQuery] = useState("");
   const [songs, setSongs] = useState([]);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    getSongs().then(setSongs);
+    getSongs()
+      .then((items) => {
+        setError("");
+        setSongs(items);
+      })
+      .catch((loadError) => {
+        setError(loadError?.message || BACKEND_CONNECTION_ERROR);
+      });
   }, []);
 
   const results = useMemo(() => {
@@ -34,14 +42,18 @@ export default function SearchScreen() {
         <Text style={styles.title}>Search</Text>
         <SearchBar value={query} onChangeText={setQuery} placeholder="Find songs, artists, genres" />
       </View>
-      <FlatList
-        data={results}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={({ item }) => <SongCard song={item} queue={results} />}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={<Text style={styles.empty}>No songs found.</Text>}
-        showsVerticalScrollIndicator={false}
-      />
+      {error ? (
+        <Text style={styles.errorText}>{error}</Text>
+      ) : (
+        <FlatList
+          data={results}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={({ item }) => <SongCard song={item} queue={results} />}
+          contentContainerStyle={styles.list}
+          ListEmptyComponent={<Text style={styles.empty}>No songs found.</Text>}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
       <MiniPlayer />
     </SafeAreaView>
   );
@@ -70,6 +82,13 @@ const styles = StyleSheet.create({
   empty: {
     color: colors.muted,
     marginTop: 24,
+    textAlign: "center",
+  },
+  errorText: {
+    color: colors.softText,
+    fontSize: 15,
+    lineHeight: 22,
+    padding: spacing.page,
     textAlign: "center",
   },
 });

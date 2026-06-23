@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getArtists } from "../api/musicApi";
+import { BACKEND_CONNECTION_ERROR, getArtists } from "../api/musicApi";
 import ArtistCard from "../components/ArtistCard";
 import CategoryFilter from "../components/CategoryFilter";
 import MiniPlayer from "../components/MiniPlayer";
@@ -14,12 +14,18 @@ export default function ArtistsScreen({ navigation }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    getArtists().then((items) => {
-      setArtists(items);
-      setLoading(false);
-    });
+    getArtists()
+      .then((items) => {
+        setError("");
+        setArtists(items);
+      })
+      .catch((loadError) => {
+        setError(loadError?.message || BACKEND_CONNECTION_ERROR);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const filteredArtists = useMemo(() => {
@@ -39,6 +45,8 @@ export default function ArtistsScreen({ navigation }) {
       </View>
       {loading ? (
         <ActivityIndicator color={colors.primary} style={styles.loader} />
+      ) : error ? (
+        <Text style={styles.errorText}>{error}</Text>
       ) : (
         <FlatList
           data={filteredArtists}
@@ -82,5 +90,12 @@ const styles = StyleSheet.create({
   },
   loader: {
     marginTop: 30,
+  },
+  errorText: {
+    color: colors.softText,
+    fontSize: 15,
+    lineHeight: 22,
+    padding: spacing.page,
+    textAlign: "center",
   },
 });

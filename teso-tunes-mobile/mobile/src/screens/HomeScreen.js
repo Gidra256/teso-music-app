@@ -3,7 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getArtists, getFeaturedArtists, getFeaturedSongs, getSongs } from "../api/musicApi";
+import {
+  BACKEND_CONNECTION_ERROR,
+  getArtists,
+  getFeaturedArtists,
+  getFeaturedSongs,
+  getSongs,
+} from "../api/musicApi";
 import ArtistCard from "../components/ArtistCard";
 import MiniPlayer from "../components/MiniPlayer";
 import SearchBar from "../components/SearchBar";
@@ -19,20 +25,27 @@ export default function HomeScreen({ navigation }) {
   const [featuredSongs, setFeaturedSongs] = useState([]);
   const [featuredArtists, setFeaturedArtists] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     async function loadHome() {
-      const [allSongs, allArtists, heroSongs, heroArtists] = await Promise.all([
-        getSongs(),
-        getArtists(),
-        getFeaturedSongs(),
-        getFeaturedArtists(),
-      ]);
-      setSongs(allSongs);
-      setArtists(allArtists);
-      setFeaturedSongs(heroSongs);
-      setFeaturedArtists(heroArtists);
-      setLoading(false);
+      try {
+        setError("");
+        const [allSongs, allArtists, heroSongs, heroArtists] = await Promise.all([
+          getSongs(),
+          getArtists(),
+          getFeaturedSongs(),
+          getFeaturedArtists(),
+        ]);
+        setSongs(allSongs);
+        setArtists(allArtists);
+        setFeaturedSongs(heroSongs);
+        setFeaturedArtists(heroArtists);
+      } catch (loadError) {
+        setError(loadError?.message || BACKEND_CONNECTION_ERROR);
+      } finally {
+        setLoading(false);
+      }
     }
     loadHome();
   }, []);
@@ -66,6 +79,8 @@ export default function HomeScreen({ navigation }) {
 
         {loading ? (
           <ActivityIndicator color={colors.primary} style={styles.loader} />
+        ) : error ? (
+          <Text style={styles.errorText}>{error}</Text>
         ) : (
           <>
             <SectionTitle title="Featured songs" />
@@ -166,5 +181,12 @@ const styles = StyleSheet.create({
   },
   loader: {
     marginTop: 30,
+  },
+  errorText: {
+    color: colors.softText,
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 20,
+    textAlign: "center",
   },
 });

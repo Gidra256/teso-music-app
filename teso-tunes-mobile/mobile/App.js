@@ -2,6 +2,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
+import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -18,6 +19,27 @@ import { colors } from "./src/theme";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+
+const linking = {
+  prefixes: [Linking.createURL("/"), "tesohubmusic://"],
+  config: {
+    screens: {
+      TesoTabs: {
+        path: "",
+        screens: {
+          Home: "home",
+          Songs: "songs",
+          Artists: "artists",
+          Search: "search",
+        },
+      },
+      Player: "song/:id",
+      ArtistDetail: "artist/:id",
+    },
+  },
+};
+
+console.log("Expo Go deep link base:", Linking.createURL("/"));
 
 function MainTabs() {
   return (
@@ -41,7 +63,9 @@ function MainTabs() {
             Artists: "people",
             Search: "search",
           };
-          return <Ionicons name={icons[route.name]} color={color} size={size} />;
+          return (
+            <Ionicons name={icons[route.name]} color={color} size={size} />
+          );
         },
       })}
     >
@@ -59,7 +83,7 @@ export default function App() {
       <SafeAreaProvider>
         <EngagementProvider>
           <PlayerProvider>
-            <NavigationContainer>
+            <NavigationContainer linking={linking}>
               <StatusBar style="light" />
               <Stack.Navigator
                 screenOptions={{
@@ -68,9 +92,21 @@ export default function App() {
                   contentStyle: { backgroundColor: colors.background },
                 }}
               >
-                <Stack.Screen name="TesoTabs" component={MainTabs} options={{ headerShown: false }} />
-                <Stack.Screen name="ArtistDetail" component={ArtistDetailScreen} options={{ title: "Artist" }} />
-                <Stack.Screen name="Player" component={PlayerScreen} options={{ title: "Now Playing" }} />
+                <Stack.Screen
+                  name="TesoTabs"
+                  component={MainTabs}
+                  options={{ headerShown: false }}
+                />
+                <Stack.Screen
+                  name="ArtistDetail"
+                  component={ArtistDetailScreen}
+                  options={{ title: "Artist" }}
+                />
+                <Stack.Screen
+                  name="Player"
+                  component={PlayerScreen}
+                  options={{ headerShown: false }}
+                />
               </Stack.Navigator>
             </NavigationContainer>
           </PlayerProvider>
