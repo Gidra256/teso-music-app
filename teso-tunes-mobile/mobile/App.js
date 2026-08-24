@@ -15,6 +15,7 @@ import HomeScreen from "./src/screens/HomeScreen";
 import SearchScreen from "./src/screens/SearchScreen";
 import SongsScreen from "./src/screens/SongsScreen";
 import PlayerScreen from "./src/screens/PlayerScreen";
+import ProfileScreen from "./src/screens/ProfileScreen";
 import { colors } from "./src/theme";
 
 const Tab = createBottomTabNavigator();
@@ -31,6 +32,7 @@ const linking = {
           Songs: "songs",
           Artists: "artists",
           Search: "search",
+          Profile: "profile",
         },
       },
       Player: "song/:id",
@@ -62,6 +64,7 @@ function MainTabs() {
             Songs: "musical-notes",
             Artists: "people",
             Search: "search",
+            Profile: "person-circle",
           };
           return (
             <Ionicons name={icons[route.name]} color={color} size={size} />
@@ -73,6 +76,7 @@ function MainTabs() {
       <Tab.Screen name="Songs" component={SongsScreen} />
       <Tab.Screen name="Artists" component={ArtistsScreen} />
       <Tab.Screen name="Search" component={SearchScreen} />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
 }

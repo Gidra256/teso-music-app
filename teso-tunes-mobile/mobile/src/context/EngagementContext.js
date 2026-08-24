@@ -143,10 +143,12 @@ export function EngagementProvider({ children }) {
   const value = useMemo(
     () => ({
       deviceId,
+      followedArtistIds: [...followedArtists],
       getArtistFollowerCount,
       getSongLikeCount,
       isArtistFollowed: (id) => followedArtists.has(Number(id)),
       isSongLiked: (id) => likedSongs.has(Number(id)),
+      likedSongIds: [...likedSongs],
       toggleArtistFollow,
       toggleSongLike,
     }),
