@@ -23,7 +23,7 @@ import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
 
-export default function ProfileScreen({ navigation }) {
+export default function ProfileScreen({ navigation, route }) {
   const {
     isAuthenticated,
     listener,
@@ -36,6 +36,7 @@ export default function ProfileScreen({ navigation }) {
   } = useAuth();
   const { deviceId, followedArtistIds, likedSongIds } = useEngagement();
   const { backgroundPlaybackEnabled, setBackgroundPlaybackEnabled } = usePlayer();
+  const loginRequired = Boolean(route?.params?.loginRequired);
   const [songs, setSongs] = useState([]);
   const [artists, setArtists] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -66,11 +67,13 @@ export default function ProfileScreen({ navigation }) {
         }
         setError("");
 
-        const requests = [getSongs(), getArtists()];
-        if (isAuthenticated) {
-          requests.push(refreshAccount());
+        if (!isAuthenticated) {
+          setSongs([]);
+          setArtists([]);
+          return;
         }
 
+        const requests = [getSongs(), getArtists(), refreshAccount()];
         const [nextSongs, nextArtists] = await Promise.all(requests);
         setSongs(nextSongs);
         setArtists(nextArtists);
@@ -216,6 +219,8 @@ export default function ProfileScreen({ navigation }) {
   }
 
   function goBackOrHome() {
+    if (loginRequired) return;
+
     if (navigation?.canGoBack?.()) {
       navigation.goBack();
       return;
@@ -242,14 +247,18 @@ export default function ProfileScreen({ navigation }) {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.pageTopBar}>
-          <TouchableOpacity
-            activeOpacity={0.82}
-            accessibilityLabel="Back"
-            style={styles.backButton}
-            onPress={goBackOrHome}
-          >
-            <Ionicons name="chevron-back" color={colors.softText} size={22} />
-          </TouchableOpacity>
+          {loginRequired ? (
+            <View style={styles.topBarSpacer} />
+          ) : (
+            <TouchableOpacity
+              activeOpacity={0.82}
+              accessibilityLabel="Back"
+              style={styles.backButton}
+              onPress={goBackOrHome}
+            >
+              <Ionicons name="chevron-back" color={colors.softText} size={22} />
+            </TouchableOpacity>
+          )}
           <Text style={styles.pageTitle}>Profile</Text>
           <View style={styles.topBarSpacer} />
         </View>
@@ -259,9 +268,9 @@ export default function ProfileScreen({ navigation }) {
             <Text style={styles.avatarText}>{initials}</Text>
           </View>
           <View style={styles.identity}>
-            <Text style={styles.kicker}>Profile</Text>
+            <Text style={styles.kicker}>{loginRequired ? "Account required" : "Profile"}</Text>
             <Text style={styles.name} numberOfLines={1}>
-              {profileName}
+              {loginRequired ? "Login to listen" : profileName}
             </Text>
             <View style={styles.deviceRow}>
               <Ionicons
@@ -269,7 +278,9 @@ export default function ProfileScreen({ navigation }) {
                 color={colors.accent}
                 size={14}
               />
-              <Text style={styles.deviceText}>{listenerCode}</Text>
+              <Text style={styles.deviceText}>
+                {loginRequired ? "Create an account or login first" : listenerCode}
+              </Text>
             </View>
           </View>
           {isAuthenticated && (
@@ -284,10 +295,12 @@ export default function ProfileScreen({ navigation }) {
           )}
         </LinearGradient>
 
-        <PlaybackSettings
-          enabled={backgroundPlaybackEnabled}
-          onValueChange={setBackgroundPlaybackEnabled}
-        />
+        {isAuthenticated ? (
+          <PlaybackSettings
+            enabled={backgroundPlaybackEnabled}
+            onValueChange={setBackgroundPlaybackEnabled}
+          />
+        ) : null}
 
         {authLoading ? (
           <ActivityIndicator color={colors.primary} style={styles.loader} />
@@ -425,7 +438,7 @@ export default function ProfileScreen({ navigation }) {
           </>
         )}
       </ScrollView>
-      <MiniPlayer />
+      {isAuthenticated ? <MiniPlayer /> : null}
     </SafeAreaView>
   );
 }

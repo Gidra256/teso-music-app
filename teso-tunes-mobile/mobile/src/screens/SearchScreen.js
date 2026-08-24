@@ -41,8 +41,9 @@ export default function SearchScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <Text style={styles.title}>Search</Text>
           <ProfileAvatarButton />
+          <Text style={styles.title}>Search</Text>
+          <View style={styles.titleSpacer} />
         </View>
         <SearchBar value={query} onChangeText={setQuery} placeholder="Find songs, artists, genres" />
       </View>
@@ -76,7 +77,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 12,
-    justifyContent: "space-between",
+  },
+  titleSpacer: {
+    flex: 1,
   },
   title: {
     color: colors.text,

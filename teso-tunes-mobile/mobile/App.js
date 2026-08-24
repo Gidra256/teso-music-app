@@ -5,11 +5,12 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import * as Updates from "expo-updates";
 import { useEffect } from "react";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import AppErrorBoundary from "./src/components/AppErrorBoundary";
-import { AuthProvider } from "./src/context/AuthContext";
+import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { EngagementProvider } from "./src/context/EngagementContext";
 import { PlayerProvider } from "./src/context/PlayerContext";
 import ArtistDetailScreen from "./src/screens/ArtistDetailScreen";
@@ -104,6 +105,75 @@ function MainTabs() {
   );
 }
 
+function LoadingScreen() {
+  return (
+    <View style={styles.loadingScreen}>
+      <ActivityIndicator color={colors.primary} size="large" />
+      <Text style={styles.loadingText}>Opening Teso Tunes</Text>
+    </View>
+  );
+}
+
+function AppNavigator() {
+  const { isAuthenticated, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <>
+        <StatusBar style="light" />
+        <LoadingScreen />
+      </>
+    );
+  }
+
+  return (
+    <NavigationContainer linking={linking}>
+      <AutoUpdateGate />
+      <StatusBar style="light" />
+      <Stack.Navigator
+        key={isAuthenticated ? "signed-in" : "signed-out"}
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.background },
+          headerTintColor: colors.text,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        {isAuthenticated ? (
+          <>
+            <Stack.Screen
+              name="TesoTabs"
+              component={MainTabs}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="ArtistDetail"
+              component={ArtistDetailScreen}
+              options={{ title: "Artist" }}
+            />
+            <Stack.Screen
+              name="Profile"
+              component={ProfileScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Player"
+              component={PlayerScreen}
+              options={{ headerShown: false }}
+            />
+          </>
+        ) : (
+          <Stack.Screen
+            name="Profile"
+            component={ProfileScreen}
+            initialParams={{ loginRequired: true }}
+            options={{ headerShown: false }}
+          />
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
 export default function App() {
   return (
     <AppErrorBoundary>
@@ -111,38 +181,7 @@ export default function App() {
         <EngagementProvider>
           <AuthProvider>
             <PlayerProvider>
-              <NavigationContainer linking={linking}>
-                <AutoUpdateGate />
-                <StatusBar style="light" />
-                <Stack.Navigator
-                  screenOptions={{
-                    headerStyle: { backgroundColor: colors.background },
-                    headerTintColor: colors.text,
-                    contentStyle: { backgroundColor: colors.background },
-                  }}
-                >
-                  <Stack.Screen
-                    name="TesoTabs"
-                    component={MainTabs}
-                    options={{ headerShown: false }}
-                  />
-                  <Stack.Screen
-                    name="ArtistDetail"
-                    component={ArtistDetailScreen}
-                    options={{ title: "Artist" }}
-                  />
-                  <Stack.Screen
-                    name="Profile"
-                    component={ProfileScreen}
-                    options={{ headerShown: false }}
-                  />
-                  <Stack.Screen
-                    name="Player"
-                    component={PlayerScreen}
-                    options={{ headerShown: false }}
-                  />
-                </Stack.Navigator>
-              </NavigationContainer>
+              <AppNavigator />
             </PlayerProvider>
           </AuthProvider>
         </EngagementProvider>
@@ -150,3 +189,18 @@ export default function App() {
     </AppErrorBoundary>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingScreen: {
+    alignItems: "center",
+    backgroundColor: colors.background,
+    flex: 1,
+    gap: 14,
+    justifyContent: "center",
+  },
+  loadingText: {
+    color: colors.softText,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+});

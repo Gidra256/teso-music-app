@@ -74,11 +74,11 @@ export default function HomeScreen({ navigation }) {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={["#2A1608", colors.background]} style={styles.hero}>
           <View style={styles.heroTop}>
+            <ProfileAvatarButton />
             <View style={styles.heroCopy}>
               <Text style={styles.logo}>Teso Tunes</Text>
               <Text style={styles.tagline}>The digital home of Teso music</Text>
             </View>
-            <ProfileAvatarButton />
           </View>
           <SearchBar value={search} onChangeText={setSearch} />
         </LinearGradient>
@@ -168,10 +168,9 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   heroTop: {
-    alignItems: "flex-start",
+    alignItems: "center",
     flexDirection: "row",
     gap: 12,
-    justifyContent: "space-between",
   },
   heroCopy: {
     flex: 1,
