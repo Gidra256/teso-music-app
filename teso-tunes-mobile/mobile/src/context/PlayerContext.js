@@ -197,9 +197,9 @@ export function PlayerProvider({ children }) {
       player.setActiveForLockScreen(
         true,
         {
-          title: song?.title || "Teso Tunes",
-          artist: song?.artist_name || "Teso Tunes",
-          albumTitle: "Teso Tunes",
+          title: song?.title || "TesoHub Music",
+          artist: song?.artist_name || "TesoHub Music",
+          albumTitle: "TesoHub Music",
           artworkUrl: song?.cover_image || undefined,
         },
         {

@@ -1,22 +1,26 @@
 {
   "expo": {
-    "name": "Teso Tunes",
+    "name": "TesoHub Music",
     "slug": "teso-tunes",
     "scheme": "tesohubmusic",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+    "icon": "./assets/images/tesohub-music.png",
     "splash": {
-      "backgroundColor": "#09090B"
+      "image": "./assets/images/tesohub-music.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#050506"
     },
     "assetBundlePatterns": [
       "**/*"
     ],
     "android": {
       "package": "com.tesotunes.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
-        "backgroundColor": "#09090B"
+        "foregroundImage": "./assets/images/tesohub-music.png",
+        "backgroundColor": "#050506"
       },
       "permissions": [
         "android.permission.RECORD_AUDIO",

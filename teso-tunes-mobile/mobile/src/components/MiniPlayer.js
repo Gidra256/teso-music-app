@@ -39,7 +39,7 @@ const styles = StyleSheet.create({
   wrapper: {
     alignItems: "center",
     backgroundColor: "#101014",
-    borderColor: "rgba(249, 115, 22, 0.42)",
+    borderColor: "rgba(32, 230, 243, 0.42)",
     borderRadius: 8,
     borderWidth: 1,
     bottom: 10,

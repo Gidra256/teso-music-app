@@ -1,15 +1,15 @@
 export const colors = {
-  background: "#09090B",
-  surface: "#111114",
-  card: "#18181B",
-  elevated: "#222226",
-  border: "#2A2A31",
-  primary: "#F97316",
-  accent: "#FACC15",
+  background: "#050506",
+  surface: "#0B0B10",
+  card: "#111116",
+  elevated: "#1B1B23",
+  border: "#2B2638",
+  primary: "#20E6F3",
+  accent: "#F427C8",
   text: "#FFFFFF",
-  softText: "#D4D4D8",
-  muted: "#8A8A93",
-  success: "#22C55E",
+  softText: "#D8D8E2",
+  muted: "#8B8798",
+  success: "#36F2A5",
 };
 
 export const spacing = {

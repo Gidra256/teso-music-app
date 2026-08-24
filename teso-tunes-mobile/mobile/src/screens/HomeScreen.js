@@ -72,11 +72,11 @@ export default function HomeScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <LinearGradient colors={["#2A1608", colors.background]} style={styles.hero}>
+        <LinearGradient colors={["#081F24", "#160919", colors.background]} style={styles.hero}>
           <View style={styles.heroTop}>
             <ProfileAvatarButton />
             <View style={styles.heroCopy}>
-              <Text style={styles.logo}>Teso Tunes</Text>
+              <Text style={styles.logo}>TesoHub Music</Text>
               <Text style={styles.tagline}>The digital home of Teso music</Text>
             </View>
           </View>

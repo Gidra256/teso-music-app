@@ -51,7 +51,7 @@ const styles = StyleSheet.create({
   button: {
     alignItems: "center",
     backgroundColor: colors.elevated,
-    borderColor: "rgba(250, 204, 21, 0.22)",
+    borderColor: "rgba(244, 39, 200, 0.28)",
     borderRadius: 20,
     borderWidth: 1,
     height: 40,
@@ -60,7 +60,7 @@ const styles = StyleSheet.create({
   },
   activeButton: {
     backgroundColor: colors.primary,
-    borderColor: "rgba(250, 204, 21, 0.5)",
+    borderColor: "rgba(244, 39, 200, 0.5)",
   },
   initials: {
     color: colors.text,

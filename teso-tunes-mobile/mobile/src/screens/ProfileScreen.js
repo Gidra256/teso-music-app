@@ -263,7 +263,7 @@ export default function ProfileScreen({ navigation, route }) {
           <View style={styles.topBarSpacer} />
         </View>
 
-        <LinearGradient colors={["#321A08", "#14100C"]} style={styles.hero}>
+        <LinearGradient colors={["#081F24", "#160919"]} style={styles.hero}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{initials}</Text>
           </View>
@@ -459,7 +459,7 @@ function PlaybackSettings({ enabled, onValueChange }) {
         thumbColor={enabled ? colors.accent : colors.softText}
         trackColor={{
           false: colors.elevated,
-          true: "rgba(249, 115, 22, 0.58)",
+          true: "rgba(32, 230, 243, 0.58)",
         }}
         value={enabled}
         onValueChange={onValueChange}
@@ -668,7 +668,7 @@ const styles = StyleSheet.create({
   },
   hero: {
     alignItems: "center",
-    borderColor: "rgba(249, 115, 22, 0.36)",
+    borderColor: "rgba(32, 230, 243, 0.34)",
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: "row",
@@ -734,7 +734,7 @@ const styles = StyleSheet.create({
   },
   settingIcon: {
     alignItems: "center",
-    backgroundColor: "rgba(250, 204, 21, 0.12)",
+    backgroundColor: "rgba(244, 39, 200, 0.12)",
     borderRadius: 22,
     height: 44,
     justifyContent: "center",

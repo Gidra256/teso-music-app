@@ -141,7 +141,7 @@ export default function PlayerScreen({ route, navigation }) {
     return (
       <SafeAreaView style={styles.safe}>
         <LinearGradient
-          colors={["rgba(249, 115, 22, 0.2)", colors.background, colors.background]}
+          colors={["rgba(32, 230, 243, 0.18)", colors.background, colors.background]}
           style={styles.emptyGradient}
         >
           <View style={styles.emptyCard}>
@@ -413,8 +413,8 @@ const styles = StyleSheet.create({
   },
   playlistButton: {
     alignItems: "center",
-    backgroundColor: "rgba(249, 115, 22, 0.13)",
-    borderColor: "rgba(249, 115, 22, 0.26)",
+    backgroundColor: "rgba(32, 230, 243, 0.12)",
+    borderColor: "rgba(32, 230, 243, 0.28)",
     borderRadius: 8,
     borderWidth: 1,
     flexDirection: "row",
@@ -430,8 +430,8 @@ const styles = StyleSheet.create({
   },
   nowPlayingPill: {
     alignItems: "center",
-    backgroundColor: "rgba(249, 115, 22, 0.14)",
-    borderColor: "rgba(249, 115, 22, 0.28)",
+    backgroundColor: "rgba(32, 230, 243, 0.13)",
+    borderColor: "rgba(32, 230, 243, 0.28)",
     borderRadius: 18,
     borderWidth: 1,
     flexDirection: "row",
@@ -477,8 +477,8 @@ const styles = StyleSheet.create({
   genrePill: {
     alignItems: "center",
     alignSelf: "center",
-    backgroundColor: "rgba(250, 204, 21, 0.11)",
-    borderColor: "rgba(250, 204, 21, 0.2)",
+    backgroundColor: "rgba(244, 39, 200, 0.12)",
+    borderColor: "rgba(244, 39, 200, 0.24)",
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: "row",
@@ -548,13 +548,13 @@ const styles = StyleSheet.create({
     width: 48,
   },
   controlButtonActive: {
-    backgroundColor: "rgba(250, 204, 21, 0.14)",
-    borderColor: "rgba(250, 204, 21, 0.24)",
+    backgroundColor: "rgba(244, 39, 200, 0.14)",
+    borderColor: "rgba(244, 39, 200, 0.26)",
   },
   playButton: {
     alignItems: "center",
     backgroundColor: colors.primary,
-    borderColor: "rgba(250, 204, 21, 0.36)",
+    borderColor: "rgba(244, 39, 200, 0.42)",
     borderRadius: 40,
     borderWidth: 1,
     elevation: 12,
@@ -589,8 +589,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   trackActionActive: {
-    backgroundColor: "rgba(249, 115, 22, 0.13)",
-    borderColor: "rgba(249, 115, 22, 0.24)",
+    backgroundColor: "rgba(32, 230, 243, 0.12)",
+    borderColor: "rgba(32, 230, 243, 0.26)",
   },
   trackActionText: {
     color: colors.softText,
@@ -640,7 +640,7 @@ const styles = StyleSheet.create({
   },
   lyricsSection: {
     alignSelf: "stretch",
-    borderTopColor: "rgba(249, 115, 22, 0.2)",
+    borderTopColor: "rgba(32, 230, 243, 0.22)",
     borderTopWidth: 1,
     gap: 12,
     marginTop: 24,
@@ -669,7 +669,7 @@ const styles = StyleSheet.create({
   },
   emptyIcon: {
     alignItems: "center",
-    backgroundColor: "rgba(250, 204, 21, 0.12)",
+    backgroundColor: "rgba(244, 39, 200, 0.12)",
     borderRadius: 30,
     height: 60,
     justifyContent: "center",
