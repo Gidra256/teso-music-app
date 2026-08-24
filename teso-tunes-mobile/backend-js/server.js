@@ -84,7 +84,7 @@ async function ensureDb() {
 async function loadDb() {
   await ensureDb();
   const raw = await fs.readFile(DB_PATH, "utf8");
-  return JSON.parse(raw);
+  return normalizeDb(JSON.parse(raw));
 }
 
 async function saveDb(db) {
@@ -132,13 +132,40 @@ function seedDb() {
   return {
     artists,
     songs,
+    listeners: [],
+    authTokens: [],
     songLikes: [],
     artistFollows: [],
     nextIds: {
       artist: artists.length + 1,
+      listener: 1,
       song: songs.length + 1,
     },
   };
+}
+
+function normalizeDb(db) {
+  db.artists = Array.isArray(db.artists) ? db.artists : [];
+  db.songs = Array.isArray(db.songs) ? db.songs : [];
+  db.listeners = Array.isArray(db.listeners) ? db.listeners : [];
+  db.authTokens = Array.isArray(db.authTokens) ? db.authTokens : [];
+  db.songLikes = Array.isArray(db.songLikes) ? db.songLikes : [];
+  db.artistFollows = Array.isArray(db.artistFollows) ? db.artistFollows : [];
+  db.nextIds = db.nextIds || {};
+  db.nextIds.artist = Math.max(
+    Number(db.nextIds.artist || 1),
+    maxNextId(db.artists),
+  );
+  db.nextIds.song = Math.max(Number(db.nextIds.song || 1), maxNextId(db.songs));
+  db.nextIds.listener = Math.max(
+    Number(db.nextIds.listener || 1),
+    maxNextId(db.listeners),
+  );
+  return db;
+}
+
+function maxNextId(items) {
+  return items.reduce((maxId, item) => Math.max(maxId, Number(item.id || 0)), 0) + 1;
 }
 
 function absoluteUrl(req, value) {
@@ -321,8 +348,235 @@ function numberOrZero(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function cleanText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeEmail(value) {
+  return cleanText(value).toLowerCase();
+}
+
+function normalizePhone(value) {
+  return cleanText(value).replace(/[^\d+]/g, "");
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
+  const hash = crypto
+    .pbkdf2Sync(String(password), salt, 120000, 32, "sha256")
+    .toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, storedHash = "") {
+  const [salt, expectedHash] = storedHash.split(":");
+  if (!salt || !expectedHash) return false;
+  const actualHash = hashPassword(password, salt).split(":")[1];
+  if (actualHash.length !== expectedHash.length) return false;
+  return crypto.timingSafeEqual(
+    Buffer.from(actualHash, "hex"),
+    Buffer.from(expectedHash, "hex"),
+  );
+}
+
+function hashToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function createAuthSession(db, listener) {
+  const token = crypto.randomBytes(32).toString("hex");
+  db.authTokens.push({
+    token_hash: hashToken(token),
+    listener: listener.id,
+    created_at: new Date().toISOString(),
+  });
+  return token;
+}
+
+function getBearerToken(req) {
+  const header = req.get("authorization") || "";
+  return header.replace(/^Bearer\s+/i, "").trim();
+}
+
+function findListenerByToken(db, req) {
+  const token = getBearerToken(req);
+  if (!token) return null;
+  const tokenHash = hashToken(token);
+  const session = db.authTokens.find((item) => item.token_hash === tokenHash);
+  if (!session) return null;
+  return db.listeners.find(
+    (listener) => Number(listener.id) === Number(session.listener),
+  );
+}
+
+function findListenerByIdentifier(db, identifier) {
+  const cleanIdentifier = cleanText(identifier);
+  const email = normalizeEmail(cleanIdentifier);
+  const phone = normalizePhone(cleanIdentifier);
+  return db.listeners.find(
+    (listener) =>
+      (email && listener.email === email) ||
+      (phone && listener.phone === phone),
+  );
+}
+
+function serializeListener(db, listener) {
+  const likedSongIds = db.songLikes
+    .filter((like) => Number(like.listener) === Number(listener.id))
+    .map((like) => Number(like.song));
+  const followedArtistIds = db.artistFollows
+    .filter((follow) => Number(follow.listener) === Number(listener.id))
+    .map((follow) => Number(follow.artist));
+
+  return {
+    id: listener.id,
+    name: listener.name,
+    email: listener.email || "",
+    phone: listener.phone || "",
+    liked_song_ids: [...new Set(likedSongIds)],
+    followed_artist_ids: [...new Set(followedArtistIds)],
+    created_at: listener.created_at,
+    updated_at: listener.updated_at,
+  };
+}
+
+function attachDeviceEngagement(db, listener, deviceId) {
+  if (!deviceId || !listener) return;
+  for (const like of db.songLikes) {
+    if (like.device_id === deviceId) {
+      like.listener = listener.id;
+    }
+  }
+  for (const follow of db.artistFollows) {
+    if (follow.device_id === deviceId) {
+      follow.listener = listener.id;
+    }
+  }
+}
+
+function authResponse(db, listener, token) {
+  return {
+    token,
+    listener: serializeListener(db, listener),
+  };
+}
+
 app.get("/", (req, res) => {
   res.redirect("/admin/");
+});
+
+app.post("/api/auth/register/", async (req, res) => {
+  const db = await loadDb();
+  const name = cleanText(req.body?.name);
+  const email = normalizeEmail(req.body?.email);
+  const phone = normalizePhone(req.body?.phone);
+  const password = String(req.body?.password || "");
+  const deviceId = cleanText(req.body?.device_id);
+
+  if (name.length < 2) {
+    return res.status(400).json({ detail: "Enter your profile name." });
+  }
+  if (!email && !phone) {
+    return res.status(400).json({ detail: "Enter an email or phone number." });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ detail: "Password must be at least 6 characters." });
+  }
+  if (
+    db.listeners.some(
+      (listener) =>
+        (email && listener.email === email) || (phone && listener.phone === phone),
+    )
+  ) {
+    return res.status(409).json({ detail: "An account already exists." });
+  }
+
+  const now = new Date().toISOString();
+  const listener = {
+    id: db.nextIds.listener++,
+    name,
+    email,
+    phone,
+    password_hash: hashPassword(password),
+    created_at: now,
+    updated_at: now,
+  };
+  db.listeners.push(listener);
+  attachDeviceEngagement(db, listener, deviceId);
+  const token = createAuthSession(db, listener);
+  await saveDb(db);
+  res.status(201).json(authResponse(db, listener, token));
+});
+
+app.post("/api/auth/login/", async (req, res) => {
+  const db = await loadDb();
+  const identifier = cleanText(req.body?.identifier || req.body?.email || req.body?.phone);
+  const password = String(req.body?.password || "");
+  const deviceId = cleanText(req.body?.device_id);
+  const listener = findListenerByIdentifier(db, identifier);
+
+  if (!listener || !verifyPassword(password, listener.password_hash)) {
+    return res.status(401).json({ detail: "Invalid login details." });
+  }
+
+  attachDeviceEngagement(db, listener, deviceId);
+  const token = createAuthSession(db, listener);
+  await saveDb(db);
+  res.json(authResponse(db, listener, token));
+});
+
+app.get("/api/auth/me/", async (req, res) => {
+  const db = await loadDb();
+  const listener = findListenerByToken(db, req);
+  if (!listener) {
+    return res.status(401).json({ detail: "Login required." });
+  }
+  res.json({ listener: serializeListener(db, listener) });
+});
+
+app.put("/api/auth/me/", async (req, res) => {
+  const db = await loadDb();
+  const listener = findListenerByToken(db, req);
+  if (!listener) {
+    return res.status(401).json({ detail: "Login required." });
+  }
+
+  const nextName = cleanText(req.body?.name);
+  const nextEmail = normalizeEmail(req.body?.email);
+  const nextPhone = normalizePhone(req.body?.phone);
+
+  if (nextName.length < 2) {
+    return res.status(400).json({ detail: "Enter your profile name." });
+  }
+  if (!nextEmail && !nextPhone) {
+    return res.status(400).json({ detail: "Enter an email or phone number." });
+  }
+  const duplicate = db.listeners.find(
+    (item) =>
+      Number(item.id) !== Number(listener.id) &&
+      ((nextEmail && item.email === nextEmail) ||
+        (nextPhone && item.phone === nextPhone)),
+  );
+  if (duplicate) {
+    return res.status(409).json({ detail: "Those login details are already used." });
+  }
+
+  listener.name = nextName;
+  listener.email = nextEmail;
+  listener.phone = nextPhone;
+  listener.updated_at = new Date().toISOString();
+  await saveDb(db);
+  res.json({ listener: serializeListener(db, listener) });
+});
+
+app.post("/api/auth/logout/", async (req, res) => {
+  const db = await loadDb();
+  const token = getBearerToken(req);
+  if (token) {
+    const tokenHash = hashToken(token);
+    db.authTokens = db.authTokens.filter((item) => item.token_hash !== tokenHash);
+    await saveDb(db);
+  }
+  res.json({ logged_out: true });
 });
 
 app.get("/api/artists/", async (req, res) => {
@@ -448,18 +702,26 @@ app.post("/api/songs/:id/like/", async (req, res) => {
   const song = db.songs.find(
     (item) => Number(item.id) === Number(req.params.id),
   );
+  const listener = findListenerByToken(db, req);
   const deviceId = getDeviceId(req);
   if (!song) return res.status(404).json({ detail: "Song not found." });
-  if (!deviceId)
-    return res.status(400).json({ detail: "device_id is required." });
-  const exists = db.songLikes.some(
+  if (!deviceId && !listener)
+    return res.status(400).json({ detail: "device_id or login is required." });
+  const existing = db.songLikes.find(
     (like) =>
-      Number(like.song) === Number(song.id) && like.device_id === deviceId,
+      Number(like.song) === Number(song.id) &&
+      ((listener && Number(like.listener) === Number(listener.id)) ||
+        (deviceId && like.device_id === deviceId)),
   );
-  if (!exists) {
+  if (existing) {
+    if (listener) existing.listener = listener.id;
+    if (deviceId && !existing.device_id) existing.device_id = deviceId;
+    await saveDb(db);
+  } else {
     db.songLikes.push({
       song: song.id,
       device_id: deviceId,
+      listener: listener?.id || null,
       created_at: new Date().toISOString(),
     });
     await saveDb(db);
@@ -472,13 +734,18 @@ app.post("/api/songs/:id/unlike/", async (req, res) => {
   const song = db.songs.find(
     (item) => Number(item.id) === Number(req.params.id),
   );
+  const listener = findListenerByToken(db, req);
   const deviceId = getDeviceId(req);
   if (!song) return res.status(404).json({ detail: "Song not found." });
-  if (!deviceId)
-    return res.status(400).json({ detail: "device_id is required." });
+  if (!deviceId && !listener)
+    return res.status(400).json({ detail: "device_id or login is required." });
   db.songLikes = db.songLikes.filter(
     (like) =>
-      !(Number(like.song) === Number(song.id) && like.device_id === deviceId),
+      !(
+        Number(like.song) === Number(song.id) &&
+        ((listener && Number(like.listener) === Number(listener.id)) ||
+          (deviceId && like.device_id === deviceId))
+      ),
   );
   await saveDb(db);
   res.json({ liked: false, like_count: likeCount(db, song.id) });
@@ -489,19 +756,26 @@ app.post("/api/artists/:id/follow/", async (req, res) => {
   const artist = db.artists.find(
     (item) => Number(item.id) === Number(req.params.id),
   );
+  const listener = findListenerByToken(db, req);
   const deviceId = getDeviceId(req);
   if (!artist) return res.status(404).json({ detail: "Artist not found." });
-  if (!deviceId)
-    return res.status(400).json({ detail: "device_id is required." });
-  const exists = db.artistFollows.some(
+  if (!deviceId && !listener)
+    return res.status(400).json({ detail: "device_id or login is required." });
+  const existing = db.artistFollows.find(
     (follow) =>
       Number(follow.artist) === Number(artist.id) &&
-      follow.device_id === deviceId,
+      ((listener && Number(follow.listener) === Number(listener.id)) ||
+        (deviceId && follow.device_id === deviceId)),
   );
-  if (!exists) {
+  if (existing) {
+    if (listener) existing.listener = listener.id;
+    if (deviceId && !existing.device_id) existing.device_id = deviceId;
+    await saveDb(db);
+  } else {
     db.artistFollows.push({
       artist: artist.id,
       device_id: deviceId,
+      listener: listener?.id || null,
       created_at: new Date().toISOString(),
     });
     await saveDb(db);
@@ -514,15 +788,17 @@ app.post("/api/artists/:id/unfollow/", async (req, res) => {
   const artist = db.artists.find(
     (item) => Number(item.id) === Number(req.params.id),
   );
+  const listener = findListenerByToken(db, req);
   const deviceId = getDeviceId(req);
   if (!artist) return res.status(404).json({ detail: "Artist not found." });
-  if (!deviceId)
-    return res.status(400).json({ detail: "device_id is required." });
+  if (!deviceId && !listener)
+    return res.status(400).json({ detail: "device_id or login is required." });
   db.artistFollows = db.artistFollows.filter(
     (follow) =>
       !(
         Number(follow.artist) === Number(artist.id) &&
-        follow.device_id === deviceId
+        ((listener && Number(follow.listener) === Number(listener.id)) ||
+          (deviceId && follow.device_id === deviceId))
       ),
   );
   await saveDb(db);

@@ -9,6 +9,7 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import AppErrorBoundary from "./src/components/AppErrorBoundary";
+import { AuthProvider } from "./src/context/AuthContext";
 import { EngagementProvider } from "./src/context/EngagementContext";
 import { PlayerProvider } from "./src/context/PlayerContext";
 import ArtistDetailScreen from "./src/screens/ArtistDetailScreen";
@@ -110,35 +111,37 @@ export default function App() {
     <AppErrorBoundary>
       <SafeAreaProvider>
         <EngagementProvider>
-          <PlayerProvider>
-            <NavigationContainer linking={linking}>
-              <AutoUpdateGate />
-              <StatusBar style="light" />
-              <Stack.Navigator
-                screenOptions={{
-                  headerStyle: { backgroundColor: colors.background },
-                  headerTintColor: colors.text,
-                  contentStyle: { backgroundColor: colors.background },
-                }}
-              >
-                <Stack.Screen
-                  name="TesoTabs"
-                  component={MainTabs}
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="ArtistDetail"
-                  component={ArtistDetailScreen}
-                  options={{ title: "Artist" }}
-                />
-                <Stack.Screen
-                  name="Player"
-                  component={PlayerScreen}
-                  options={{ headerShown: false }}
-                />
-              </Stack.Navigator>
-            </NavigationContainer>
-          </PlayerProvider>
+          <AuthProvider>
+            <PlayerProvider>
+              <NavigationContainer linking={linking}>
+                <AutoUpdateGate />
+                <StatusBar style="light" />
+                <Stack.Navigator
+                  screenOptions={{
+                    headerStyle: { backgroundColor: colors.background },
+                    headerTintColor: colors.text,
+                    contentStyle: { backgroundColor: colors.background },
+                  }}
+                >
+                  <Stack.Screen
+                    name="TesoTabs"
+                    component={MainTabs}
+                    options={{ headerShown: false }}
+                  />
+                  <Stack.Screen
+                    name="ArtistDetail"
+                    component={ArtistDetailScreen}
+                    options={{ title: "Artist" }}
+                  />
+                  <Stack.Screen
+                    name="Player"
+                    component={PlayerScreen}
+                    options={{ headerShown: false }}
+                  />
+                </Stack.Navigator>
+              </NavigationContainer>
+            </PlayerProvider>
+          </AuthProvider>
         </EngagementProvider>
       </SafeAreaProvider>
     </AppErrorBoundary>

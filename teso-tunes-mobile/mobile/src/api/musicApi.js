@@ -4,6 +4,12 @@ import { fallbackArtists, fallbackSongs } from "../data/fallbackData";
 export const BACKEND_CONNECTION_ERROR =
   "Could not connect to TesoHub Music backend.";
 
+let authToken = "";
+
+export function setAuthToken(token = "") {
+  authToken = token;
+}
+
 function countItems(data) {
   if (Array.isArray(data)) return data.length;
   if (data?.songs && Array.isArray(data.songs)) return data.songs.length;
@@ -30,7 +36,13 @@ async function fetchJson(path, options) {
 
   let response;
   try {
-    response = await fetch(url, options);
+    response = await fetch(url, {
+      ...options,
+      headers: {
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...(options?.headers || {}),
+      },
+    });
   } catch (error) {
     console.warn(`[TesoHub Music API] Network error for ${url}:`, error?.message || error);
     throw backendError(path, error);
@@ -38,11 +50,17 @@ async function fetchJson(path, options) {
 
   console.log(`[TesoHub Music API] ${url} status: ${response.status}`);
 
+  const data = await response.json();
+
   if (!response.ok) {
-    throw backendError(path, new Error(`API request failed: ${response.status}`));
+    const error = backendError(
+      path,
+      new Error(data?.detail || `API request failed: ${response.status}`)
+    );
+    error.detail = data?.detail;
+    throw error;
   }
 
-  const data = await response.json();
   console.log(`[TesoHub Music API] ${path} returned ${countItems(data)} item(s).`);
   return data;
 }
@@ -65,6 +83,40 @@ async function postDeviceAction(path, deviceId) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ device_id: deviceId }),
+  });
+}
+
+export async function registerListenerAccount(payload) {
+  return fetchJson("/auth/register/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function loginListenerAccount(payload) {
+  return fetchJson("/auth/login/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getListenerAccount() {
+  return fetchJson("/auth/me/");
+}
+
+export async function updateListenerAccount(payload) {
+  return fetchJson("/auth/me/", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function logoutListenerAccount() {
+  return fetchJson("/auth/logout/", {
+    method: "POST",
   });
 }
 
