@@ -14,12 +14,8 @@ export default function ArtistCard({ artist, onPress, compact = false }) {
     <TouchableOpacity style={[styles.card, compact && styles.compact]} onPress={onPress}>
       <Image source={{ uri: artist.photo }} style={styles.photo} />
       <View style={styles.copy}>
-        <View style={styles.nameRow}>
-          <Text style={styles.name} numberOfLines={1}>{artist.name}</Text>
-          {artist.is_featured && <Text style={styles.badge}>Featured</Text>}
-        </View>
-        <Text style={styles.category} numberOfLines={1}>{artist.category}</Text>
-        <Text style={styles.location} numberOfLines={1}>{artist.location}</Text>
+        <Text style={styles.name} numberOfLines={1}>{artist.name}</Text>
+        <Text style={styles.meta} numberOfLines={1}>{formatFollowers(followerCount)}</Text>
         <TouchableOpacity
           style={[styles.followButton, followed && styles.followedButton]}
           onPress={(event) => {
@@ -32,7 +28,6 @@ export default function ArtistCard({ artist, onPress, compact = false }) {
             {followed ? "Following" : "Follow"}
           </Text>
         </TouchableOpacity>
-        <Text style={styles.followerCount}>{formatFollowers(followerCount)}</Text>
       </View>
     </TouchableOpacity>
   );
@@ -40,81 +35,56 @@ export default function ArtistCard({ artist, onPress, compact = false }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: "transparent",
     borderRadius: 8,
-    borderWidth: 1,
     flex: 1,
     overflow: "hidden",
   },
   compact: {
     flex: 0,
-    width: 168,
+    width: 154,
   },
   photo: {
     backgroundColor: colors.elevated,
-    height: 138,
+    borderRadius: 5,
+    height: 154,
     width: "100%",
   },
   copy: {
-    gap: 5,
-    padding: 10,
-  },
-  nameRow: {
-    alignItems: "center",
-    flexDirection: "row",
     gap: 6,
+    paddingTop: 8,
   },
   name: {
     color: colors.text,
-    flex: 1,
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "850",
   },
-  badge: {
-    backgroundColor: colors.primary,
-    borderRadius: 6,
-    color: colors.text,
-    fontSize: 10,
-    fontWeight: "800",
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-  },
-  category: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  location: {
+  meta: {
     color: colors.muted,
     fontSize: 12,
   },
   followButton: {
     alignItems: "center",
     alignSelf: "flex-start",
-    borderColor: colors.primary,
-    borderRadius: 8,
+    borderColor: colors.softText,
+    borderRadius: 18,
     borderWidth: 1,
     flexDirection: "row",
     gap: 5,
-    marginTop: 4,
-    minHeight: 28,
-    paddingHorizontal: 8,
+    marginTop: 2,
+    minHeight: 30,
+    paddingHorizontal: 10,
   },
   followedButton: {
     backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   followText: {
-    color: colors.primary,
+    color: colors.softText,
     fontSize: 11,
     fontWeight: "900",
   },
   followedText: {
-    color: colors.text,
-  },
-  followerCount: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: "700",
+    color: colors.background,
   },
 });

@@ -37,7 +37,7 @@ export const fallbackSongs = fallbackArtists.flatMap((artist, artistIndex) =>
     artist_name: artist.name,
     artist_category: artist.category,
     title: `${title}`,
-    audio_file: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+    audio_file: "",
     cover_image: `https://picsum.photos/seed/fallback-song-${artistIndex + 1}-${songIndex + 1}/800/800`,
     genre: ["Teso Fusion", "Afrobeat", "Gospel", "Rap"][songIndex % 4],
     lyrics: `${title}

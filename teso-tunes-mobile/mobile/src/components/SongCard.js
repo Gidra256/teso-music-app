@@ -14,16 +14,32 @@ export default function SongCard({ song, compact = false, queue = [] }) {
   const likeCount = getSongLikeCount(song);
   const handlePress = () => (active ? togglePlay() : playSong(song, queue));
 
+  if (compact) {
+    return (
+      <TouchableOpacity style={styles.tile} onPress={handlePress}>
+        <Image source={{ uri: song.cover_image }} style={styles.tileCover} />
+        <Text style={styles.tileTitle} numberOfLines={2}>{song.title}</Text>
+        <Text style={styles.tileMeta} numberOfLines={2}>{song.artist_name}</Text>
+        <TouchableOpacity
+          style={styles.tileLikeButton}
+          onPress={(event) => {
+            event.stopPropagation?.();
+            toggleSongLike(song);
+          }}
+        >
+          <Ionicons name={liked ? "heart" : "heart-outline"} color={liked ? colors.primary : colors.muted} size={15} />
+          <Text style={[styles.likes, liked && styles.likedText]}>{formatPlays(likeCount)}</Text>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    );
+  }
+
   return (
-    <TouchableOpacity style={[styles.card, compact && styles.compactCard]} onPress={handlePress}>
-      <Image source={{ uri: song.cover_image }} style={[styles.cover, compact && styles.compactCover]} />
+    <TouchableOpacity style={styles.card} onPress={handlePress}>
+      <Image source={{ uri: song.cover_image }} style={styles.cover} />
       <View style={styles.body}>
         <Text style={styles.title} numberOfLines={1}>{song.title}</Text>
         <Text style={styles.meta} numberOfLines={1}>{song.artist_name}</Text>
-        <View style={styles.footer}>
-          <Text style={styles.genre}>{song.genre || "Teso music"}</Text>
-          <Text style={styles.plays}>{formatPlays(song.play_count)} plays</Text>
-        </View>
         <TouchableOpacity
           style={styles.likeButton}
           onPress={(event) => {
@@ -45,44 +61,31 @@ export default function SongCard({ song, compact = false, queue = [] }) {
 const styles = StyleSheet.create({
   card: {
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
+    backgroundColor: "transparent",
     borderRadius: 8,
-    borderWidth: 1,
     flexDirection: "row",
     gap: 12,
-    padding: 10,
-  },
-  compactCard: {
-    width: 250,
+    minHeight: 64,
+    paddingVertical: 6,
   },
   cover: {
     backgroundColor: colors.elevated,
-    borderRadius: 8,
-    height: 68,
-    width: 68,
-  },
-  compactCover: {
-    height: 76,
-    width: 76,
+    borderRadius: 5,
+    height: 58,
+    width: 58,
   },
   body: {
     flex: 1,
-    gap: 5,
+    gap: 3,
   },
   title: {
     color: colors.text,
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "850",
   },
   meta: {
-    color: colors.softText,
+    color: colors.muted,
     fontSize: 13,
-  },
-  footer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
   },
   likeButton: {
     alignItems: "center",
@@ -101,24 +104,43 @@ const styles = StyleSheet.create({
   likedText: {
     color: colors.primary,
   },
-  genre: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  plays: {
-    color: colors.muted,
-    fontSize: 12,
-  },
   playButton: {
     alignItems: "center",
-    backgroundColor: colors.elevated,
+    backgroundColor: "transparent",
     borderRadius: 22,
-    height: 42,
+    height: 40,
     justifyContent: "center",
-    width: 42,
+    width: 40,
   },
   activeButton: {
     backgroundColor: colors.primary,
+  },
+  tile: {
+    backgroundColor: "transparent",
+    gap: 6,
+    width: 154,
+  },
+  tileCover: {
+    backgroundColor: colors.elevated,
+    borderRadius: 5,
+    height: 154,
+    width: 154,
+  },
+  tileTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "850",
+    lineHeight: 18,
+  },
+  tileMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  tileLikeButton: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
+    minHeight: 24,
   },
 });

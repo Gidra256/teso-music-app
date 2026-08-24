@@ -730,7 +730,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   kicker: {
-    color: colors.accent,
+    color: colors.muted,
     fontSize: 12,
     fontWeight: "900",
     textTransform: "uppercase",
@@ -970,7 +970,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   validationText: {
-    color: colors.accent,
+    color: colors.softText,
     fontSize: 13,
     fontWeight: "800",
     lineHeight: 19,

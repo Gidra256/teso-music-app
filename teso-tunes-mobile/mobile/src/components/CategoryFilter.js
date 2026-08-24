@@ -29,16 +29,14 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   pill: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    backgroundColor: colors.elevated,
+    borderRadius: 20,
+    minHeight: 38,
+    justifyContent: "center",
+    paddingHorizontal: 16,
   },
   activePill: {
     backgroundColor: colors.primary,
-    borderColor: colors.primary,
   },
   label: {
     color: colors.softText,
@@ -46,6 +44,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   activeLabel: {
-    color: colors.text,
+    color: colors.background,
   },
 });

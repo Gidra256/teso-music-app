@@ -488,7 +488,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
   },
   genrePillText: {
-    color: colors.accent,
+    color: colors.softText,
     fontSize: 12,
     fontWeight: "900",
   },

@@ -1,6 +1,5 @@
-import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
@@ -13,7 +12,6 @@ import {
 import ArtistCard from "../components/ArtistCard";
 import MiniPlayer from "../components/MiniPlayer";
 import ProfileAvatarButton from "../components/ProfileAvatarButton";
-import SearchBar from "../components/SearchBar";
 import SongCard from "../components/SongCard";
 import { useEngagement } from "../context/EngagementContext";
 import { colors, spacing } from "../theme";
@@ -72,16 +70,15 @@ export default function HomeScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <LinearGradient colors={["#081F24", "#160919", colors.background]} style={styles.hero}>
-          <View style={styles.heroTop}>
-            <ProfileAvatarButton />
-            <View style={styles.heroCopy}>
-              <Text style={styles.logo}>TesoHub Music</Text>
-              <Text style={styles.tagline}>The digital home of Teso music</Text>
-            </View>
-          </View>
-          <SearchBar value={search} onChangeText={setSearch} />
-        </LinearGradient>
+        <View style={styles.topRow}>
+          <ProfileAvatarButton />
+          <TouchableOpacity style={styles.activeChip} onPress={() => setSearch("")}>
+            <Text style={styles.activeChipText}>All</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.chip} onPress={() => setSearch("")}>
+            <Text style={styles.chipText}>Music</Text>
+          </TouchableOpacity>
+        </View>
 
         {loading ? (
           <ActivityIndicator color={colors.primary} style={styles.loader} />
@@ -161,29 +158,37 @@ const styles = StyleSheet.create({
     padding: spacing.page,
     paddingBottom: 100,
   },
-  hero: {
-    borderRadius: 8,
-    gap: 12,
-    marginHorizontal: -2,
-    padding: 18,
-  },
-  heroTop: {
+  topRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
+    marginBottom: 18,
   },
-  heroCopy: {
-    flex: 1,
-    gap: 4,
+  activeChip: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 22,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: 18,
   },
-  logo: {
-    color: colors.text,
-    fontSize: 34,
+  activeChipText: {
+    color: colors.background,
+    fontSize: 14,
     fontWeight: "900",
   },
-  tagline: {
+  chip: {
+    alignItems: "center",
+    backgroundColor: colors.elevated,
+    borderRadius: 22,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: 18,
+  },
+  chipText: {
     color: colors.softText,
-    fontSize: 15,
+    fontSize: 14,
+    fontWeight: "800",
   },
   sectionTitle: {
     color: colors.text,

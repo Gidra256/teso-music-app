@@ -38,10 +38,8 @@ export default function MiniPlayer() {
 const styles = StyleSheet.create({
   wrapper: {
     alignItems: "center",
-    backgroundColor: "#101014",
-    borderColor: "rgba(32, 230, 243, 0.42)",
+    backgroundColor: "#26202A",
     borderRadius: 8,
-    borderWidth: 1,
     bottom: 10,
     flexDirection: "row",
     gap: 10,
@@ -49,10 +47,6 @@ const styles = StyleSheet.create({
     padding: 9,
     position: "absolute",
     right: 18,
-    shadowColor: colors.primary,
-    shadowOffset: { height: 5, width: 0 },
-    shadowOpacity: 0.22,
-    shadowRadius: 12,
   },
   cover: {
     borderRadius: 8,
@@ -85,7 +79,7 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     alignItems: "center",
-    backgroundColor: colors.primary,
+    backgroundColor: "transparent",
     borderRadius: 21,
     height: 42,
     justifyContent: "center",

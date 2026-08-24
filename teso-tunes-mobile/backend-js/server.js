@@ -117,8 +117,7 @@ function seedDb() {
       id: artistIndex * 2 + songIndex + 1,
       artist: artist.id,
       title,
-      audio_file:
-        "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+      audio_file: "",
       cover_image: `https://picsum.photos/seed/teso-song-${artist.id}-${songIndex + 1}/800/800`,
       genre: ["Teso Fusion", "Afrobeat", "Gospel"][songIndex % 3],
       lyrics: "",

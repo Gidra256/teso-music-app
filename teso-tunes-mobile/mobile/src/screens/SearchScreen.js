@@ -70,7 +70,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    gap: 14,
+    gap: 12,
     padding: spacing.page,
   },
   titleRow: {
@@ -83,11 +83,11 @@ const styles = StyleSheet.create({
   },
   title: {
     color: colors.text,
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: "900",
   },
   list: {
-    gap: 12,
+    gap: 4,
     padding: spacing.page,
     paddingBottom: 110,
     paddingTop: 0,

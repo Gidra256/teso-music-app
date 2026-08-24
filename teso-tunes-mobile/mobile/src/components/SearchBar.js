@@ -21,14 +21,12 @@ export default function SearchBar({ value, onChangeText, placeholder = "Search T
 const styles = StyleSheet.create({
   wrapper: {
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
+    backgroundColor: colors.elevated,
+    borderRadius: 24,
     flexDirection: "row",
     gap: 10,
-    paddingHorizontal: 14,
     height: 48,
+    paddingHorizontal: 14,
   },
   input: {
     color: colors.text,
