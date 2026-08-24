@@ -12,6 +12,7 @@ import {
 } from "../api/musicApi";
 import ArtistCard from "../components/ArtistCard";
 import MiniPlayer from "../components/MiniPlayer";
+import ProfileAvatarButton from "../components/ProfileAvatarButton";
 import SearchBar from "../components/SearchBar";
 import SongCard from "../components/SongCard";
 import { useEngagement } from "../context/EngagementContext";
@@ -72,8 +73,13 @@ export default function HomeScreen({ navigation }) {
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={["#2A1608", colors.background]} style={styles.hero}>
-          <Text style={styles.logo}>Teso Tunes</Text>
-          <Text style={styles.tagline}>The digital home of Teso music</Text>
+          <View style={styles.heroTop}>
+            <View style={styles.heroCopy}>
+              <Text style={styles.logo}>Teso Tunes</Text>
+              <Text style={styles.tagline}>The digital home of Teso music</Text>
+            </View>
+            <ProfileAvatarButton />
+          </View>
           <SearchBar value={search} onChangeText={setSearch} />
         </LinearGradient>
 
@@ -160,6 +166,16 @@ const styles = StyleSheet.create({
     gap: 12,
     marginHorizontal: -2,
     padding: 18,
+  },
+  heroTop: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  heroCopy: {
+    flex: 1,
+    gap: 4,
   },
   logo: {
     color: colors.text,

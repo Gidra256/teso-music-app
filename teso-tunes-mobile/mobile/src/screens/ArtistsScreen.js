@@ -6,6 +6,7 @@ import { BACKEND_CONNECTION_ERROR, getArtists } from "../api/musicApi";
 import ArtistCard from "../components/ArtistCard";
 import CategoryFilter from "../components/CategoryFilter";
 import MiniPlayer from "../components/MiniPlayer";
+import ProfileAvatarButton from "../components/ProfileAvatarButton";
 import SearchBar from "../components/SearchBar";
 import { colors, spacing } from "../theme";
 
@@ -39,7 +40,10 @@ export default function ArtistsScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Text style={styles.title}>Artists</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>Artists</Text>
+          <ProfileAvatarButton />
+        </View>
         <SearchBar value={query} onChangeText={setQuery} placeholder="Search artists" />
         <CategoryFilter selected={category} onSelect={setCategory} />
       </View>
@@ -73,6 +77,12 @@ const styles = StyleSheet.create({
   header: {
     gap: 14,
     padding: spacing.page,
+  },
+  titleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
   },
   title: {
     color: colors.text,

@@ -6,6 +6,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -19,6 +20,7 @@ import MiniPlayer from "../components/MiniPlayer";
 import SongCard from "../components/SongCard";
 import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
+import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
 
 export default function ProfileScreen({ navigation }) {
@@ -33,6 +35,7 @@ export default function ProfileScreen({ navigation }) {
     updateAccount,
   } = useAuth();
   const { deviceId, followedArtistIds, likedSongIds } = useEngagement();
+  const { backgroundPlaybackEnabled, setBackgroundPlaybackEnabled } = usePlayer();
   const [songs, setSongs] = useState([]);
   const [artists, setArtists] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -212,6 +215,19 @@ export default function ProfileScreen({ navigation }) {
     }
   }
 
+  function goBackOrHome() {
+    if (navigation?.canGoBack?.()) {
+      navigation.goBack();
+      return;
+    }
+
+    navigation.navigate("TesoTabs", { screen: "Home" });
+  }
+
+  function openTab(screen) {
+    navigation.navigate("TesoTabs", { screen });
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView
@@ -225,6 +241,19 @@ export default function ProfileScreen({ navigation }) {
         }
         showsVerticalScrollIndicator={false}
       >
+        <View style={styles.pageTopBar}>
+          <TouchableOpacity
+            activeOpacity={0.82}
+            accessibilityLabel="Back"
+            style={styles.backButton}
+            onPress={goBackOrHome}
+          >
+            <Ionicons name="chevron-back" color={colors.softText} size={22} />
+          </TouchableOpacity>
+          <Text style={styles.pageTitle}>Profile</Text>
+          <View style={styles.topBarSpacer} />
+        </View>
+
         <LinearGradient colors={["#321A08", "#14100C"]} style={styles.hero}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{initials}</Text>
@@ -254,6 +283,11 @@ export default function ProfileScreen({ navigation }) {
             </TouchableOpacity>
           )}
         </LinearGradient>
+
+        <PlaybackSettings
+          enabled={backgroundPlaybackEnabled}
+          onValueChange={setBackgroundPlaybackEnabled}
+        />
 
         {authLoading ? (
           <ActivityIndicator color={colors.primary} style={styles.loader} />
@@ -341,7 +375,7 @@ export default function ProfileScreen({ navigation }) {
                 <SectionHeader
                   title="Liked songs"
                   actionIcon="musical-notes"
-                  onPress={() => navigation.navigate("Songs")}
+                  onPress={() => openTab("Songs")}
                 />
                 {likedSongs.length > 0 ? (
                   <View style={styles.songList}>
@@ -354,14 +388,14 @@ export default function ProfileScreen({ navigation }) {
                     icon="heart-outline"
                     title="No liked songs yet"
                     actionIcon="musical-notes"
-                    onPress={() => navigation.navigate("Songs")}
+                    onPress={() => openTab("Songs")}
                   />
                 )}
 
                 <SectionHeader
                   title="Following artists"
                   actionIcon="people"
-                  onPress={() => navigation.navigate("Artists")}
+                  onPress={() => openTab("Artists")}
                 />
                 {followedArtists.length > 0 ? (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -383,7 +417,7 @@ export default function ProfileScreen({ navigation }) {
                     icon="person-add-outline"
                     title="No followed artists yet"
                     actionIcon="people"
-                    onPress={() => navigation.navigate("Artists")}
+                    onPress={() => openTab("Artists")}
                   />
                 )}
               </>
@@ -393,6 +427,31 @@ export default function ProfileScreen({ navigation }) {
       </ScrollView>
       <MiniPlayer />
     </SafeAreaView>
+  );
+}
+
+function PlaybackSettings({ enabled, onValueChange }) {
+  return (
+    <View style={styles.settingsPanel}>
+      <View style={styles.settingIcon}>
+        <Ionicons name="headset" color={colors.accent} size={22} />
+      </View>
+      <View style={styles.settingCopy}>
+        <Text style={styles.settingTitle}>Play in background</Text>
+        <Text style={styles.settingStatus}>{enabled ? "On" : "Off"}</Text>
+      </View>
+      <Switch
+        accessibilityLabel="Play in background"
+        ios_backgroundColor={colors.elevated}
+        thumbColor={enabled ? colors.accent : colors.softText}
+        trackColor={{
+          false: colors.elevated,
+          true: "rgba(249, 115, 22, 0.58)",
+        }}
+        value={enabled}
+        onValueChange={onValueChange}
+      />
+    </View>
   );
 }
 
@@ -572,6 +631,28 @@ const styles = StyleSheet.create({
     padding: spacing.page,
     paddingBottom: 112,
   },
+  pageTopBar: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  backButton: {
+    alignItems: "center",
+    backgroundColor: colors.elevated,
+    borderRadius: 20,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  pageTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "950",
+    textTransform: "uppercase",
+  },
+  topBarSpacer: {
+    width: 40,
+  },
   hero: {
     alignItems: "center",
     borderColor: "rgba(249, 115, 22, 0.36)",
@@ -626,6 +707,39 @@ const styles = StyleSheet.create({
     height: 42,
     justifyContent: "center",
     width: 42,
+  },
+  settingsPanel: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 72,
+    padding: 14,
+  },
+  settingIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(250, 204, 21, 0.12)",
+    borderRadius: 22,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
+  settingCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  settingTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  settingStatus: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
   },
   authPanel: {
     backgroundColor: colors.card,

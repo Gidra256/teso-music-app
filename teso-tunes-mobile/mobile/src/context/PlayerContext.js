@@ -1,9 +1,11 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 
 import { incrementSongPlay } from "../api/musicApi";
 
 const PlayerContext = createContext(null);
+const BACKGROUND_PLAYBACK_KEY = "teso_tunes_background_playback";
 
 export function PlayerProvider({ children }) {
   const soundRef = useRef(null);
@@ -18,6 +20,7 @@ export function PlayerProvider({ children }) {
   const currentTimeRef = useRef(0);
   const durationRef = useRef(0);
   const audioModeReadyRef = useRef(false);
+  const backgroundPlaybackEnabledRef = useRef(true);
   const [currentSong, setCurrentSong] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -25,20 +28,36 @@ export function PlayerProvider({ children }) {
   const [didFinish, setDidFinish] = useState(false);
   const [isRepeatOn, setIsRepeatOn] = useState(false);
   const [isShuffleOn, setIsShuffleOn] = useState(false);
+  const [backgroundPlaybackEnabled, setBackgroundPlaybackEnabledState] = useState(true);
 
   useEffect(() => {
-    configureAudioSession();
+    loadAudioSettings();
 
     return () => {
       unloadCurrentSound();
     };
   }, []);
 
-  async function configureAudioSession() {
+  async function loadAudioSettings() {
+    try {
+      const savedBackgroundPlayback = await AsyncStorage.getItem(BACKGROUND_PLAYBACK_KEY);
+      const nextBackgroundPlayback = savedBackgroundPlayback === null
+        ? true
+        : savedBackgroundPlayback === "true";
+
+      backgroundPlaybackEnabledRef.current = nextBackgroundPlayback;
+      setBackgroundPlaybackEnabledState(nextBackgroundPlayback);
+      await configureAudioSession(nextBackgroundPlayback);
+    } catch (error) {
+      await configureAudioSession(backgroundPlaybackEnabledRef.current);
+    }
+  }
+
+  async function configureAudioSession(backgroundPlayback = backgroundPlaybackEnabledRef.current) {
     try {
       await setAudioModeAsync({
         playsInSilentMode: true,
-        shouldPlayInBackground: true,
+        shouldPlayInBackground: Boolean(backgroundPlayback),
         interruptionMode: "doNotMix",
       });
       audioModeReadyRef.current = true;
@@ -171,6 +190,7 @@ export function PlayerProvider({ children }) {
   }
 
   function activateLockScreenControls(player, song) {
+    if (!backgroundPlaybackEnabledRef.current) return;
     if (!player?.setActiveForLockScreen) return;
 
     try {
@@ -372,8 +392,30 @@ export function PlayerProvider({ children }) {
     });
   }
 
+  async function setBackgroundPlaybackEnabled(enabled) {
+    const nextEnabled = Boolean(enabled);
+    backgroundPlaybackEnabledRef.current = nextEnabled;
+    setBackgroundPlaybackEnabledState(nextEnabled);
+
+    try {
+      await AsyncStorage.setItem(
+        BACKGROUND_PLAYBACK_KEY,
+        nextEnabled ? "true" : "false"
+      );
+    } catch (error) {}
+
+    await configureAudioSession(nextEnabled);
+
+    if (nextEnabled) {
+      activateLockScreenControls(soundRef.current, currentSongRef.current);
+    } else {
+      clearLockScreenControls(soundRef.current);
+    }
+  }
+
   const value = useMemo(
     () => ({
+      backgroundPlaybackEnabled,
       currentSong,
       currentTime,
       duration,
@@ -388,11 +430,21 @@ export function PlayerProvider({ children }) {
       seekBy,
       seekTo,
       seekToProgress,
+      setBackgroundPlaybackEnabled,
       togglePlay,
       toggleRepeat,
       toggleShuffle,
     }),
-    [currentSong, currentTime, duration, didFinish, isPlaying, isRepeatOn, isShuffleOn]
+    [
+      backgroundPlaybackEnabled,
+      currentSong,
+      currentTime,
+      duration,
+      didFinish,
+      isPlaying,
+      isRepeatOn,
+      isShuffleOn,
+    ]
   );
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;

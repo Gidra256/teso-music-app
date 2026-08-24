@@ -35,9 +35,9 @@ const linking = {
           Songs: "songs",
           Artists: "artists",
           Search: "search",
-          Profile: "profile",
         },
       },
+      Profile: "profile",
       Player: "song/:id",
       ArtistDetail: "artist/:id",
     },
@@ -89,7 +89,6 @@ function MainTabs() {
             Songs: "musical-notes",
             Artists: "people",
             Search: "search",
-            Profile: "person-circle",
           };
           return (
             <Ionicons name={icons[route.name]} color={color} size={size} />
@@ -101,7 +100,6 @@ function MainTabs() {
       <Tab.Screen name="Songs" component={SongsScreen} />
       <Tab.Screen name="Artists" component={ArtistsScreen} />
       <Tab.Screen name="Search" component={SearchScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
 }
@@ -132,6 +130,11 @@ export default function App() {
                     name="ArtistDetail"
                     component={ArtistDetailScreen}
                     options={{ title: "Artist" }}
+                  />
+                  <Stack.Screen
+                    name="Profile"
+                    component={ProfileScreen}
+                    options={{ headerShown: false }}
                   />
                   <Stack.Screen
                     name="Player"

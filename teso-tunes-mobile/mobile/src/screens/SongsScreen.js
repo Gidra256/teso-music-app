@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { BACKEND_CONNECTION_ERROR, getSongs } from "../api/musicApi";
 import CategoryFilter from "../components/CategoryFilter";
 import MiniPlayer from "../components/MiniPlayer";
+import ProfileAvatarButton from "../components/ProfileAvatarButton";
 import SearchBar from "../components/SearchBar";
 import SongCard from "../components/SongCard";
 import { colors, spacing } from "../theme";
@@ -41,7 +42,10 @@ export default function SongsScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Text style={styles.title}>Songs</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>Songs</Text>
+          <ProfileAvatarButton />
+        </View>
         <SearchBar value={query} onChangeText={setQuery} placeholder="Search songs or artists" />
         <CategoryFilter selected={category} onSelect={setCategory} />
       </View>
@@ -71,6 +75,12 @@ const styles = StyleSheet.create({
   header: {
     gap: 14,
     padding: spacing.page,
+  },
+  titleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
   },
   title: {
     color: colors.text,
