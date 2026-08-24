@@ -478,11 +478,22 @@ function AuthCard({
   updateAuthField,
 }) {
   const isLogin = authMode === "login";
-  const canSubmit = isLogin
-    ? authForm.identifier.trim() && authForm.password.length >= 6
-    : authForm.name.trim() &&
-      authForm.password.length >= 6 &&
-      (authForm.email.trim() || authForm.phone.trim());
+  const [showValidation, setShowValidation] = useState(false);
+  const validationMessage = getAuthValidationMessage(authForm, isLogin);
+  const canSubmit = !validationMessage;
+
+  useEffect(() => {
+    setShowValidation(false);
+  }, [authMode]);
+
+  function handleSubmitPress() {
+    if (validationMessage) {
+      setShowValidation(true);
+      return;
+    }
+
+    submitAuth();
+  }
 
   return (
     <View style={styles.authPanel}>
@@ -541,12 +552,15 @@ function AuthCard({
       />
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {showValidation && validationMessage ? (
+        <Text style={styles.validationText}>{validationMessage}</Text>
+      ) : null}
 
       <TouchableOpacity
         accessibilityLabel={isLogin ? "Login" : "Create account"}
-        disabled={!canSubmit || submitting}
-        style={[styles.primaryButton, (!canSubmit || submitting) && styles.disabledButton]}
-        onPress={submitAuth}
+        disabled={submitting}
+        style={[styles.primaryButton, submitting && styles.disabledButton]}
+        onPress={handleSubmitPress}
       >
         {submitting ? (
           <ActivityIndicator color={colors.text} />
@@ -565,6 +579,29 @@ function AuthCard({
       </TouchableOpacity>
     </View>
   );
+}
+
+function getAuthValidationMessage(authForm, isLogin) {
+  if (isLogin) {
+    if (!authForm.identifier.trim()) {
+      return "Enter your email or phone number.";
+    }
+    if (authForm.password.length < 6) {
+      return "Password must be at least 6 characters.";
+    }
+    return "";
+  }
+
+  if (authForm.name.trim().length < 2) {
+    return "Enter your profile name.";
+  }
+  if (!authForm.email.trim() && !authForm.phone.trim()) {
+    return "Enter an email or phone number.";
+  }
+  if (authForm.password.length < 6) {
+    return "Password must be at least 6 characters.";
+  }
+  return "";
 }
 
 function ModeButton({ active, label, onPress }) {
@@ -930,6 +967,13 @@ const styles = StyleSheet.create({
     color: colors.softText,
     fontSize: 14,
     lineHeight: 20,
+    textAlign: "center",
+  },
+  validationText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 19,
     textAlign: "center",
   },
 });

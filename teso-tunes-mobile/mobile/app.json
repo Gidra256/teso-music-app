@@ -3,7 +3,7 @@
     "name": "TesoHub Music",
     "slug": "teso-tunes",
     "scheme": "tesohubmusic",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./assets/images/tesohub-music.png",
@@ -17,7 +17,7 @@
     ],
     "android": {
       "package": "com.tesotunes.app",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/tesohub-music.png",
         "backgroundColor": "#050506"
