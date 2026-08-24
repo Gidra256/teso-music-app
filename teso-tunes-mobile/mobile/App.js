@@ -3,6 +3,8 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
+import * as Updates from "expo-updates";
+import { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -42,6 +44,28 @@ const linking = {
 };
 
 console.log("Expo Go deep link base:", Linking.createURL("/"));
+
+function AutoUpdateGate() {
+  useEffect(() => {
+    async function applyAvailableUpdate() {
+      if (!Updates.isEnabled) return;
+
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (!update.isAvailable) return;
+
+        const fetched = await Updates.fetchUpdateAsync();
+        if (fetched.isNew || fetched.isRollBackToEmbedded) {
+          await Updates.reloadAsync();
+        }
+      } catch (error) {}
+    }
+
+    applyAvailableUpdate();
+  }, []);
+
+  return null;
+}
 
 function MainTabs() {
   return (
@@ -88,6 +112,7 @@ export default function App() {
         <EngagementProvider>
           <PlayerProvider>
             <NavigationContainer linking={linking}>
+              <AutoUpdateGate />
               <StatusBar style="light" />
               <Stack.Navigator
                 screenOptions={{
