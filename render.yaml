@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: teso-tunes-api
+    runtime: node
+    rootDir: teso-tunes-mobile/backend-js
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22.15.1
+      - key: STORAGE_DIR
+        value: /var/data
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: PUBLIC_BASE_URL
+        sync: false
+    disk:
+      name: teso-tunes-storage
+      mountPath: /var/data
+      sizeGB: 1

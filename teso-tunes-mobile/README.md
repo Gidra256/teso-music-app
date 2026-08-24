@@ -89,6 +89,46 @@ export const API_BASE_URL = "http://192.168.1.15:8000/api";
 4. Scan the QR code with Expo Go.
 5. Make sure the JavaScript backend is running with `npm run backend`.
 
+## Public Backend for APK Testing
+
+An APK can open without Expo Go and without your laptop, but it still needs a
+public API URL to fetch songs, artists, images, and uploaded audio files.
+
+The current JavaScript backend is ready for public hosting. It supports:
+
+- `PORT` from the hosting provider.
+- `PUBLIC_BASE_URL` for HTTPS upload URLs, for example
+  `https://teso-tunes-api.onrender.com`.
+- `STORAGE_DIR` for persistent data and uploads, for example `/var/data`.
+- `/healthz` for host health checks.
+
+A Render Blueprint is included at the Git repo root:
+
+```text
+../render.yaml
+```
+
+The Blueprint uses a persistent disk because the admin dashboard can upload
+song files and cover images. If you deploy without persistent storage, uploads
+and JSON data can disappear after redeploys or restarts.
+
+After deployment, use the public backend URL in the mobile build:
+
+```powershell
+cd "C:\Users\HP\Documents\teso music app\teso-tunes-mobile\mobile"
+$env:EXPO_PUBLIC_MUSIC_API_BASE_URL="https://YOUR-BACKEND-URL/api"
+npx expo start --clear
+```
+
+For APK builds, set the same environment variable before running EAS:
+
+```powershell
+$env:EXPO_PUBLIC_MUSIC_API_BASE_URL="https://YOUR-BACKEND-URL/api"
+npx eas build -p android --profile preview
+```
+
+The `preview` EAS profile builds an installable Android APK.
+
 ## Test TesoHub Website to Music App Links
 
 Use this loop while building:

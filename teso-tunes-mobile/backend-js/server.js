@@ -8,22 +8,31 @@ import express from "express";
 import multer from "multer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, "data");
+const STORAGE_DIR = process.env.STORAGE_DIR
+  ? path.resolve(process.env.STORAGE_DIR)
+  : __dirname;
+const DATA_DIR = path.join(STORAGE_DIR, "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
-const UPLOADS_DIR = path.join(__dirname, "uploads");
+const UPLOADS_DIR = path.join(STORAGE_DIR, "uploads");
 const LEGACY_MEDIA_DIR = path.join(__dirname, "..", "backend", "media");
 const PORT = Number(process.env.PORT || 8000);
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "TesoAdmin@2026";
 const ADMIN_TOKEN =
   process.env.ADMIN_TOKEN || crypto.randomBytes(32).toString("hex");
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
 
 const app = express();
+app.set("trust proxy", true);
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 app.use("/uploads", express.static(UPLOADS_DIR));
 app.use("/media", express.static(LEGACY_MEDIA_DIR));
 app.use("/admin", express.static(path.join(__dirname, "public")));
+
+app.get("/healthz", (req, res) => {
+  res.json({ status: "ok", service: "teso-tunes-api" });
+});
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -135,7 +144,7 @@ function seedDb() {
 function absoluteUrl(req, value) {
   if (!value) return "";
   if (/^https?:\/\//i.test(value)) return value;
-  const base = `${req.protocol}://${req.get("host")}`;
+  const base = PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
   return `${base}${value.startsWith("/") ? value : `/${value}`}`;
 }
 
