@@ -3,7 +3,7 @@
     "name": "Teso Tunes",
     "slug": "teso-tunes",
     "scheme": "tesohubmusic",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "splash": {
@@ -14,6 +14,7 @@
     ],
     "android": {
       "package": "com.tesotunes.app",
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#09090B"
       },
@@ -25,7 +26,13 @@
       ]
     },
     "plugins": [
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": true,
+          "enableBackgroundRecording": false
+        }
+      ],
       "expo-font",
       "expo-asset"
     ],

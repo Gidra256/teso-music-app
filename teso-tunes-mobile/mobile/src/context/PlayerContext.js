@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 
 import { incrementSongPlay } from "../api/musicApi";
 
@@ -16,6 +17,7 @@ export function PlayerProvider({ children }) {
   const lastCountedSongIdRef = useRef(null);
   const currentTimeRef = useRef(0);
   const durationRef = useRef(0);
+  const audioModeReadyRef = useRef(false);
   const [currentSong, setCurrentSong] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -25,10 +27,25 @@ export function PlayerProvider({ children }) {
   const [isShuffleOn, setIsShuffleOn] = useState(false);
 
   useEffect(() => {
+    configureAudioSession();
+
     return () => {
       unloadCurrentSound();
     };
   }, []);
+
+  async function configureAudioSession() {
+    try {
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: true,
+        interruptionMode: "doNotMix",
+      });
+      audioModeReadyRef.current = true;
+    } catch (error) {
+      audioModeReadyRef.current = false;
+    }
+  }
 
   function clearStatusSubscription() {
     if (statusSubscriptionRef.current?.remove) {
@@ -41,6 +58,7 @@ export function PlayerProvider({ children }) {
     clearStatusSubscription();
 
     if (soundRef.current) {
+      clearLockScreenControls(soundRef.current);
       try {
         soundRef.current.pause();
       } catch (error) {}
@@ -146,6 +164,42 @@ export function PlayerProvider({ children }) {
     incrementSongPlay(songId);
   }
 
+  async function ensureAudioSessionReady() {
+    if (!audioModeReadyRef.current) {
+      await configureAudioSession();
+    }
+  }
+
+  function activateLockScreenControls(player, song) {
+    if (!player?.setActiveForLockScreen) return;
+
+    try {
+      player.setActiveForLockScreen(
+        true,
+        {
+          title: song?.title || "Teso Tunes",
+          artist: song?.artist_name || "Teso Tunes",
+          albumTitle: "Teso Tunes",
+          artworkUrl: song?.cover_image || undefined,
+        },
+        {
+          showSeekForward: true,
+          showSeekBackward: true,
+        }
+      );
+    } catch (error) {}
+  }
+
+  function clearLockScreenControls(player) {
+    try {
+      if (player?.clearLockScreenControls) {
+        player.clearLockScreenControls();
+      } else if (player?.setActiveForLockScreen) {
+        player.setActiveForLockScreen(false);
+      }
+    } catch (error) {}
+  }
+
   function findCurrentQueueIndex() {
     const currentId = currentSongRef.current?.id;
     return queueRef.current.findIndex((song) => song?.id === currentId);
@@ -174,7 +228,7 @@ export function PlayerProvider({ children }) {
     playQueueSongAt(index - 1);
   }
 
-  function playSong(song, queue = []) {
+  async function playSong(song, queue = []) {
     if (!song || isBusyRef.current) return;
 
     isBusyRef.current = true;
@@ -200,7 +254,7 @@ export function PlayerProvider({ children }) {
     }
 
     try {
-      const { createAudioPlayer } = require("expo-audio");
+      await ensureAudioSessionReady();
       unloadCurrentSound();
       const player = createAudioPlayer(
         { uri: song.audio_file },
@@ -212,6 +266,7 @@ export function PlayerProvider({ children }) {
         statusSubscriptionRef.current = player.addListener("playbackStatusUpdate", syncPlaybackStatus);
       }
 
+      activateLockScreenControls(player, song);
       player.play();
       recordPlayCount(song);
       syncPlaybackStatus(player.currentStatus || {
@@ -289,6 +344,7 @@ export function PlayerProvider({ children }) {
           setDidFinish(false);
           finishHandledRef.current = false;
         }
+        activateLockScreenControls(player, currentSongRef.current);
         player.play();
         setIsPlaying(true);
         setDidFinish(false);
