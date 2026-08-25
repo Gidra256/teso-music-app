@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
+import { AppState } from "react-native";
 
 import { incrementSongPlay } from "../api/musicApi";
 
@@ -33,7 +34,14 @@ export function PlayerProvider({ children }) {
   useEffect(() => {
     loadAudioSettings();
 
+    const appStateSubscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        syncCurrentPlayerStatus();
+      }
+    });
+
     return () => {
+      appStateSubscription.remove();
       unloadCurrentSound();
     };
   }, []);
@@ -96,6 +104,33 @@ export function PlayerProvider({ children }) {
   }
 
   function setSafeCurrentTime(seconds) {
+    const safeDuration = durationRef.current;
+    const safeTime = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+    const clampedTime =
+      safeDuration > 0 ? Math.min(safeTime, safeDuration) : safeTime;
+    currentTimeRef.current = clampedTime;
+    setCurrentTime(clampedTime);
+  }
+
+  function currentStatusFor(player) {
+    if (!player) return null;
+    if (player.currentStatus) return player.currentStatus;
+    return {
+      currentTime: player.currentTime,
+      duration: player.duration,
+      isLoaded: player.isLoaded,
+      playing: player.playing,
+      didJustFinish: false,
+    };
+  }
+
+  function syncCurrentPlayerStatus() {
+    const player = soundRef.current;
+    if (!player) return;
+    syncPlaybackStatus(currentStatusFor(player));
+  }
+
+  function setUnsafeCurrentTimeForReset(seconds) {
     const safeTime = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
     currentTimeRef.current = safeTime;
     setCurrentTime(safeTime);
@@ -115,7 +150,7 @@ export function PlayerProvider({ children }) {
     const player = soundRef.current;
     if (repeatRef.current && player?.seekTo) {
       player.seekTo(0).then(() => {
-        setCurrentTime(0);
+        setSafeCurrentTime(0);
         setDidFinish(false);
         finishHandledRef.current = false;
         player.play();
@@ -161,11 +196,7 @@ export function PlayerProvider({ children }) {
 
   function syncPlayerStatusSoon(player) {
     setTimeout(() => {
-      syncPlaybackStatus(player?.currentStatus || {
-        isLoaded: player?.isLoaded,
-        playing: player?.playing,
-        didJustFinish: false,
-      });
+      syncPlaybackStatus(currentStatusFor(player));
     }, 100);
   }
 
@@ -263,7 +294,7 @@ export function PlayerProvider({ children }) {
     setIsPlaying(false);
     currentTimeRef.current = 0;
     durationRef.current = 0;
-    setCurrentTime(0);
+    setUnsafeCurrentTimeForReset(0);
     setDuration(0);
     setDidFinish(false);
 
@@ -278,7 +309,7 @@ export function PlayerProvider({ children }) {
       unloadCurrentSound();
       const player = createAudioPlayer(
         { uri: song.audio_file },
-        { updateInterval: 250, keepAudioSessionActive: true }
+        { updateInterval: 350, keepAudioSessionActive: true }
       );
       soundRef.current = player;
 
@@ -289,11 +320,7 @@ export function PlayerProvider({ children }) {
       activateLockScreenControls(player, song);
       player.play();
       recordPlayCount(song);
-      syncPlaybackStatus(player.currentStatus || {
-        isLoaded: player.isLoaded,
-        playing: player.playing,
-        didJustFinish: false,
-      });
+      syncPlaybackStatus(currentStatusFor(player));
       syncPlayerStatusSoon(player);
     } catch (error) {
       // Placeholder URLs or blocked network requests should never break browsing.
@@ -305,8 +332,12 @@ export function PlayerProvider({ children }) {
 
   function isPlayerAtEnd(player) {
     const status = player.currentStatus;
-    const statusDuration = Number.isFinite(status?.duration) ? status.duration : duration;
-    const statusTime = Number.isFinite(status?.currentTime) ? status.currentTime : currentTime;
+    const statusDuration = Number.isFinite(status?.duration)
+      ? status.duration
+      : durationRef.current;
+    const statusTime = Number.isFinite(status?.currentTime)
+      ? status.currentTime
+      : currentTimeRef.current;
     return Boolean(status?.didJustFinish || didFinish || (statusDuration > 0 && statusTime >= statusDuration - 0.35));
   }
 
@@ -319,7 +350,10 @@ export function PlayerProvider({ children }) {
 
   async function seekTo(seconds) {
     const player = soundRef.current;
-    const safeDuration = durationRef.current;
+    const statusDuration = Number.isFinite(player?.currentStatus?.duration)
+      ? player.currentStatus.duration
+      : durationRef.current;
+    const safeDuration = Math.max(0, statusDuration);
     if (!player?.seekTo || safeDuration <= 0 || !Number.isFinite(safeDuration)) return;
 
     const nextTime = clampTime(seconds);
@@ -336,11 +370,6 @@ export function PlayerProvider({ children }) {
 
   function seekBy(seconds) {
     seekTo(currentTimeRef.current + seconds);
-  }
-
-  function seekToProgress(nextProgress) {
-    if (duration <= 0 || !Number.isFinite(nextProgress)) return;
-    seekTo(duration * Math.min(Math.max(nextProgress, 0), 1));
   }
 
   async function togglePlay() {
@@ -360,7 +389,7 @@ export function PlayerProvider({ children }) {
       } else {
         if (isPlayerAtEnd(player) && player.seekTo) {
           await player.seekTo(0);
-          setCurrentTime(0);
+          setSafeCurrentTime(0);
           setDidFinish(false);
           finishHandledRef.current = false;
         }
@@ -426,10 +455,12 @@ export function PlayerProvider({ children }) {
       playNextSong,
       playPreviousSong,
       playSong,
-      progress: duration > 0 ? Math.min(currentTime / duration, 1) : 0,
+      progress:
+        duration > 0 && Number.isFinite(currentTime)
+          ? Math.min(Math.max(currentTime / duration, 0), 1)
+          : 0,
       seekBy,
       seekTo,
-      seekToProgress,
       setBackgroundPlaybackEnabled,
       togglePlay,
       toggleRepeat,

@@ -62,20 +62,18 @@ export default function PlayerScreen({ route, navigation }) {
     return Math.max(0, Math.min(value, safeDuration));
   }, [safeDuration]);
 
-  const handlePreviewChange = useCallback((nextTime, isDragging) => {
+  const handleSeekingChange = useCallback((isSeeking, nextTime) => {
     if (safeDuration <= 0 || !Number.isFinite(nextTime)) {
       setPreviewTime(null);
       return;
     }
-    setPreviewTime(isDragging ? clampSeekTime(nextTime) : null);
+    setPreviewTime(isSeeking ? clampSeekTime(nextTime) : null);
   }, [clampSeekTime, safeDuration]);
 
   const handleSeek = useCallback((nextTime) => {
     const nextPosition = clampSeekTime(nextTime);
-    setPreviewTime(nextPosition);
-    Promise.resolve(seekTo(nextPosition)).finally(() => {
-      setTimeout(() => setPreviewTime(null), 250);
-    });
+    setPreviewTime(null);
+    seekTo(nextPosition);
   }, [clampSeekTime, seekTo]);
 
   useEffect(() => {
@@ -237,8 +235,8 @@ export default function PlayerScreen({ route, navigation }) {
           <SeekBar
             currentTime={displayTime}
             duration={safeDuration}
-            onPreviewChange={handlePreviewChange}
             onSeek={handleSeek}
+            onSeekingChange={handleSeekingChange}
             disabled={safeDuration <= 0}
           />
           <View style={styles.timeRow}>

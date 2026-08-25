@@ -1,131 +1,102 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanResponder, StyleSheet, View } from "react-native";
 
 import { colors } from "../theme";
 
-const DEBUG_SEEK = false;
-
-function isValidDuration(value) {
-  return Number.isFinite(value) && value > 0;
-}
-
-function clamp(value, min, max) {
+function clamp(value, min = 0, max = 1) {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(value, max));
 }
 
+function safePositive(value) {
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function safeTime(value, duration) {
+  const nextValue = Number.isFinite(value) ? value : 0;
+  return duration > 0 ? clamp(nextValue, 0, duration) : Math.max(0, nextValue);
+}
+
 export default function SeekBar({
   currentTime = 0,
+  disabled = false,
   duration = 0,
   onSeek,
-  onPreviewChange,
-  disabled = false,
+  onSeekingChange,
 }) {
-  const trackRef = useRef(null);
-  const trackLeftRef = useRef(null);
   const trackWidthRef = useRef(0);
-  const dragValueRef = useRef(0);
+  const dragRatioRef = useRef(0);
+  const dragStartXRef = useRef(0);
+  const safeDuration = safePositive(duration);
+  const safeCurrentTime = safeTime(currentTime, safeDuration);
   const [trackWidth, setTrackWidth] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragValue, setDragValue] = useState(0);
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [dragRatio, setDragRatio] = useState(0);
 
-  const canSeek = !disabled && isValidDuration(duration) && trackWidth > 0;
-  const safeDuration = isValidDuration(duration) ? duration : 0;
-  const safeCurrentTime = clamp(currentTime, 0, safeDuration);
-  const visibleValue = isDragging ? dragValue : safeCurrentTime;
-  const progress = safeDuration > 0 ? clamp(visibleValue / safeDuration, 0, 1) : 0;
+  const canSeek = !disabled && safeDuration > 0 && trackWidth > 0;
+  const playerRatio = safeDuration > 0 ? clamp(safeCurrentTime / safeDuration) : 0;
+  const visibleRatio = isSeeking ? dragRatio : playerRatio;
 
-  const updateTrackMeasure = useCallback((callback) => {
-    if (!trackRef.current?.measureInWindow) {
-      callback?.();
-      return;
-    }
+  useEffect(() => {
+    if (isSeeking) return;
+    dragRatioRef.current = playerRatio;
+    setDragRatio(playerRatio);
+  }, [isSeeking, playerRatio]);
 
-    trackRef.current.measureInWindow((x, y, width) => {
-      if (Number.isFinite(x)) {
-        trackLeftRef.current = x;
-      }
-      if (Number.isFinite(width) && width > 0) {
-        trackWidthRef.current = width;
-        setTrackWidth(width);
-      }
-      callback?.();
-    });
+  useEffect(() => {
+    dragRatioRef.current = 0;
+    setDragRatio(0);
+    setIsSeeking(false);
+    onSeekingChange?.(false, 0);
+  }, [duration, onSeekingChange]);
+
+  const setTrackWidthFromLayout = useCallback((width) => {
+    const nextWidth = Number.isFinite(width) ? Math.max(0, width) : 0;
+    trackWidthRef.current = nextWidth;
+    setTrackWidth(nextWidth);
   }, []);
 
-  const updateTrackWidth = useCallback((width) => {
-    if (!Number.isFinite(width) || width <= 0) return;
-    trackWidthRef.current = width;
-    setTrackWidth(width);
-    requestAnimationFrame(() => updateTrackMeasure());
-  }, [updateTrackMeasure]);
+  const ratioFromLocalX = useCallback((locationX) => {
+    const width = trackWidthRef.current;
+    if (width <= 0) return 0;
+    return clamp(locationX / width);
+  }, []);
 
-  const getValueFromFingerX = useCallback(
-    (fingerX) => {
-      const left = trackLeftRef.current;
-      const width = trackWidthRef.current || trackWidth;
-      if (!canSeek || !Number.isFinite(left) || !width || safeDuration <= 0) {
-        return null;
+  const previewRatio = useCallback(
+    (ratio) => {
+      const nextRatio = clamp(ratio);
+      dragRatioRef.current = nextRatio;
+      setDragRatio(nextRatio);
+      onSeekingChange?.(true, nextRatio * safeDuration);
+      return nextRatio;
+    },
+    [onSeekingChange, safeDuration]
+  );
+
+  const previewLocalX = useCallback(
+    (locationX) => {
+      if (!canSeek) return 0;
+      return previewRatio(ratioFromLocalX(locationX));
+    },
+    [canSeek, previewRatio, ratioFromLocalX]
+  );
+
+  const finishSeek = useCallback(
+    (ratio = dragRatioRef.current) => {
+      if (!canSeek) {
+        setIsSeeking(false);
+        onSeekingChange?.(false, null);
+        return;
       }
 
-      const relativeX = fingerX - left;
-      const percentage = clamp(relativeX / width, 0, 1);
-      const seekTime = clamp(percentage * safeDuration, 0, safeDuration);
-
-      if (DEBUG_SEEK) {
-        console.log("SeekBar math:", {
-          trackLeft: left,
-          trackWidth: width,
-          fingerX,
-          relativeX,
-          percentage,
-          seekTime,
-        });
-      }
-
-      return seekTime;
+      const finalRatio = clamp(ratio);
+      const finalTime = finalRatio * safeDuration;
+      setIsSeeking(false);
+      onSeekingChange?.(false, finalTime);
+      onSeek?.(finalTime);
     },
-    [canSeek, safeDuration, trackWidth]
+    [canSeek, onSeek, onSeekingChange, safeDuration]
   );
-
-  const previewValue = useCallback(
-    (value) => {
-      const nextValue = clamp(value, 0, safeDuration);
-      dragValueRef.current = nextValue;
-      setDragValue(nextValue);
-      onPreviewChange?.(nextValue, true);
-      if (DEBUG_SEEK) console.log("Seek preview:", nextValue);
-      return nextValue;
-    },
-    [onPreviewChange, safeDuration]
-  );
-
-  const previewFingerX = useCallback(
-    (fingerX) => {
-      const nextValue = getValueFromFingerX(fingerX);
-      if (nextValue === null) return null;
-      return previewValue(nextValue);
-    },
-    [getValueFromFingerX, previewValue]
-  );
-
-  const ensureTrackMeasureThenPreview = useCallback(
-    (fingerX) => {
-      const nextValue = previewFingerX(fingerX);
-      if (nextValue !== null) return;
-      updateTrackMeasure(() => previewFingerX(fingerX));
-    },
-    [previewFingerX, updateTrackMeasure]
-  );
-
-  const finishSeek = useCallback(() => {
-    if (!canSeek) return;
-    const finalValue = clamp(dragValueRef.current, 0, safeDuration);
-    setIsDragging(false);
-    onPreviewChange?.(finalValue, false);
-    onSeek?.(finalValue);
-    if (DEBUG_SEEK) console.log("Seek release:", finalValue);
-  }, [canSeek, onPreviewChange, onSeek, safeDuration]);
 
   const panResponder = useMemo(
     () =>
@@ -134,22 +105,18 @@ export default function SeekBar({
         onMoveShouldSetPanResponder: () => canSeek,
         onPanResponderGrant: (event) => {
           if (!canSeek) return;
-          setIsDragging(true);
-          ensureTrackMeasureThenPreview(event.nativeEvent.pageX);
-          if (DEBUG_SEEK) console.log("Seek start:", event.nativeEvent.pageX);
+          setIsSeeking(true);
+          dragStartXRef.current = event.nativeEvent.locationX;
+          previewLocalX(event.nativeEvent.locationX);
         },
         onPanResponderMove: (event, gestureState) => {
           if (!canSeek) return;
-          ensureTrackMeasureThenPreview(gestureState.moveX);
+          previewLocalX(dragStartXRef.current + gestureState.dx);
         },
-        onPanResponderRelease: () => {
-          finishSeek();
-        },
-        onPanResponderTerminate: () => {
-          finishSeek();
-        },
+        onPanResponderRelease: () => finishSeek(),
+        onPanResponderTerminate: () => finishSeek(),
       }),
-    [canSeek, ensureTrackMeasureThenPreview, finishSeek]
+    [canSeek, finishSeek, previewLocalX]
   );
 
   return (
@@ -158,16 +125,15 @@ export default function SeekBar({
       style={[styles.touchArea, !canSeek && styles.disabled]}
     >
       <View
-        ref={trackRef}
-        onLayout={(event) => updateTrackWidth(event.nativeEvent.layout.width)}
+        onLayout={(event) => setTrackWidthFromLayout(event.nativeEvent.layout.width)}
         style={styles.track}
       >
-        <View style={[styles.fill, { width: `${progress * 100}%` }]} />
+        <View style={[styles.fill, { width: `${visibleRatio * 100}%` }]} />
         <View
           style={[
             styles.thumb,
             {
-              left: `${progress * 100}%`,
+              left: `${visibleRatio * 100}%`,
             },
           ]}
         />
