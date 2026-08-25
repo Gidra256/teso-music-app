@@ -1,12 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
 import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
+import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { colors } from "../theme";
 import { artworkSource } from "../utils/artwork";
 import { formatFollowers } from "../utils/format";
 
 export default function ArtistCard({ artist, onPress, compact = false }) {
+  const navigation = useNavigation();
+  const { isAuthenticated } = useAuth();
   const {
     getArtistFollowerCount,
     isArtistFollowed,
@@ -16,6 +20,25 @@ export default function ArtistCard({ artist, onPress, compact = false }) {
   const followed = isArtistFollowed(artist.id);
   const pending = isArtistFollowPending(artist.id);
   const followerCount = getArtistFollowerCount(artist);
+
+  function openProfile() {
+    const parentNavigation = navigation.getParent?.();
+    if (parentNavigation?.navigate) {
+      parentNavigation.navigate("Profile", { loginRequired: true });
+      return;
+    }
+
+    navigation.navigate("Profile", { loginRequired: true });
+  }
+
+  function handleFollowPress() {
+    if (!isAuthenticated) {
+      openProfile();
+      return;
+    }
+
+    toggleArtistFollow(artist);
+  }
 
   return (
     <TouchableOpacity style={[styles.card, compact && styles.compact]} onPress={onPress}>
@@ -28,7 +51,7 @@ export default function ArtistCard({ artist, onPress, compact = false }) {
           style={[styles.followButton, followed && styles.followedButton]}
           onPress={(event) => {
             event.stopPropagation?.();
-            toggleArtistFollow(artist);
+            handleFollowPress();
           }}
         >
           {pending ? (

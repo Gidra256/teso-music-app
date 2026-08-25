@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
@@ -13,6 +14,7 @@ import { artworkSource } from "../utils/artwork";
 import { formatFollowers } from "../utils/format";
 
 export default function ArtistDetailScreen({ route }) {
+  const navigation = useNavigation();
   const {
     followArtistAction,
     getArtistFollowerCount,
@@ -113,6 +115,11 @@ export default function ArtistDetailScreen({ route }) {
 
   async function handleFollowPress() {
     if (followPending) return;
+    if (!isAuthenticated) {
+      navigation.navigate("Profile", { loginRequired: true });
+      return;
+    }
+
     setFollowError("");
 
     try {

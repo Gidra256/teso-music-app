@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { getSong, getSongs } from "../api/musicApi";
 import AddToPlaylistModal from "../components/AddToPlaylistModal";
 import SeekBar from "../components/SeekBar";
+import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
@@ -39,6 +40,7 @@ export default function PlayerScreen({ route, navigation }) {
     toggleRepeat,
     toggleShuffle,
   } = usePlayer();
+  const { isAuthenticated } = useAuth();
   const { getSongLikeCount, isSongLiked, toggleSongLike } = useEngagement();
   const { height, width } = useWindowDimensions();
   const [previewTime, setPreviewTime] = useState(null);
@@ -120,6 +122,15 @@ export default function PlayerScreen({ route, navigation }) {
     try {
       await shareSongLink(currentSong);
     } catch (error) {}
+  }
+
+  function requireAccountAction(action) {
+    if (!isAuthenticated) {
+      navigation?.navigate("Profile", { loginRequired: true });
+      return;
+    }
+
+    action();
   }
 
   function openArtist() {
@@ -290,7 +301,7 @@ export default function PlayerScreen({ route, navigation }) {
             active={liked}
             icon={liked ? "heart" : "heart-outline"}
             label={liked ? `${formatPlays(likeCount)} likes` : "Favorite"}
-            onPress={() => toggleSongLike(currentSong)}
+            onPress={() => requireAccountAction(() => toggleSongLike(currentSong))}
           />
           <TrackAction icon="share-social-outline" label="Share" onPress={shareSong} />
           {hasArtistRoute ? (

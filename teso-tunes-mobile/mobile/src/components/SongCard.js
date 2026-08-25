@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
 import { useState } from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import AddToPlaylistModal from "./AddToPlaylistModal";
+import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
 import { colors } from "../theme";
@@ -10,6 +12,8 @@ import { artworkSource } from "../utils/artwork";
 import { formatPlays } from "../utils/format";
 
 export default function SongCard({ song, compact = false, queue = [] }) {
+  const navigation = useNavigation();
+  const { isAuthenticated } = useAuth();
   const { currentSong, isPlaying, playSong, togglePlay } = usePlayer();
   const { getSongLikeCount, isSongLiked, toggleSongLike } = useEngagement();
   const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
@@ -17,6 +21,25 @@ export default function SongCard({ song, compact = false, queue = [] }) {
   const liked = isSongLiked(song.id);
   const likeCount = getSongLikeCount(song);
   const handlePress = () => (active ? togglePlay() : playSong(song, queue));
+
+  function openProfile() {
+    const parentNavigation = navigation.getParent?.();
+    if (parentNavigation?.navigate) {
+      parentNavigation.navigate("Profile", { loginRequired: true });
+      return;
+    }
+
+    navigation.navigate("Profile", { loginRequired: true });
+  }
+
+  function handleLikePress() {
+    if (!isAuthenticated) {
+      openProfile();
+      return;
+    }
+
+    toggleSongLike(song);
+  }
 
   if (compact) {
     return (
@@ -28,7 +51,7 @@ export default function SongCard({ song, compact = false, queue = [] }) {
           style={styles.tileLikeButton}
           onPress={(event) => {
             event.stopPropagation?.();
-            toggleSongLike(song);
+            handleLikePress();
           }}
         >
           <Ionicons name={liked ? "heart" : "heart-outline"} color={liked ? colors.primary : colors.muted} size={15} />
@@ -49,7 +72,7 @@ export default function SongCard({ song, compact = false, queue = [] }) {
             style={styles.likeButton}
             onPress={(event) => {
               event.stopPropagation?.();
-              toggleSongLike(song);
+              handleLikePress();
             }}
           >
             <Ionicons name={liked ? "heart" : "heart-outline"} color={liked ? colors.primary : colors.muted} size={16} />
