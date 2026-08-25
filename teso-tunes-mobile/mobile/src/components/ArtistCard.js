@@ -1,13 +1,19 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { useEngagement } from "../context/EngagementContext";
 import { colors } from "../theme";
 import { formatFollowers } from "../utils/format";
 
 export default function ArtistCard({ artist, onPress, compact = false }) {
-  const { getArtistFollowerCount, isArtistFollowed, toggleArtistFollow } = useEngagement();
+  const {
+    getArtistFollowerCount,
+    isArtistFollowed,
+    isArtistFollowPending,
+    toggleArtistFollow,
+  } = useEngagement();
   const followed = isArtistFollowed(artist.id);
+  const pending = isArtistFollowPending(artist.id);
   const followerCount = getArtistFollowerCount(artist);
 
   return (
@@ -17,13 +23,18 @@ export default function ArtistCard({ artist, onPress, compact = false }) {
         <Text style={styles.name} numberOfLines={1}>{artist.name}</Text>
         <Text style={styles.meta} numberOfLines={1}>{formatFollowers(followerCount)}</Text>
         <TouchableOpacity
+          disabled={pending}
           style={[styles.followButton, followed && styles.followedButton]}
           onPress={(event) => {
             event.stopPropagation?.();
             toggleArtistFollow(artist);
           }}
         >
-          <Ionicons name={followed ? "checkmark" : "person-add"} color={followed ? colors.text : colors.primary} size={14} />
+          {pending ? (
+            <ActivityIndicator color={followed ? colors.softText : colors.primary} size="small" />
+          ) : (
+            <Ionicons name={followed ? "checkmark" : "person-add"} color={followed ? colors.softText : colors.primary} size={14} />
+          )}
           <Text style={[styles.followText, followed && styles.followedText]}>
             {followed ? "Following" : "Follow"}
           </Text>
@@ -76,8 +87,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   followedButton: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    borderColor: colors.border,
   },
   followText: {
     color: colors.softText,
@@ -85,6 +96,6 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   followedText: {
-    color: colors.background,
+    color: colors.softText,
   },
 });

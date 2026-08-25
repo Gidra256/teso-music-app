@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { followArtist, likeSong, unfollowArtist, unlikeSong } from "../api/musicApi";
 
@@ -36,8 +36,11 @@ export function EngagementProvider({ children }) {
   const [deviceId, setDeviceId] = useState(null);
   const [likedSongs, setLikedSongs] = useState(new Set());
   const [followedArtists, setFollowedArtists] = useState(new Set());
+  const followedArtistsRef = useRef(new Set());
+  const pendingArtistFollowIdsRef = useRef(new Set());
   const [songLikeCounts, setSongLikeCounts] = useState({});
   const [artistFollowerCounts, setArtistFollowerCounts] = useState({});
+  const [pendingArtistFollowIds, setPendingArtistFollowIds] = useState(new Set());
 
   useEffect(() => {
     async function loadEngagement() {
@@ -66,14 +69,34 @@ export function EngagementProvider({ children }) {
     loadEngagement();
   }, []);
 
+  useEffect(() => {
+    followedArtistsRef.current = followedArtists;
+  }, [followedArtists]);
+
   async function saveLikedSongs(nextSet) {
     setLikedSongs(nextSet);
     await AsyncStorage.setItem(LIKED_SONGS_KEY, JSON.stringify([...nextSet]));
   }
 
   async function saveFollowedArtists(nextSet) {
+    followedArtistsRef.current = nextSet;
     setFollowedArtists(nextSet);
     await AsyncStorage.setItem(FOLLOWED_ARTISTS_KEY, JSON.stringify([...nextSet]));
+  }
+
+  function setArtistFollowPending(id, pending) {
+    const nextPending = new Set(pendingArtistFollowIdsRef.current);
+    if (pending) {
+      nextPending.add(Number(id));
+    } else {
+      nextPending.delete(Number(id));
+    }
+    pendingArtistFollowIdsRef.current = nextPending;
+    setPendingArtistFollowIds(nextPending);
+  }
+
+  async function syncFollowedArtistIds(ids = []) {
+    await saveFollowedArtists(toIdSet(ids));
   }
 
   async function toggleSongLike(song) {
@@ -104,29 +127,81 @@ export function EngagementProvider({ children }) {
   }
 
   async function toggleArtistFollow(artist) {
+    const id = Number(artist?.id);
+    const alreadyFollowed = followedArtistsRef.current.has(id);
+
+    try {
+      return alreadyFollowed
+        ? await unfollowArtistAction(artist)
+        : await followArtistAction(artist);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  async function followArtistAction(artist) {
     if (!artist || !deviceId) return;
     const id = Number(artist.id);
-    const alreadyFollowed = followedArtists.has(id);
-    const nextFollowedArtists = new Set(followedArtists);
+    if (pendingArtistFollowIdsRef.current.has(id)) {
+      return {
+        followed: followedArtistsRef.current.has(id),
+        follower_count: getArtistFollowerCount(artist),
+        skipped: true,
+      };
+    }
 
-    if (alreadyFollowed) {
-      const optimisticCount = Math.max(0, getArtistFollowerCount(artist) - 1);
-      nextFollowedArtists.delete(id);
-      saveFollowedArtists(nextFollowedArtists);
-      setArtistFollowerCounts((counts) => updateCountMap(counts, id, optimisticCount, 0));
-      try {
-        const result = await unfollowArtist(id, deviceId);
-        setArtistFollowerCounts((counts) => updateCountMap(counts, id, result.follower_count, 0));
-      } catch (error) {}
-    } else {
-      const optimisticCount = getArtistFollowerCount(artist) + 1;
+    if (followedArtistsRef.current.has(id)) {
+      return {
+        followed: true,
+        follower_count: getArtistFollowerCount(artist),
+      };
+    }
+
+    setArtistFollowPending(id, true);
+    try {
+      const result = await followArtist(id, deviceId);
+      const nextFollowedArtists = new Set(followedArtistsRef.current);
       nextFollowedArtists.add(id);
-      saveFollowedArtists(nextFollowedArtists);
-      setArtistFollowerCounts((counts) => updateCountMap(counts, id, optimisticCount, 0));
-      try {
-        const result = await followArtist(id, deviceId);
-        setArtistFollowerCounts((counts) => updateCountMap(counts, id, result.follower_count, 0));
-      } catch (error) {}
+      await saveFollowedArtists(nextFollowedArtists);
+      setArtistFollowerCounts((counts) =>
+        updateCountMap(counts, id, result.follower_count, 1),
+      );
+      return result;
+    } finally {
+      setArtistFollowPending(id, false);
+    }
+  }
+
+  async function unfollowArtistAction(artist) {
+    if (!artist || !deviceId) return;
+    const id = Number(artist.id);
+    if (pendingArtistFollowIdsRef.current.has(id)) {
+      return {
+        followed: followedArtistsRef.current.has(id),
+        follower_count: getArtistFollowerCount(artist),
+        skipped: true,
+      };
+    }
+
+    if (!followedArtistsRef.current.has(id)) {
+      return {
+        followed: false,
+        follower_count: getArtistFollowerCount(artist),
+      };
+    }
+
+    setArtistFollowPending(id, true);
+    try {
+      const result = await unfollowArtist(id, deviceId);
+      const nextFollowedArtists = new Set(followedArtistsRef.current);
+      nextFollowedArtists.delete(id);
+      await saveFollowedArtists(nextFollowedArtists);
+      setArtistFollowerCounts((counts) =>
+        updateCountMap(counts, id, result.follower_count, -1),
+      );
+      return result;
+    } finally {
+      setArtistFollowPending(id, false);
     }
   }
 
@@ -144,15 +219,26 @@ export function EngagementProvider({ children }) {
     () => ({
       deviceId,
       followedArtistIds: [...followedArtists],
+      followArtistAction,
       getArtistFollowerCount,
       getSongLikeCount,
       isArtistFollowed: (id) => followedArtists.has(Number(id)),
+      isArtistFollowPending: (id) => pendingArtistFollowIds.has(Number(id)),
       isSongLiked: (id) => likedSongs.has(Number(id)),
       likedSongIds: [...likedSongs],
+      syncFollowedArtistIds,
       toggleArtistFollow,
       toggleSongLike,
+      unfollowArtistAction,
     }),
-    [deviceId, followedArtists, likedSongs, songLikeCounts, artistFollowerCounts]
+    [
+      deviceId,
+      followedArtists,
+      likedSongs,
+      pendingArtistFollowIds,
+      songLikeCounts,
+      artistFollowerCounts,
+    ]
   );
 
   return <EngagementContext.Provider value={value}>{children}</EngagementContext.Provider>;
