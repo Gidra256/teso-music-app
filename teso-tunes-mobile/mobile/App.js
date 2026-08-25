@@ -15,12 +15,15 @@ import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { EngagementProvider } from "./src/context/EngagementContext";
 import { PlayerProvider } from "./src/context/PlayerContext";
 import ArtistDetailScreen from "./src/screens/ArtistDetailScreen";
+import ArtistApplicationScreen from "./src/screens/ArtistApplicationScreen";
+import ArtistStudioScreen from "./src/screens/ArtistStudioScreen";
 import ArtistsScreen from "./src/screens/ArtistsScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import SearchScreen from "./src/screens/SearchScreen";
 import SongsScreen from "./src/screens/SongsScreen";
 import PlayerScreen from "./src/screens/PlayerScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
+import ReleaseUploadScreen from "./src/screens/ReleaseUploadScreen";
 import { colors } from "./src/theme";
 
 const Tab = createBottomTabNavigator();
@@ -41,6 +44,9 @@ const linking = {
         },
       },
       Profile: "profile",
+      ArtistApplication: "artist-application",
+      ArtistStudio: "artist-studio",
+      ReleaseUpload: "artist-studio/upload",
       Player: "song/:id",
       ArtistDetail: "artist/:id",
     },
@@ -219,6 +225,21 @@ function AppNavigator() {
             <Stack.Screen
               name="Profile"
               component={ProfileScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="ArtistApplication"
+              component={ArtistApplicationScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="ArtistStudio"
+              component={ArtistStudioScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="ReleaseUpload"
+              component={ReleaseUploadScreen}
               options={{ headerShown: false }}
             />
             <Stack.Screen

@@ -11,8 +11,8 @@
         --card: #18181b;
         --elevated: #222226;
         --border: #2a2a31;
-        --orange: #f97316;
-        --yellow: #facc15;
+        --orange: #20e6f3;
+        --yellow: #f427c8;
         --text: #ffffff;
         --soft: #d4d4d8;
         --muted: #8a8a93;
@@ -196,6 +196,41 @@
         font-weight: 900;
       }
 
+      .details {
+        color: var(--soft);
+        font-size: 13px;
+        line-height: 1.55;
+        margin-top: 8px;
+      }
+
+      .badge {
+        background: rgba(32, 230, 243, 0.12);
+        border: 1px solid rgba(32, 230, 243, 0.28);
+        border-radius: 999px;
+        color: var(--orange);
+        display: inline-flex;
+        font-size: 12px;
+        font-weight: 900;
+        padding: 4px 8px;
+        text-transform: uppercase;
+      }
+
+      .wide-item {
+        align-items: flex-start;
+        grid-template-columns: 84px minmax(0, 1fr) auto;
+      }
+
+      .wide-item .thumb {
+        height: 84px;
+        width: 84px;
+      }
+
+      audio {
+        margin-top: 10px;
+        max-width: 100%;
+        width: 360px;
+      }
+
       .meta {
         color: var(--muted);
         font-size: 13px;
@@ -257,24 +292,30 @@
         <div class="topbar">
           <div>
             <h1>Teso Tunes Admin</h1>
-            <p class="subtitle">Admin-curated music library</p>
+            <p class="subtitle">Admin-curated music library and artist moderation</p>
           </div>
           <div class="tabs">
             <button id="songsTab" class="active" type="button">Songs</button>
             <button id="artistsTab" type="button">Artists</button>
+            <button id="applicationsTab" type="button">Applications</button>
+            <button id="releasesTab" type="button">Releases</button>
             <button id="logoutButton" class="secondary" type="button">Logout</button>
           </div>
         </div>
         <p id="status" class="status"></p>
         <div id="songsView"></div>
         <div id="artistsView" class="hidden"></div>
+        <div id="applicationsView" class="hidden"></div>
+        <div id="releasesView" class="hidden"></div>
       </section>
     </main>
 
     <script>
       const categories = ["Rappers", "Other Secular Artists", "Gospel Artists"];
       let token = localStorage.getItem("tesoAdminToken") || "";
+      let applications = [];
       let artists = [];
+      let releases = [];
       let songs = [];
       let activeTab = "songs";
       let editingArtistId = null;
@@ -286,8 +327,12 @@
       const loginStatusEl = document.getElementById("loginStatus");
       const songsView = document.getElementById("songsView");
       const artistsView = document.getElementById("artistsView");
+      const applicationsView = document.getElementById("applicationsView");
+      const releasesView = document.getElementById("releasesView");
       const songsTab = document.getElementById("songsTab");
       const artistsTab = document.getElementById("artistsTab");
+      const applicationsTab = document.getElementById("applicationsTab");
+      const releasesTab = document.getElementById("releasesTab");
 
       function setStatus(message) {
         statusEl.textContent = message || "";
@@ -317,9 +362,11 @@
 
       async function loadData() {
         if (!token) return;
-        [artists, songs] = await Promise.all([
+        [artists, songs, applications, releases] = await Promise.all([
           api("/admin-api/artists"),
           api("/admin-api/songs"),
+          api("/admin-api/artist-applications"),
+          api("/admin-api/releases"),
         ]);
         render();
       }
@@ -338,8 +385,12 @@
         activeTab = tab;
         songsTab.classList.toggle("active", tab === "songs");
         artistsTab.classList.toggle("active", tab === "artists");
+        applicationsTab.classList.toggle("active", tab === "applications");
+        releasesTab.classList.toggle("active", tab === "releases");
         songsView.classList.toggle("hidden", tab !== "songs");
         artistsView.classList.toggle("hidden", tab !== "artists");
+        applicationsView.classList.toggle("hidden", tab !== "applications");
+        releasesView.classList.toggle("hidden", tab !== "releases");
         render();
       }
 
@@ -503,6 +554,126 @@
         });
       }
 
+      function formatDate(value) {
+        if (!value) return "No date";
+        return String(value).slice(0, 10);
+      }
+
+      function applicationActions(application) {
+        if (application.status !== "pending" && application.status !== "changes_requested") {
+          return "";
+        }
+
+        return `
+          <button class="approve-application" data-id="${application.id}" type="button">Approve</button>
+          <button class="secondary changes-application" data-id="${application.id}" type="button">Request changes</button>
+          <button class="danger reject-application" data-id="${application.id}" type="button">Reject</button>
+        `;
+      }
+
+      function renderApplications() {
+        applicationsView.innerHTML = `
+          <section class="panel list">
+            <h2>Artist Applications</h2>
+            ${applications.length ? "" : '<p class="subtitle">No artist applications yet.</p>'}
+            ${applications
+              .map(
+                (application) => `
+                  <div class="item wide-item">
+                    <img class="thumb" src="${escapeHtml(application.photo)}" alt="" />
+                    <div>
+                      <div class="item-title">${escapeHtml(application.artist_name)}</div>
+                      <div class="meta">
+                        ${escapeHtml(application.applicant?.name || "Listener")} -
+                        ${escapeHtml(application.genre || "Music")} -
+                        ${escapeHtml(application.country || "Country")}${application.region ? `, ${escapeHtml(application.region)}` : ""}
+                      </div>
+                      <div class="details">
+                        <span class="badge">${escapeHtml(application.status)}</span><br />
+                        Contact: ${escapeHtml(application.contact_name)} -
+                        ${escapeHtml(application.email)} -
+                        ${escapeHtml(application.phone)}<br />
+                        Applied: ${formatDate(application.created_at)}<br />
+                        ${escapeHtml(application.bio)}
+                        ${application.social_link ? `<br />Social: ${escapeHtml(application.social_link)}` : ""}
+                        ${application.rejection_reason || application.review_reason ? `<br />Reason: ${escapeHtml(application.rejection_reason || application.review_reason)}` : ""}
+                      </div>
+                    </div>
+                    <div class="actions">${applicationActions(application)}</div>
+                  </div>`
+              )
+              .join("")}
+          </section>
+        `;
+
+        document.querySelectorAll(".approve-application").forEach((button) => {
+          button.addEventListener("click", () => approveApplication(Number(button.dataset.id)));
+        });
+        document.querySelectorAll(".changes-application").forEach((button) => {
+          button.addEventListener("click", () => requestApplicationChanges(Number(button.dataset.id)));
+        });
+        document.querySelectorAll(".reject-application").forEach((button) => {
+          button.addEventListener("click", () => rejectApplication(Number(button.dataset.id)));
+        });
+      }
+
+      function releaseActions(release) {
+        if (release.status !== "under_review" && release.status !== "scheduled") {
+          return "";
+        }
+
+        return `
+          <button class="approve-release" data-id="${release.id}" type="button">Approve</button>
+          <button class="danger reject-release" data-id="${release.id}" type="button">Reject</button>
+        `;
+      }
+
+      function renderReleases() {
+        releasesView.innerHTML = `
+          <section class="panel list">
+            <h2>Release Review</h2>
+            ${releases.length ? "" : '<p class="subtitle">No releases have been uploaded yet.</p>'}
+            ${releases
+              .map(
+                (release) => `
+                  <div class="item wide-item">
+                    <img class="thumb" src="${escapeHtml(release.cover_image)}" alt="" />
+                    <div>
+                      <div class="item-title">${escapeHtml(release.title || "Untitled release")}</div>
+                      <div class="meta">
+                        ${escapeHtml(release.artist_name || "Artist")} -
+                        ${escapeHtml(release.genre || "Genre")} -
+                        ${escapeHtml(release.release_date || "No release date")}
+                      </div>
+                      <div class="details">
+                        <span class="badge">${escapeHtml(release.status)}</span><br />
+                        Type: ${escapeHtml(release.release_type || "Single")} -
+                        Language: ${escapeHtml(release.language || "Not set")} -
+                        Explicit: ${release.explicit ? "Yes" : "No"}<br />
+                        Rights confirmed: ${release.rights_confirmed ? "Yes" : "No"}<br />
+                        ${release.featured_artist ? `Featured: ${escapeHtml(release.featured_artist)}<br />` : ""}
+                        ${release.producer ? `Producer: ${escapeHtml(release.producer)}<br />` : ""}
+                        ${release.songwriter ? `Songwriter: ${escapeHtml(release.songwriter)}<br />` : ""}
+                        ${release.description ? `${escapeHtml(release.description)}<br />` : ""}
+                        ${release.rejection_reason ? `Reason: ${escapeHtml(release.rejection_reason)}<br />` : ""}
+                        ${release.audio_file ? `<audio controls src="${escapeHtml(release.audio_file)}"></audio>` : "No audio file uploaded."}
+                      </div>
+                    </div>
+                    <div class="actions">${releaseActions(release)}</div>
+                  </div>`
+              )
+              .join("")}
+          </section>
+        `;
+
+        document.querySelectorAll(".approve-release").forEach((button) => {
+          button.addEventListener("click", () => approveRelease(Number(button.dataset.id)));
+        });
+        document.querySelectorAll(".reject-release").forEach((button) => {
+          button.addEventListener("click", () => rejectRelease(Number(button.dataset.id)));
+        });
+      }
+
       function render() {
         if (!token) {
           showLogin();
@@ -511,6 +682,8 @@
         showAdmin();
         if (activeTab === "songs") renderSongs();
         if (activeTab === "artists") renderArtists();
+        if (activeTab === "applications") renderApplications();
+        if (activeTab === "releases") renderReleases();
       }
 
       async function saveArtist(event) {
@@ -567,6 +740,84 @@
         }
       }
 
+      async function approveApplication(id) {
+        if (!confirm("Approve this artist application?")) return;
+        try {
+          setStatus("Approving artist...");
+          await api(`/admin-api/artist-applications/${id}/approve`, {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          await loadData();
+          setStatus("Artist application approved.");
+        } catch (error) {
+          setStatus(error.message);
+        }
+      }
+
+      async function requestApplicationChanges(id) {
+        const reason = prompt("What should the applicant change?");
+        if (!reason) return;
+        try {
+          setStatus("Requesting changes...");
+          await api(`/admin-api/artist-applications/${id}/request-changes`, {
+            method: "POST",
+            body: JSON.stringify({ reason }),
+          });
+          await loadData();
+          setStatus("Changes requested.");
+        } catch (error) {
+          setStatus(error.message);
+        }
+      }
+
+      async function rejectApplication(id) {
+        const reason = prompt("Why is this application rejected?");
+        if (!reason) return;
+        try {
+          setStatus("Rejecting application...");
+          await api(`/admin-api/artist-applications/${id}/reject`, {
+            method: "POST",
+            body: JSON.stringify({ reason }),
+          });
+          await loadData();
+          setStatus("Artist application rejected.");
+        } catch (error) {
+          setStatus(error.message);
+        }
+      }
+
+      async function approveRelease(id) {
+        if (!confirm("Approve this release?")) return;
+        try {
+          setStatus("Approving release...");
+          await api(`/admin-api/releases/${id}/approve`, {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          await loadData();
+          setStatus("Release approved.");
+        } catch (error) {
+          setStatus(error.message);
+        }
+      }
+
+      async function rejectRelease(id) {
+        const reason = prompt("Why is this release rejected?");
+        if (!reason) return;
+        try {
+          setStatus("Rejecting release...");
+          await api(`/admin-api/releases/${id}/reject`, {
+            method: "POST",
+            body: JSON.stringify({ reason }),
+          });
+          await loadData();
+          setStatus("Release rejected.");
+        } catch (error) {
+          setStatus(error.message);
+        }
+      }
+
       document.getElementById("loginForm").addEventListener("submit", async (event) => {
         event.preventDefault();
         loginStatusEl.textContent = "Signing in...";
@@ -589,6 +840,8 @@
 
       songsTab.addEventListener("click", () => switchTab("songs"));
       artistsTab.addEventListener("click", () => switchTab("artists"));
+      applicationsTab.addEventListener("click", () => switchTab("applications"));
+      releasesTab.addEventListener("click", () => switchTab("releases"));
       document.getElementById("logoutButton").addEventListener("click", () => {
         token = "";
         localStorage.removeItem("tesoAdminToken");

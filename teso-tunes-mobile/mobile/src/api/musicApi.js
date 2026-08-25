@@ -120,6 +120,53 @@ export async function logoutListenerAccount() {
   });
 }
 
+export async function getMyArtistApplication() {
+  return fetchJson("/artist-applications/me/");
+}
+
+export async function submitArtistApplication(formData) {
+  return fetchJson("/artist-applications/", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function getArtistStudioDashboard() {
+  return fetchJson("/artist-studio/dashboard/");
+}
+
+export async function getArtistStudioReleases(status = "") {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return fetchJson(`/artist-studio/releases/${query}`);
+}
+
+export async function createArtistStudioRelease(formData) {
+  return fetchJson("/artist-studio/releases/", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function updateArtistStudioRelease(id, formData) {
+  return fetchJson(`/artist-studio/releases/${id}/`, {
+    method: "PUT",
+    body: formData,
+  });
+}
+
+export async function submitArtistStudioRelease(id) {
+  return fetchJson(`/artist-studio/releases/${id}/submit/`, {
+    method: "POST",
+  });
+}
+
+export async function updateArtistStudioProfile(formData) {
+  return fetchJson("/artist-studio/profile/", {
+    method: "PUT",
+    body: formData,
+  });
+}
+
 export async function getArtists() {
   try {
     return await fetchJson("/artists/");

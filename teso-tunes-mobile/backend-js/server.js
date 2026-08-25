@@ -34,6 +34,28 @@ app.get("/healthz", (req, res) => {
   res.json({ status: "ok", service: "teso-tunes-api" });
 });
 
+const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
+const AUDIO_EXTENSIONS = new Set([
+  ".aac",
+  ".flac",
+  ".m4a",
+  ".mp3",
+  ".ogg",
+  ".opus",
+  ".wav",
+  ".webm",
+]);
+const IMAGE_EXTENSIONS = new Set([".jpeg", ".jpg", ".png", ".webp"]);
+const LISTENER_ROLES = new Set(["listener", "artist_pending", "artist"]);
+const RELEASE_STATUSES = new Set([
+  "draft",
+  "under_review",
+  "approved",
+  "rejected",
+  "scheduled",
+  "published",
+]);
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: async (req, file, cb) => {
@@ -51,6 +73,30 @@ const upload = multer({
       cb(null, `${Date.now()}-${safeName || "upload"}${extension}`);
     },
   }),
+  limits: {
+    fileSize: MAX_UPLOAD_BYTES,
+    files: 4,
+  },
+  fileFilter: (req, file, cb) => {
+    const extension = path.extname(file.originalname || "").toLowerCase();
+    const mime = String(file.mimetype || "").toLowerCase();
+
+    if (file.fieldname === "audio_upload") {
+      if (AUDIO_EXTENSIONS.has(extension) || mime.startsWith("audio/")) {
+        return cb(null, true);
+      }
+      return cb(new Error("Upload a valid audio file."));
+    }
+
+    if (file.fieldname === "photo_file" || file.fieldname === "cover_upload") {
+      if (IMAGE_EXTENSIONS.has(extension) || mime.startsWith("image/")) {
+        return cb(null, true);
+      }
+      return cb(new Error("Upload a valid image file."));
+    }
+
+    return cb(new Error("Unsupported upload field."));
+  },
 });
 
 function uploadFolderFor(fieldname) {
@@ -135,9 +181,13 @@ function seedDb() {
     authTokens: [],
     songLikes: [],
     artistFollows: [],
+    artistApplications: [],
+    releases: [],
     nextIds: {
       artist: artists.length + 1,
+      artistApplication: 1,
       listener: 1,
+      release: 1,
       song: songs.length + 1,
     },
   };
@@ -150,6 +200,25 @@ function normalizeDb(db) {
   db.authTokens = Array.isArray(db.authTokens) ? db.authTokens : [];
   db.songLikes = Array.isArray(db.songLikes) ? db.songLikes : [];
   db.artistFollows = Array.isArray(db.artistFollows) ? db.artistFollows : [];
+  db.artistApplications = Array.isArray(db.artistApplications)
+    ? db.artistApplications
+    : [];
+  db.releases = Array.isArray(db.releases) ? db.releases : [];
+  db.listeners = db.listeners.map((listener) => ({
+    ...listener,
+    role: LISTENER_ROLES.has(listener.role) ? listener.role : "listener",
+    artist_id: listener.artist_id ? Number(listener.artist_id) : null,
+    artist_application_id: listener.artist_application_id
+      ? Number(listener.artist_application_id)
+      : null,
+  }));
+  db.releases = db.releases.map((release) => ({
+    ...release,
+    status: RELEASE_STATUSES.has(release.status) ? release.status : "draft",
+    artist: release.artist ? Number(release.artist) : null,
+    listener: release.listener ? Number(release.listener) : null,
+    public_song: release.public_song ? Number(release.public_song) : null,
+  }));
   db.nextIds = db.nextIds || {};
   db.nextIds.artist = Math.max(
     Number(db.nextIds.artist || 1),
@@ -159,6 +228,14 @@ function normalizeDb(db) {
   db.nextIds.listener = Math.max(
     Number(db.nextIds.listener || 1),
     maxNextId(db.listeners),
+  );
+  db.nextIds.artistApplication = Math.max(
+    Number(db.nextIds.artistApplication || 1),
+    maxNextId(db.artistApplications),
+  );
+  db.nextIds.release = Math.max(
+    Number(db.nextIds.release || 1),
+    maxNextId(db.releases),
   );
   return db;
 }
@@ -229,6 +306,173 @@ function serializeArtist(db, req, artist, includeSongs = false) {
   }
 
   return serialized;
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isFutureReleaseDate(value) {
+  const releaseDate = cleanText(value);
+  if (!releaseDate) return false;
+  return releaseDate > todayKey();
+}
+
+function latestApplicationForListener(db, listenerId) {
+  return [...db.artistApplications]
+    .filter((application) => Number(application.listener) === Number(listenerId))
+    .sort((first, second) => Number(second.id) - Number(first.id))[0];
+}
+
+function publicListener(listener) {
+  if (!listener) return null;
+  return {
+    id: listener.id,
+    name: listener.name || "",
+    email: listener.email || "",
+    phone: listener.phone || "",
+    role: listener.role || "listener",
+  };
+}
+
+function serializeArtistApplication(db, req, application) {
+  const listener = db.listeners.find(
+    (item) => Number(item.id) === Number(application.listener),
+  );
+  const artist = application.artist
+    ? db.artists.find((item) => Number(item.id) === Number(application.artist))
+    : null;
+
+  return {
+    id: application.id,
+    listener: application.listener,
+    applicant: publicListener(listener),
+    artist: artist ? serializeArtist(db, req, artist) : null,
+    artist_name: application.artist_name || "",
+    contact_name: application.contact_name || "",
+    bio: application.bio || "",
+    country: application.country || "",
+    region: application.region || "",
+    genre: application.genre || "",
+    phone: application.phone || "",
+    email: application.email || "",
+    photo: absoluteUrl(req, application.photo),
+    social_link: application.social_link || "",
+    genuine_confirmed: Boolean(application.genuine_confirmed),
+    status: application.status || "pending",
+    review_reason: application.review_reason || "",
+    rejection_reason: application.rejection_reason || "",
+    created_at: application.created_at,
+    updated_at: application.updated_at,
+    reviewed_at: application.reviewed_at || null,
+  };
+}
+
+function serializeCompactArtistApplication(application) {
+  if (!application) return null;
+  return {
+    id: application.id,
+    artist_name: application.artist_name || "",
+    status: application.status || "pending",
+    review_reason: application.review_reason || "",
+    rejection_reason: application.rejection_reason || "",
+    created_at: application.created_at,
+    updated_at: application.updated_at,
+    reviewed_at: application.reviewed_at || null,
+  };
+}
+
+function serializeRelease(db, req, release) {
+  const artist = db.artists.find(
+    (item) => Number(item.id) === Number(release.artist),
+  );
+  const listener = db.listeners.find(
+    (item) => Number(item.id) === Number(release.listener),
+  );
+  const publicSong = release.public_song
+    ? db.songs.find((song) => Number(song.id) === Number(release.public_song))
+    : null;
+
+  return {
+    id: release.id,
+    artist: release.artist,
+    artist_name: artist?.name || "",
+    artist_profile: artist ? serializeArtist(db, req, artist) : null,
+    listener: publicListener(listener),
+    title: release.title || "",
+    release_type: release.release_type || "Single",
+    featured_artist: release.featured_artist || "",
+    genre: release.genre || "",
+    language: release.language || "",
+    release_date: release.release_date || "",
+    explicit: Boolean(release.explicit),
+    producer: release.producer || "",
+    songwriter: release.songwriter || "",
+    description: release.description || "",
+    rights_confirmed: Boolean(release.rights_confirmed),
+    audio_file: absoluteUrl(req, release.audio_file),
+    cover_image: absoluteUrl(req, release.cover_image),
+    status: release.status || "draft",
+    rejection_reason: release.rejection_reason || "",
+    review_reason: release.review_reason || "",
+    public_song: publicSong ? serializeSong(db, req, publicSong) : null,
+    submitted_at: release.submitted_at || null,
+    approved_at: release.approved_at || null,
+    published_at: release.published_at || null,
+    created_at: release.created_at,
+    updated_at: release.updated_at,
+  };
+}
+
+function publishRelease(db, release) {
+  if (!release) return false;
+
+  if (release.public_song) {
+    release.status = "published";
+    release.published_at = release.published_at || new Date().toISOString();
+    release.updated_at = release.updated_at || release.published_at;
+    return false;
+  }
+
+  const now = new Date().toISOString();
+  const song = {
+    id: db.nextIds.song++,
+    artist: Number(release.artist),
+    title: release.title || "Untitled Song",
+    audio_file: release.audio_file || "",
+    cover_image: release.cover_image || "",
+    genre: release.genre || "",
+    lyrics: "",
+    play_count: 0,
+    release_date: release.release_date || "",
+    is_featured: false,
+    source_release_id: release.id,
+    created_at: now,
+  };
+  db.songs.push(song);
+  release.public_song = song.id;
+  release.status = "published";
+  release.published_at = now;
+  release.updated_at = now;
+  return true;
+}
+
+function publishDueReleases(db) {
+  let changed = false;
+  for (const release of db.releases) {
+    if (release.status === "scheduled" && !isFutureReleaseDate(release.release_date)) {
+      changed = publishRelease(db, release) || changed;
+    }
+  }
+  return changed;
+}
+
+async function loadDbWithPublishedReleases() {
+  const db = await loadDb();
+  if (publishDueReleases(db)) {
+    await saveDb(db);
+  }
+  return db;
 }
 
 function makeHubSearchDocuments(db, req) {
@@ -335,7 +579,37 @@ function requireAdmin(req, res, next) {
   if (token !== ADMIN_TOKEN) {
     return res.status(401).json({ detail: "Admin login required." });
   }
+  req.adminUser = { role: "admin", username: ADMIN_USERNAME };
   next();
+}
+
+function requireListener(db, req, res) {
+  const listener = findListenerByToken(db, req);
+  if (!listener) {
+    res.status(401).json({ detail: "Login required." });
+    return null;
+  }
+  return listener;
+}
+
+function requireArtist(db, req, res) {
+  const listener = requireListener(db, req, res);
+  if (!listener) return null;
+
+  if (listener.role !== "artist" || !listener.artist_id) {
+    res.status(403).json({ detail: "Approved artist account required." });
+    return null;
+  }
+
+  const artist = db.artists.find(
+    (item) => Number(item.id) === Number(listener.artist_id),
+  );
+  if (!artist) {
+    res.status(403).json({ detail: "Artist profile is not linked." });
+    return null;
+  }
+
+  return { listener, artist };
 }
 
 function boolValue(value) {
@@ -419,6 +693,7 @@ function findListenerByIdentifier(db, identifier) {
 }
 
 function serializeListener(db, listener) {
+  const latestApplication = latestApplicationForListener(db, listener.id);
   const likedSongIds = db.songLikes
     .filter((like) => Number(like.listener) === Number(listener.id))
     .map((like) => Number(like.song));
@@ -431,6 +706,9 @@ function serializeListener(db, listener) {
     name: listener.name,
     email: listener.email || "",
     phone: listener.phone || "",
+    role: listener.role || "listener",
+    artist_id: listener.artist_id || null,
+    artist_application: serializeCompactArtistApplication(latestApplication),
     liked_song_ids: [...new Set(likedSongIds)],
     followed_artist_ids: [...new Set(followedArtistIds)],
     created_at: listener.created_at,
@@ -457,6 +735,113 @@ function authResponse(db, listener, token) {
     token,
     listener: serializeListener(db, listener),
   };
+}
+
+function applicationPayload(req) {
+  return {
+    artist_name: cleanText(req.body?.artist_name),
+    contact_name: cleanText(req.body?.contact_name),
+    bio: cleanText(req.body?.bio),
+    country: cleanText(req.body?.country),
+    region: cleanText(req.body?.region),
+    genre: cleanText(req.body?.genre),
+    phone: normalizePhone(req.body?.phone),
+    email: normalizeEmail(req.body?.email),
+    social_link: cleanText(req.body?.social_link),
+    genuine_confirmed: boolValue(req.body?.genuine_confirmed),
+  };
+}
+
+function validateArtistApplication(payload, hasPhoto) {
+  if (payload.artist_name.length < 2) return "Enter your artist/stage name.";
+  if (payload.contact_name.length < 2) return "Enter your real/contact name.";
+  if (payload.bio.length < 20) return "Write a short artist biography.";
+  if (!payload.country) return "Enter your country.";
+  if (!payload.region) return "Enter your region/location.";
+  if (!payload.genre) return "Enter your primary genre.";
+  if (!payload.phone) return "Enter your phone number.";
+  if (!payload.email) return "Enter your email address.";
+  if (!hasPhoto) return "Upload a profile photo.";
+  if (!payload.genuine_confirmed) {
+    return "Confirm that the submitted information is genuine.";
+  }
+  return "";
+}
+
+function releasePayload(req) {
+  return {
+    title: cleanText(req.body?.title),
+    release_type: cleanText(req.body?.release_type) || "Single",
+    featured_artist: cleanText(req.body?.featured_artist),
+    genre: cleanText(req.body?.genre),
+    language: cleanText(req.body?.language),
+    release_date: cleanText(req.body?.release_date),
+    explicit: boolValue(req.body?.explicit),
+    producer: cleanText(req.body?.producer),
+    songwriter: cleanText(req.body?.songwriter),
+    description: cleanText(req.body?.description),
+    rights_confirmed: boolValue(req.body?.rights_confirmed),
+  };
+}
+
+function assignReleasePayload(release, payload) {
+  for (const [key, value] of Object.entries(payload)) {
+    release[key] = value;
+  }
+}
+
+function validateReleaseForSubmit(release) {
+  if (!cleanText(release.title)) return "Enter the song title.";
+  if (!release.audio_file) return "Upload an audio file.";
+  if (!release.cover_image) return "Upload cover artwork.";
+  if (!cleanText(release.genre)) return "Enter the genre.";
+  if (!cleanText(release.language)) return "Enter the language.";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanText(release.release_date))) {
+    return "Choose a valid release date.";
+  }
+  if (!release.rights_confirmed) {
+    return "Confirm that you own or control the rights.";
+  }
+  return "";
+}
+
+function releaseCanBeEdited(release) {
+  return release.status === "draft" || release.status === "rejected";
+}
+
+function submitReleaseForReview(release) {
+  const now = new Date().toISOString();
+  release.status = "under_review";
+  release.submitted_at = now;
+  release.rejection_reason = "";
+  release.review_reason = "";
+  release.updated_at = now;
+}
+
+function createArtistFromApplication(db, application) {
+  const now = new Date().toISOString();
+  const existingArtist = application.artist
+    ? db.artists.find((artist) => Number(artist.id) === Number(application.artist))
+    : null;
+  if (existingArtist) return existingArtist;
+
+  const location = [application.region, application.country]
+    .filter(Boolean)
+    .join(", ");
+  const artist = {
+    id: db.nextIds.artist++,
+    name: application.artist_name,
+    category: application.genre || "Other Secular Artists",
+    bio: application.bio || "",
+    photo: application.photo || "",
+    location,
+    is_featured: false,
+    owner_listener: application.listener,
+    source_application_id: application.id,
+    created_at: now,
+  };
+  db.artists.push(artist);
+  return artist;
 }
 
 app.get("/", (req, res) => {
@@ -496,6 +881,9 @@ app.post("/api/auth/register/", async (req, res) => {
     email,
     phone,
     password_hash: hashPassword(password),
+    role: "listener",
+    artist_id: null,
+    artist_application_id: null,
     created_at: now,
     updated_at: now,
   };
@@ -578,8 +966,270 @@ app.post("/api/auth/logout/", async (req, res) => {
   res.json({ logged_out: true });
 });
 
-app.get("/api/artists/", async (req, res) => {
+app.get("/api/artist-applications/me/", async (req, res) => {
   const db = await loadDb();
+  const listener = requireListener(db, req, res);
+  if (!listener) return;
+
+  const application = latestApplicationForListener(db, listener.id);
+  res.json({
+    application: application
+      ? serializeArtistApplication(db, req, application)
+      : null,
+    listener: serializeListener(db, listener),
+  });
+});
+
+app.post(
+  "/api/artist-applications/",
+  upload.single("photo_file"),
+  async (req, res) => {
+    const db = await loadDb();
+    const listener = requireListener(db, req, res);
+    if (!listener) return;
+
+    if (listener.role === "artist") {
+      return res.status(409).json({ detail: "This account is already an artist." });
+    }
+    if (listener.role === "artist_pending") {
+      return res.status(409).json({ detail: "Your application is already under review." });
+    }
+
+    const latestApplication = latestApplicationForListener(db, listener.id);
+    if (latestApplication?.status === "pending") {
+      listener.role = "artist_pending";
+      listener.artist_application_id = latestApplication.id;
+      await saveDb(db);
+      return res.status(409).json({ detail: "Your application is already under review." });
+    }
+
+    const payload = applicationPayload(req);
+    const validationError = validateArtistApplication(payload, Boolean(req.file));
+    if (validationError) {
+      return res.status(400).json({ detail: validationError });
+    }
+
+    const now = new Date().toISOString();
+    const application = {
+      id: db.nextIds.artistApplication++,
+      listener: listener.id,
+      ...payload,
+      photo: uploadUrlFor(req.file),
+      status: "pending",
+      review_reason: "",
+      rejection_reason: "",
+      artist: null,
+      created_at: now,
+      updated_at: now,
+      reviewed_at: null,
+      reviewed_by: "",
+    };
+    db.artistApplications.push(application);
+    listener.role = "artist_pending";
+    listener.artist_application_id = application.id;
+    listener.updated_at = now;
+    await saveDb(db);
+    res.status(201).json({
+      application: serializeArtistApplication(db, req, application),
+      listener: serializeListener(db, listener),
+    });
+  },
+);
+
+app.get("/api/artist-studio/dashboard/", async (req, res) => {
+  const db = await loadDbWithPublishedReleases();
+  const account = requireArtist(db, req, res);
+  if (!account) return;
+
+  const releases = db.releases.filter(
+    (release) => Number(release.artist) === Number(account.artist.id),
+  );
+  const publicSongs = db.songs.filter(
+    (song) => Number(song.artist) === Number(account.artist.id),
+  );
+  const sortedReleases = [...releases].sort((first, second) =>
+    String(second.created_at || "").localeCompare(String(first.created_at || "")),
+  );
+
+  res.json({
+    artist: serializeArtist(db, req, account.artist),
+    follower_count: followerCount(db, account.artist.id),
+    total_releases: releases.length,
+    published_releases: releases.filter((release) => release.status === "published")
+      .length,
+    total_plays: publicSongs.reduce(
+      (total, song) => total + numberOrZero(song.play_count),
+      0,
+    ),
+    latest_release: sortedReleases[0]
+      ? serializeRelease(db, req, sortedReleases[0])
+      : null,
+  });
+});
+
+app.get("/api/artist-studio/releases/", async (req, res) => {
+  const db = await loadDbWithPublishedReleases();
+  const account = requireArtist(db, req, res);
+  if (!account) return;
+
+  const status = cleanText(req.query?.status);
+  const releases = db.releases
+    .filter((release) => Number(release.artist) === Number(account.artist.id))
+    .filter((release) => !status || release.status === status)
+    .sort((first, second) =>
+      String(second.created_at || "").localeCompare(String(first.created_at || "")),
+    );
+
+  res.json(releases.map((release) => serializeRelease(db, req, release)));
+});
+
+app.post(
+  "/api/artist-studio/releases/",
+  upload.fields([
+    { name: "audio_upload", maxCount: 1 },
+    { name: "cover_upload", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    const db = await loadDb();
+    const account = requireArtist(db, req, res);
+    if (!account) return;
+
+    const now = new Date().toISOString();
+    const release = {
+      id: db.nextIds.release++,
+      artist: account.artist.id,
+      listener: account.listener.id,
+      title: "",
+      release_type: "Single",
+      featured_artist: "",
+      genre: "",
+      language: "",
+      release_date: "",
+      explicit: false,
+      producer: "",
+      songwriter: "",
+      description: "",
+      rights_confirmed: false,
+      audio_file: uploadUrlFor(req.files?.audio_upload?.[0]),
+      cover_image: uploadUrlFor(req.files?.cover_upload?.[0]),
+      status: "draft",
+      rejection_reason: "",
+      review_reason: "",
+      public_song: null,
+      submitted_at: null,
+      approved_at: null,
+      published_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+    assignReleasePayload(release, releasePayload(req));
+    release.release_type = "Single";
+
+    if (boolValue(req.body?.submit_for_review)) {
+      const validationError = validateReleaseForSubmit(release);
+      if (validationError) {
+        return res.status(400).json({ detail: validationError });
+      }
+      submitReleaseForReview(release);
+    }
+
+    db.releases.push(release);
+    await saveDb(db);
+    res.status(201).json(serializeRelease(db, req, release));
+  },
+);
+
+app.put(
+  "/api/artist-studio/releases/:id/",
+  upload.fields([
+    { name: "audio_upload", maxCount: 1 },
+    { name: "cover_upload", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    const db = await loadDb();
+    const account = requireArtist(db, req, res);
+    if (!account) return;
+
+    const release = db.releases.find(
+      (item) =>
+        Number(item.id) === Number(req.params.id) &&
+        Number(item.artist) === Number(account.artist.id),
+    );
+    if (!release) return res.status(404).json({ detail: "Release not found." });
+    if (!releaseCanBeEdited(release)) {
+      return res
+        .status(403)
+        .json({ detail: "Only draft or rejected releases can be edited." });
+    }
+
+    assignReleasePayload(release, releasePayload(req));
+    release.release_type = "Single";
+    release.audio_file =
+      uploadUrlFor(req.files?.audio_upload?.[0]) || release.audio_file;
+    release.cover_image =
+      uploadUrlFor(req.files?.cover_upload?.[0]) || release.cover_image;
+    release.updated_at = new Date().toISOString();
+
+    if (boolValue(req.body?.submit_for_review)) {
+      const validationError = validateReleaseForSubmit(release);
+      if (validationError) {
+        return res.status(400).json({ detail: validationError });
+      }
+      submitReleaseForReview(release);
+    }
+
+    await saveDb(db);
+    res.json(serializeRelease(db, req, release));
+  },
+);
+
+app.post("/api/artist-studio/releases/:id/submit/", async (req, res) => {
+  const db = await loadDb();
+  const account = requireArtist(db, req, res);
+  if (!account) return;
+
+  const release = db.releases.find(
+    (item) =>
+      Number(item.id) === Number(req.params.id) &&
+      Number(item.artist) === Number(account.artist.id),
+  );
+  if (!release) return res.status(404).json({ detail: "Release not found." });
+  if (!releaseCanBeEdited(release)) {
+    return res
+      .status(403)
+      .json({ detail: "Only draft or rejected releases can be submitted." });
+  }
+
+  const validationError = validateReleaseForSubmit(release);
+  if (validationError) return res.status(400).json({ detail: validationError });
+
+  submitReleaseForReview(release);
+  await saveDb(db);
+  res.json(serializeRelease(db, req, release));
+});
+
+app.put(
+  "/api/artist-studio/profile/",
+  upload.single("photo_file"),
+  async (req, res) => {
+    const db = await loadDb();
+    const account = requireArtist(db, req, res);
+    if (!account) return;
+
+    account.artist.bio = cleanText(req.body?.bio) || account.artist.bio;
+    account.artist.category =
+      cleanText(req.body?.category) || account.artist.category;
+    account.artist.location =
+      cleanText(req.body?.location) || account.artist.location;
+    account.artist.photo = uploadUrlFor(req.file) || account.artist.photo;
+    account.artist.updated_at = new Date().toISOString();
+    await saveDb(db);
+    res.json(serializeArtist(db, req, account.artist));
+  },
+);
+
+app.get("/api/artists/", async (req, res) => {
+  const db = await loadDbWithPublishedReleases();
   const category = String(req.query.category || "").toLowerCase();
   const search = String(req.query.search || "").toLowerCase();
   const artists = sortArtists(db.artists).filter((artist) => {
@@ -592,7 +1242,7 @@ app.get("/api/artists/", async (req, res) => {
 });
 
 app.get("/api/artists/:id/", async (req, res) => {
-  const db = await loadDb();
+  const db = await loadDbWithPublishedReleases();
   const artist = db.artists.find(
     (item) => Number(item.id) === Number(req.params.id),
   );
@@ -601,7 +1251,7 @@ app.get("/api/artists/:id/", async (req, res) => {
 });
 
 app.get("/api/songs/", async (req, res) => {
-  const db = await loadDb();
+  const db = await loadDbWithPublishedReleases();
   const category = String(req.query.category || "").toLowerCase();
   const search = String(req.query.search || "").toLowerCase();
   const songs = sortSongs(db.songs).filter((song) => {
@@ -619,7 +1269,7 @@ app.get("/api/songs/", async (req, res) => {
   res.json(songs.map((song) => serializeSong(db, req, song)));
 });
 app.get("/api/hub/search-documents/", async (req, res) => {
-  const db = await loadDb();
+  const db = await loadDbWithPublishedReleases();
   const search = String(req.query.q || "").toLowerCase();
 
   let documents = makeHubSearchDocuments(db, req);
@@ -645,7 +1295,7 @@ app.get("/api/hub/search-documents/", async (req, res) => {
   res.json(documents);
 });
 app.get("/api/songs/:id/", async (req, res) => {
-  const db = await loadDb();
+  const db = await loadDbWithPublishedReleases();
   const song = db.songs.find(
     (item) => Number(item.id) === Number(req.params.id),
   );
@@ -655,7 +1305,7 @@ app.get("/api/songs/:id/", async (req, res) => {
 
 app.post("/api/songs/:id/play/", async (req, res) => {
   try {
-    const db = await loadDb();
+    const db = await loadDbWithPublishedReleases();
     const song = db.songs.find(
       (item) => Number(item.id) === Number(req.params.id),
     );
@@ -679,7 +1329,7 @@ app.post("/api/songs/:id/play/", async (req, res) => {
 });
 
 app.get("/api/featured-artists/", async (req, res) => {
-  const db = await loadDb();
+  const db = await loadDbWithPublishedReleases();
   res.json(
     sortArtists(db.artists.filter((artist) => artist.is_featured)).map(
       (artist) => serializeArtist(db, req, artist),
@@ -688,7 +1338,7 @@ app.get("/api/featured-artists/", async (req, res) => {
 });
 
 app.get("/api/featured-songs/", async (req, res) => {
-  const db = await loadDb();
+  const db = await loadDbWithPublishedReleases();
   res.json(
     sortSongs(db.songs.filter((song) => song.is_featured)).map((song) =>
       serializeSong(db, req, song),
@@ -814,8 +1464,206 @@ app.post("/admin-api/login", (req, res) => {
   return res.status(401).json({ detail: "Invalid admin login." });
 });
 
-app.get("/admin-api/artists", requireAdmin, async (req, res) => {
+app.get("/admin-api/artist-applications", requireAdmin, async (req, res) => {
   const db = await loadDb();
+  const status = cleanText(req.query?.status);
+  const applications = db.artistApplications
+    .filter((application) => !status || application.status === status)
+    .sort((first, second) =>
+      String(second.created_at || "").localeCompare(String(first.created_at || "")),
+    );
+  res.json(
+    applications.map((application) =>
+      serializeArtistApplication(db, req, application),
+    ),
+  );
+});
+
+app.post(
+  "/admin-api/artist-applications/:id/approve",
+  requireAdmin,
+  async (req, res) => {
+    const db = await loadDb();
+    const application = db.artistApplications.find(
+      (item) => Number(item.id) === Number(req.params.id),
+    );
+    if (!application) {
+      return res.status(404).json({ detail: "Application not found." });
+    }
+    if (application.status === "approved") {
+      return res.json(serializeArtistApplication(db, req, application));
+    }
+
+    const listener = db.listeners.find(
+      (item) => Number(item.id) === Number(application.listener),
+    );
+    if (!listener) {
+      return res.status(404).json({ detail: "Applicant account not found." });
+    }
+
+    const artist = createArtistFromApplication(db, application);
+    const now = new Date().toISOString();
+    application.status = "approved";
+    application.artist = artist.id;
+    application.rejection_reason = "";
+    application.review_reason = cleanText(req.body?.review_reason);
+    application.reviewed_at = now;
+    application.reviewed_by = req.adminUser.username;
+    application.updated_at = now;
+    listener.role = "artist";
+    listener.artist_id = artist.id;
+    listener.artist_application_id = application.id;
+    listener.updated_at = now;
+    await saveDb(db);
+    res.json(serializeArtistApplication(db, req, application));
+  },
+);
+
+app.post(
+  "/admin-api/artist-applications/:id/reject",
+  requireAdmin,
+  async (req, res) => {
+    const db = await loadDb();
+    const application = db.artistApplications.find(
+      (item) => Number(item.id) === Number(req.params.id),
+    );
+    if (!application) {
+      return res.status(404).json({ detail: "Application not found." });
+    }
+
+    const reason = cleanText(req.body?.reason || req.body?.rejection_reason);
+    if (!reason) return res.status(400).json({ detail: "Enter a rejection reason." });
+
+    const listener = db.listeners.find(
+      (item) => Number(item.id) === Number(application.listener),
+    );
+    const now = new Date().toISOString();
+    application.status = "rejected";
+    application.rejection_reason = reason;
+    application.review_reason = reason;
+    application.reviewed_at = now;
+    application.reviewed_by = req.adminUser.username;
+    application.updated_at = now;
+    if (listener && listener.role !== "artist") {
+      listener.role = "listener";
+      listener.artist_application_id = application.id;
+      listener.updated_at = now;
+    }
+    await saveDb(db);
+    res.json(serializeArtistApplication(db, req, application));
+  },
+);
+
+app.post(
+  "/admin-api/artist-applications/:id/request-changes",
+  requireAdmin,
+  async (req, res) => {
+    const db = await loadDb();
+    const application = db.artistApplications.find(
+      (item) => Number(item.id) === Number(req.params.id),
+    );
+    if (!application) {
+      return res.status(404).json({ detail: "Application not found." });
+    }
+
+    const reason = cleanText(req.body?.reason || req.body?.review_reason);
+    if (!reason) return res.status(400).json({ detail: "Enter what needs changing." });
+
+    const listener = db.listeners.find(
+      (item) => Number(item.id) === Number(application.listener),
+    );
+    const now = new Date().toISOString();
+    application.status = "changes_requested";
+    application.review_reason = reason;
+    application.rejection_reason = reason;
+    application.reviewed_at = now;
+    application.reviewed_by = req.adminUser.username;
+    application.updated_at = now;
+    if (listener && listener.role !== "artist") {
+      listener.role = "listener";
+      listener.artist_application_id = application.id;
+      listener.updated_at = now;
+    }
+    await saveDb(db);
+    res.json(serializeArtistApplication(db, req, application));
+  },
+);
+
+app.get("/admin-api/releases", requireAdmin, async (req, res) => {
+  const db = await loadDbWithPublishedReleases();
+  const status = cleanText(req.query?.status);
+  const releases = db.releases
+    .filter((release) => !status || release.status === status)
+    .sort((first, second) =>
+      String(second.created_at || "").localeCompare(String(first.created_at || "")),
+    );
+  res.json(releases.map((release) => serializeRelease(db, req, release)));
+});
+
+app.get("/admin-api/releases/:id", requireAdmin, async (req, res) => {
+  const db = await loadDbWithPublishedReleases();
+  const release = db.releases.find(
+    (item) => Number(item.id) === Number(req.params.id),
+  );
+  if (!release) return res.status(404).json({ detail: "Release not found." });
+  res.json(serializeRelease(db, req, release));
+});
+
+app.post("/admin-api/releases/:id/approve", requireAdmin, async (req, res) => {
+  const db = await loadDb();
+  const release = db.releases.find(
+    (item) => Number(item.id) === Number(req.params.id),
+  );
+  if (!release) return res.status(404).json({ detail: "Release not found." });
+  if (release.status !== "under_review" && release.status !== "scheduled") {
+    return res.status(400).json({ detail: "Only submitted releases can be approved." });
+  }
+
+  const validationError = validateReleaseForSubmit(release);
+  if (validationError) return res.status(400).json({ detail: validationError });
+
+  const now = new Date().toISOString();
+  release.approved_at = release.approved_at || now;
+  release.reviewed_by = req.adminUser.username;
+  release.rejection_reason = "";
+  release.review_reason = cleanText(req.body?.review_reason);
+  release.updated_at = now;
+
+  if (isFutureReleaseDate(release.release_date)) {
+    release.status = "scheduled";
+  } else {
+    publishRelease(db, release);
+  }
+
+  await saveDb(db);
+  res.json(serializeRelease(db, req, release));
+});
+
+app.post("/admin-api/releases/:id/reject", requireAdmin, async (req, res) => {
+  const db = await loadDb();
+  const release = db.releases.find(
+    (item) => Number(item.id) === Number(req.params.id),
+  );
+  if (!release) return res.status(404).json({ detail: "Release not found." });
+  if (release.status !== "under_review" && release.status !== "scheduled") {
+    return res.status(400).json({ detail: "Only submitted releases can be rejected." });
+  }
+
+  const reason = cleanText(req.body?.reason || req.body?.rejection_reason);
+  if (!reason) return res.status(400).json({ detail: "Enter a rejection reason." });
+
+  const now = new Date().toISOString();
+  release.status = "rejected";
+  release.rejection_reason = reason;
+  release.review_reason = reason;
+  release.reviewed_by = req.adminUser.username;
+  release.updated_at = now;
+  await saveDb(db);
+  res.json(serializeRelease(db, req, release));
+});
+
+app.get("/admin-api/artists", requireAdmin, async (req, res) => {
+  const db = await loadDbWithPublishedReleases();
   res.json(
     sortArtists(db.artists).map((artist) => serializeArtist(db, req, artist)),
   );
@@ -880,7 +1728,7 @@ app.delete("/admin-api/artists/:id", requireAdmin, async (req, res) => {
 });
 
 app.get("/admin-api/songs", requireAdmin, async (req, res) => {
-  const db = await loadDb();
+  const db = await loadDbWithPublishedReleases();
   res.json(sortSongs(db.songs).map((song) => serializeSong(db, req, song)));
 });
 
@@ -959,6 +1807,23 @@ app.delete("/admin-api/songs/:id", requireAdmin, async (req, res) => {
   db.songLikes = db.songLikes.filter((like) => Number(like.song) !== id);
   await saveDb(db);
   res.json({ deleted: true });
+});
+
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+
+  if (
+    error instanceof multer.MulterError ||
+    error?.message?.includes("Upload") ||
+    error?.message?.includes("Unsupported upload field") ||
+    error?.message?.includes("valid audio") ||
+    error?.message?.includes("valid image")
+  ) {
+    return res.status(400).json({ detail: error.message });
+  }
+
+  console.error("Unhandled API error:", error);
+  return res.status(500).json({ detail: "Something went wrong." });
 });
 
 await ensureDb();

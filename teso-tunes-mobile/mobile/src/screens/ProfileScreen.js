@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -90,6 +91,14 @@ export default function ProfileScreen({ navigation, route }) {
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isAuthenticated) {
+        loadProfile({ refresh: true });
+      }
+    }, [isAuthenticated, loadProfile])
+  );
 
   useEffect(() => {
     if (!listener) return;
@@ -369,6 +378,12 @@ export default function ProfileScreen({ navigation, route }) {
               </TouchableOpacity>
             </View>
 
+            <ArtistAccessPanel
+              application={listener?.artist_application}
+              navigation={navigation}
+              role={listener?.role || "listener"}
+            />
+
             <View style={styles.statsRow}>
               <StatTile label="Liked" value={String(likedSongs.length)} icon="heart" />
               <StatTile
@@ -440,6 +455,85 @@ export default function ProfileScreen({ navigation, route }) {
       </ScrollView>
       {isAuthenticated ? <MiniPlayer /> : null}
     </SafeAreaView>
+  );
+}
+
+function ArtistAccessPanel({ application, navigation, role }) {
+  const status = application?.status || "";
+  const reason = application?.rejection_reason || application?.review_reason || "";
+
+  if (role === "artist") {
+    return (
+      <View style={styles.artistPanel}>
+        <View style={styles.artistIcon}>
+          <Ionicons name="stats-chart" color={colors.primary} size={22} />
+        </View>
+        <View style={styles.artistCopy}>
+          <Text style={styles.artistTitle}>Artist Studio</Text>
+          <Text style={styles.artistText}>Manage your releases and upload music.</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.artistAction}
+          onPress={() => navigation.navigate("ArtistStudio")}
+        >
+          <Ionicons name="arrow-forward" color={colors.background} size={20} />
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (role === "artist_pending" || status === "pending") {
+    return (
+      <View style={styles.artistPanel}>
+        <View style={styles.artistIcon}>
+          <Ionicons name="time" color={colors.primary} size={22} />
+        </View>
+        <View style={styles.artistCopy}>
+          <Text style={styles.artistTitle}>Artist Application - Under Review</Text>
+          <Text style={styles.artistText}>Uploads unlock after admin approval.</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (status === "rejected" || status === "changes_requested") {
+    return (
+      <View style={styles.artistPanel}>
+        <View style={styles.artistIcon}>
+          <Ionicons name="alert-circle" color={colors.accent} size={22} />
+        </View>
+        <View style={styles.artistCopy}>
+          <Text style={styles.artistTitle}>
+            {status === "changes_requested" ? "Application Needs Changes" : "Application Rejected"}
+          </Text>
+          <Text style={styles.artistText}>{reason || "You can update and apply again."}</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.artistAction}
+          onPress={() => navigation.navigate("ArtistApplication")}
+        >
+          <Ionicons name="create" color={colors.background} size={19} />
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.artistPanel}>
+      <View style={styles.artistIcon}>
+        <Ionicons name="mic" color={colors.primary} size={22} />
+      </View>
+      <View style={styles.artistCopy}>
+        <Text style={styles.artistTitle}>Become an Artist</Text>
+        <Text style={styles.artistText}>Apply for approval before uploading music.</Text>
+      </View>
+      <TouchableOpacity
+        style={styles.artistAction}
+        onPress={() => navigation.navigate("ArtistApplication")}
+      >
+        <Ionicons name="add" color={colors.background} size={22} />
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -806,6 +900,48 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 10,
     padding: 12,
+  },
+  artistPanel: {
+    alignItems: "center",
+    backgroundColor: colors.card,
+    borderColor: "rgba(32, 230, 243, 0.26)",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 74,
+    padding: 12,
+  },
+  artistIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(32, 230, 243, 0.1)",
+    borderRadius: 8,
+    height: 46,
+    justifyContent: "center",
+    width: 46,
+  },
+  artistCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  artistTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  artistText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
+  },
+  artistAction: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
   },
   segment: {
     backgroundColor: colors.surface,
