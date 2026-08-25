@@ -20,6 +20,18 @@ services:
         generateValue: true
       - key: PUBLIC_BASE_URL
         sync: false
+      - key: PUBLIC_SHARE_BASE_URL
+        sync: false
+      - key: ANDROID_SHA256_CERT_FINGERPRINTS
+        sync: false
+      - key: ANDROID_STORE_URL
+        sync: false
+      - key: IOS_BUNDLE_IDENTIFIER
+        sync: false
+      - key: IOS_STORE_URL
+        sync: false
+      - key: IOS_TEAM_ID
+        sync: false
     disk:
       name: teso-tunes-storage
       mountPath: /var/data
