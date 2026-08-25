@@ -25,6 +25,7 @@ import PlayerScreen from "./src/screens/PlayerScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import ReleaseUploadScreen from "./src/screens/ReleaseUploadScreen";
 import { colors } from "./src/theme";
+import { logUpdateDiagnostics } from "./src/utils/updateDiagnostics";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -58,6 +59,8 @@ console.log("Expo Go deep link base:", Linking.createURL("/"));
 function AutoUpdateGate() {
   useEffect(() => {
     async function applyAvailableUpdate() {
+      logUpdateDiagnostics();
+
       if (!Updates.isEnabled) return;
 
       try {

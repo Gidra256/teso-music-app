@@ -18,10 +18,8 @@ import SeekBar from "../components/SeekBar";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
+import { artworkSource } from "../utils/artwork";
 import { formatPlays, formatTime } from "../utils/format";
-
-const FALLBACK_COVER =
-  "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=900&q=80";
 
 export default function PlayerScreen({ route, navigation }) {
   const {
@@ -167,7 +165,7 @@ export default function PlayerScreen({ route, navigation }) {
     );
   }
 
-  const coverUri = currentSong.cover_image || FALLBACK_COVER;
+  const coverSource = artworkSource(currentSong.cover_image);
   const artistName = currentSong.artist_name || "Teso artist";
   const playCount = currentSong.play_count || 0;
   const liked = isSongLiked(currentSong.id);
@@ -178,7 +176,7 @@ export default function PlayerScreen({ route, navigation }) {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.backdrop}>
-        <Image source={{ uri: coverUri }} style={styles.backdropImage} blurRadius={40} />
+        <Image source={coverSource} style={styles.backdropImage} blurRadius={40} />
         <LinearGradient
           colors={[
             "rgba(8, 10, 19, 0.28)",
@@ -206,7 +204,7 @@ export default function PlayerScreen({ route, navigation }) {
         </View>
 
         <View style={[styles.coverShell, { height: coverSize, width: coverSize }]}>
-          <Image source={{ uri: coverUri }} style={styles.cover} />
+          <Image source={coverSource} style={styles.cover} />
         </View>
 
         <View style={styles.trackHeader}>

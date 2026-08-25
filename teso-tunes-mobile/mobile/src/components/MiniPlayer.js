@@ -4,6 +4,7 @@ import { useNavigation } from "@react-navigation/native";
 
 import { usePlayer } from "../context/PlayerContext";
 import { colors } from "../theme";
+import { artworkSource } from "../utils/artwork";
 
 export default function MiniPlayer() {
   const navigation = useNavigation();
@@ -13,7 +14,7 @@ export default function MiniPlayer() {
 
   return (
     <TouchableOpacity activeOpacity={0.86} style={styles.wrapper} onPress={() => navigation.navigate("Player")}>
-      <Image source={{ uri: currentSong.cover_image }} style={styles.cover} />
+      <Image source={artworkSource(currentSong.cover_image)} style={styles.cover} />
       <View style={styles.copy}>
         <Text style={styles.title} numberOfLines={1}>{currentSong.title}</Text>
         <Text style={styles.artist} numberOfLines={1}>{currentSong.artist_name}</Text>

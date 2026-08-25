@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { FlatList, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BACKEND_CONNECTION_ERROR, getSongs } from "../api/musicApi";
@@ -14,7 +14,7 @@ export default function SearchScreen() {
   const [songs, setSongs] = useState([]);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const loadSongs = useCallback(() => {
     getSongs()
       .then((items) => {
         setError("");
@@ -24,6 +24,10 @@ export default function SearchScreen() {
         setError(loadError?.message || BACKEND_CONNECTION_ERROR);
       });
   }, []);
+
+  useEffect(() => {
+    loadSongs();
+  }, [loadSongs]);
 
   const results = useMemo(() => {
     if (!query.trim()) return songs.slice(0, 12);
@@ -48,7 +52,12 @@ export default function SearchScreen() {
         <SearchBar value={query} onChangeText={setQuery} placeholder="Find songs, artists, genres" />
       </View>
       {error ? (
-        <Text style={styles.errorText}>{error}</Text>
+        <View style={styles.stateBlock}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity activeOpacity={0.84} style={styles.retryButton} onPress={loadSongs}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
         <FlatList
           data={results}
@@ -103,5 +112,23 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     padding: spacing.page,
     textAlign: "center",
+  },
+  stateBlock: {
+    alignItems: "center",
+    gap: 12,
+    padding: spacing.page,
+  },
+  retryButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: 18,
+  },
+  retryText: {
+    color: colors.background,
+    fontSize: 13,
+    fontWeight: "900",
   },
 });

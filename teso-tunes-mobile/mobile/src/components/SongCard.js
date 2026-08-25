@@ -4,6 +4,7 @@ import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
 import { colors } from "../theme";
+import { artworkSource } from "../utils/artwork";
 import { formatPlays } from "../utils/format";
 
 export default function SongCard({ song, compact = false, queue = [] }) {
@@ -17,7 +18,7 @@ export default function SongCard({ song, compact = false, queue = [] }) {
   if (compact) {
     return (
       <TouchableOpacity style={styles.tile} onPress={handlePress}>
-        <Image source={{ uri: song.cover_image }} style={styles.tileCover} />
+        <Image source={artworkSource(song.cover_image)} style={styles.tileCover} />
         <Text style={styles.tileTitle} numberOfLines={2}>{song.title}</Text>
         <Text style={styles.tileMeta} numberOfLines={2}>{song.artist_name}</Text>
         <TouchableOpacity
@@ -36,7 +37,7 @@ export default function SongCard({ song, compact = false, queue = [] }) {
 
   return (
     <TouchableOpacity style={styles.card} onPress={handlePress}>
-      <Image source={{ uri: song.cover_image }} style={styles.cover} />
+      <Image source={artworkSource(song.cover_image)} style={styles.cover} />
       <View style={styles.body}>
         <Text style={styles.title} numberOfLines={1}>{song.title}</Text>
         <Text style={styles.meta} numberOfLines={1}>{song.artist_name}</Text>

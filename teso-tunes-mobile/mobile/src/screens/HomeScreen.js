@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -26,28 +26,30 @@ export default function HomeScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    async function loadHome() {
-      try {
-        setError("");
-        const [allSongs, allArtists, heroSongs, heroArtists] = await Promise.all([
-          getSongs(),
-          getArtists(),
-          getFeaturedSongs(),
-          getFeaturedArtists(),
-        ]);
-        setSongs(allSongs);
-        setArtists(allArtists);
-        setFeaturedSongs(heroSongs);
-        setFeaturedArtists(heroArtists);
-      } catch (loadError) {
-        setError(loadError?.message || BACKEND_CONNECTION_ERROR);
-      } finally {
-        setLoading(false);
-      }
+  const loadHome = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const [allSongs, allArtists, heroSongs, heroArtists] = await Promise.all([
+        getSongs(),
+        getArtists(),
+        getFeaturedSongs(),
+        getFeaturedArtists(),
+      ]);
+      setSongs(allSongs);
+      setArtists(allArtists);
+      setFeaturedSongs(heroSongs);
+      setFeaturedArtists(heroArtists);
+    } catch (loadError) {
+      setError(loadError?.message || BACKEND_CONNECTION_ERROR);
+    } finally {
+      setLoading(false);
     }
-    loadHome();
   }, []);
+
+  useEffect(() => {
+    loadHome();
+  }, [loadHome]);
 
   const trendingSongs = useMemo(
     () => songs.filter((song) => song.title.toLowerCase().includes(search.toLowerCase())).slice(0, 10),
@@ -67,6 +69,8 @@ export default function HomeScreen({ navigation }) {
     [artists, getArtistFollowerCount]
   );
 
+  const hasCatalog = songs.length > 0 || artists.length > 0 || featuredSongs.length > 0 || featuredArtists.length > 0;
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -83,59 +87,91 @@ export default function HomeScreen({ navigation }) {
         {loading ? (
           <ActivityIndicator color={colors.primary} style={styles.loader} />
         ) : error ? (
-          <Text style={styles.errorText}>{error}</Text>
+          <View style={styles.stateBlock}>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity activeOpacity={0.84} style={styles.retryButton} onPress={loadHome}>
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : !hasCatalog ? (
+          <View style={styles.stateBlock}>
+            <Text style={styles.emptyTitle}>No music available yet</Text>
+            <Text style={styles.emptyText}>New releases will appear here.</Text>
+          </View>
         ) : (
           <>
-            <SectionTitle title="Featured songs" />
-            <FlatList
-              horizontal
-              data={featuredSongs}
-              keyExtractor={(item) => String(item.id)}
-              renderItem={({ item }) => <SongCard song={item} compact queue={featuredSongs} />}
-              showsHorizontalScrollIndicator={false}
-              ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
-            />
+            {featuredSongs.length > 0 ? (
+              <>
+                <SectionTitle title="Featured songs" />
+                <FlatList
+                  horizontal
+                  data={featuredSongs}
+                  keyExtractor={(item) => String(item.id)}
+                  renderItem={({ item }) => <SongCard song={item} compact queue={featuredSongs} />}
+                  showsHorizontalScrollIndicator={false}
+                  ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
+                />
+              </>
+            ) : null}
 
-            <SectionTitle title="Featured artists" />
-            <FlatList
-              horizontal
-              data={featuredArtists}
-              keyExtractor={(item) => String(item.id)}
-              renderItem={({ item }) => (
-                <ArtistCard artist={item} compact onPress={() => navigation.navigate("ArtistDetail", { id: item.id })} />
+            {featuredArtists.length > 0 ? (
+              <>
+                <SectionTitle title="Featured artists" />
+                <FlatList
+                  horizontal
+                  data={featuredArtists}
+                  keyExtractor={(item) => String(item.id)}
+                  renderItem={({ item }) => (
+                    <ArtistCard artist={item} compact onPress={() => navigation.navigate("ArtistDetail", { id: item.id })} />
+                  )}
+                  showsHorizontalScrollIndicator={false}
+                  ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
+                />
+              </>
+            ) : null}
+
+            {mostLikedSongs.length > 0 ? (
+              <>
+                <SectionTitle title="Most liked songs" />
+                <FlatList
+                  horizontal
+                  data={mostLikedSongs}
+                  keyExtractor={(item) => String(item.id)}
+                  renderItem={({ item }) => <SongCard song={item} compact queue={mostLikedSongs} />}
+                  showsHorizontalScrollIndicator={false}
+                  ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
+                />
+              </>
+            ) : null}
+
+            {mostFollowedArtists.length > 0 ? (
+              <>
+                <SectionTitle title="Most followed artists" />
+                <FlatList
+                  horizontal
+                  data={mostFollowedArtists}
+                  keyExtractor={(item) => String(item.id)}
+                  renderItem={({ item }) => (
+                    <ArtistCard artist={item} compact onPress={() => navigation.navigate("ArtistDetail", { id: item.id })} />
+                  )}
+                  showsHorizontalScrollIndicator={false}
+                  ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
+                />
+              </>
+            ) : null}
+
+            {trendingSongs.length > 0 ? (
+              <>
+                <SectionTitle title="Trending now" />
+                <View style={styles.list}>
+                  {trendingSongs.map((song) => (
+                    <SongCard key={song.id} song={song} queue={trendingSongs} />
+                  ))}
+                </View>
+              </>
+            ) : (
+              <Text style={styles.emptyText}>No songs found.</Text>
               )}
-              showsHorizontalScrollIndicator={false}
-              ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
-            />
-
-            <SectionTitle title="Most liked songs" />
-            <FlatList
-              horizontal
-              data={mostLikedSongs}
-              keyExtractor={(item) => String(item.id)}
-              renderItem={({ item }) => <SongCard song={item} compact queue={mostLikedSongs} />}
-              showsHorizontalScrollIndicator={false}
-              ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
-            />
-
-            <SectionTitle title="Most followed artists" />
-            <FlatList
-              horizontal
-              data={mostFollowedArtists}
-              keyExtractor={(item) => String(item.id)}
-              renderItem={({ item }) => (
-                <ArtistCard artist={item} compact onPress={() => navigation.navigate("ArtistDetail", { id: item.id })} />
-              )}
-              showsHorizontalScrollIndicator={false}
-              ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
-            />
-
-            <SectionTitle title="Trending now" />
-            <View style={styles.list}>
-              {trendingSongs.map((song) => (
-                <SongCard key={song.id} song={song} queue={trendingSongs} />
-              ))}
-            </View>
           </>
         )}
       </ScrollView>
@@ -202,11 +238,41 @@ const styles = StyleSheet.create({
   loader: {
     marginTop: 30,
   },
+  stateBlock: {
+    alignItems: "center",
+    gap: 12,
+    marginTop: 34,
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  emptyText: {
+    color: colors.softText,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: "center",
+  },
   errorText: {
     color: colors.softText,
     fontSize: 15,
     lineHeight: 22,
     marginTop: 20,
     textAlign: "center",
+  },
+  retryButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: 18,
+  },
+  retryText: {
+    color: colors.background,
+    fontSize: 13,
+    fontWeight: "900",
   },
 });

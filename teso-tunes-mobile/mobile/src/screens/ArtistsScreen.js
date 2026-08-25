@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BACKEND_CONNECTION_ERROR, getArtists } from "../api/musicApi";
@@ -17,7 +17,8 @@ export default function ArtistsScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const loadArtists = useCallback(() => {
+    setLoading(true);
     getArtists()
       .then((items) => {
         setError("");
@@ -28,6 +29,10 @@ export default function ArtistsScreen({ navigation }) {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadArtists();
+  }, [loadArtists]);
 
   const filteredArtists = useMemo(() => {
     return artists.filter((artist) => {
@@ -51,7 +56,12 @@ export default function ArtistsScreen({ navigation }) {
       {loading ? (
         <ActivityIndicator color={colors.primary} style={styles.loader} />
       ) : error ? (
-        <Text style={styles.errorText}>{error}</Text>
+        <View style={styles.stateBlock}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity activeOpacity={0.84} style={styles.retryButton} onPress={loadArtists}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
         <FlatList
           data={filteredArtists}
@@ -60,6 +70,7 @@ export default function ArtistsScreen({ navigation }) {
             <ArtistCard artist={item} onPress={() => navigation.navigate("ArtistDetail", { id: item.id })} />
           )}
           contentContainerStyle={styles.grid}
+          ListEmptyComponent={<Text style={styles.empty}>No artists available yet.</Text>}
           numColumns={2}
           columnWrapperStyle={styles.row}
           showsVerticalScrollIndicator={false}
@@ -110,5 +121,28 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     padding: spacing.page,
     textAlign: "center",
+  },
+  stateBlock: {
+    alignItems: "center",
+    gap: 12,
+    padding: spacing.page,
+  },
+  empty: {
+    color: colors.muted,
+    marginTop: 24,
+    textAlign: "center",
+  },
+  retryButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: 18,
+  },
+  retryText: {
+    color: colors.background,
+    fontSize: 13,
+    fontWeight: "900",
   },
 });

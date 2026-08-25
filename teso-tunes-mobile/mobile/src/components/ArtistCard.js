@@ -3,6 +3,7 @@ import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View } fr
 
 import { useEngagement } from "../context/EngagementContext";
 import { colors } from "../theme";
+import { artworkSource } from "../utils/artwork";
 import { formatFollowers } from "../utils/format";
 
 export default function ArtistCard({ artist, onPress, compact = false }) {
@@ -18,7 +19,7 @@ export default function ArtistCard({ artist, onPress, compact = false }) {
 
   return (
     <TouchableOpacity style={[styles.card, compact && styles.compact]} onPress={onPress}>
-      <Image source={{ uri: artist.photo }} style={styles.photo} />
+      <Image source={artworkSource(artist.photo)} style={styles.photo} />
       <View style={styles.copy}>
         <Text style={styles.name} numberOfLines={1}>{artist.name}</Text>
         <Text style={styles.meta} numberOfLines={1}>{formatFollowers(followerCount)}</Text>

@@ -123,7 +123,7 @@ async function ensureDb() {
   try {
     await fs.access(DB_PATH);
   } catch (error) {
-    await saveDb(seedDb());
+    await saveDb(emptyDb());
   }
 }
 
@@ -138,45 +138,10 @@ async function saveDb(db) {
   await fs.writeFile(DB_PATH, `${JSON.stringify(db, null, 2)}\n`);
 }
 
-function seedDb() {
-  const createdAt = new Date().toISOString();
-  const artists = [
-    "Sparo UG",
-    "Mr. Tablet UG",
-    "Pana Boy",
-    "Candy Man",
-    "Simple Bullet",
-    "Josh Rash",
-  ].map((name, index) => ({
-    id: index + 1,
-    name,
-    category: ["Rappers", "Other Secular Artists", "Gospel Artists"][index % 3],
-    bio: `${name} carries the Teso sound forward with songs rooted in community, rhythm, faith, and everyday life.`,
-    photo: `https://picsum.photos/seed/teso-artist-${index + 1}/600/600`,
-    location: ["Soroti", "Kumi", "Ngora"][index % 3],
-    is_featured: index < 4,
-    created_at: createdAt,
-  }));
-
-  const songs = artists.flatMap((artist, artistIndex) =>
-    ["Akogo Fire", "Teso Love"].map((title, songIndex) => ({
-      id: artistIndex * 2 + songIndex + 1,
-      artist: artist.id,
-      title,
-      audio_file: "",
-      cover_image: `https://picsum.photos/seed/teso-song-${artist.id}-${songIndex + 1}/800/800`,
-      genre: ["Teso Fusion", "Afrobeat", "Gospel"][songIndex % 3],
-      lyrics: "",
-      play_count: 1200 + artistIndex * 300 + songIndex * 80,
-      release_date: "",
-      is_featured: artist.is_featured && songIndex === 0,
-      created_at: createdAt,
-    })),
-  );
-
+function emptyDb() {
   return {
-    artists,
-    songs,
+    artists: [],
+    songs: [],
     listeners: [],
     authTokens: [],
     songLikes: [],
@@ -184,11 +149,11 @@ function seedDb() {
     artistApplications: [],
     releases: [],
     nextIds: {
-      artist: artists.length + 1,
+      artist: 1,
       artistApplication: 1,
       listener: 1,
       release: 1,
-      song: songs.length + 1,
+      song: 1,
     },
   };
 }

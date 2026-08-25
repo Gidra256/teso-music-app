@@ -9,6 +9,7 @@ import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
+import { artworkSource } from "../utils/artwork";
 import { formatFollowers } from "../utils/format";
 
 export default function ArtistDetailScreen({ route }) {
@@ -158,7 +159,7 @@ export default function ArtistDetailScreen({ route }) {
   return (
     <View style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Image source={{ uri: artist.photo }} style={styles.heroImage} />
+        <Image source={artworkSource(artist.photo)} style={styles.heroImage} />
         <View style={styles.titleRow}>
           <Text style={styles.name}>{artist.name}</Text>
           {artist.is_featured && <Ionicons name="star" color={colors.accent} size={22} />}

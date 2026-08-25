@@ -1,10 +1,19 @@
-import { API_BASE_URL, USE_FALLBACK_DATA } from "../config/api";
-import { fallbackArtists, fallbackSongs } from "../data/fallbackData";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+import { API_BASE_URL } from "../config/api";
 
 export const BACKEND_CONNECTION_ERROR =
   "Could not connect to TesoHub Music backend.";
 
 let authToken = "";
+
+const CACHE_KEYS = {
+  artists: "tesohub_music_cache_artists",
+  artist: (id) => `tesohub_music_cache_artist_${id}`,
+  featuredArtists: "tesohub_music_cache_featured_artists",
+  featuredSongs: "tesohub_music_cache_featured_songs",
+  songs: "tesohub_music_cache_songs",
+};
 
 export function setAuthToken(token = "") {
   authToken = token;
@@ -14,13 +23,6 @@ function countItems(data) {
   if (Array.isArray(data)) return data.length;
   if (data?.songs && Array.isArray(data.songs)) return data.songs.length;
   return data ? 1 : 0;
-}
-
-function warnFallback(label, error) {
-  console.warn(
-    `[TesoHub Music API] Using fallback ${label}.`,
-    error?.message || error
-  );
 }
 
 function backendError(path, error) {
@@ -65,17 +67,76 @@ async function fetchJson(path, options) {
   return data;
 }
 
-function fallbackOrThrow(label, data, error) {
-  if (USE_FALLBACK_DATA) {
-    warnFallback(label, error);
-    return data;
-  }
+async function readCachedRealData(cacheKey) {
+  try {
+    const cachedValue = await AsyncStorage.getItem(cacheKey);
+    if (!cachedValue) return null;
 
-  console.warn(
-    `[TesoHub Music API] ${label} failed and fallback is disabled.`,
-    error?.message || error
-  );
-  throw error;
+    const cached = JSON.parse(cachedValue);
+    if (cached?.source !== "backend" || !Object.prototype.hasOwnProperty.call(cached, "data")) {
+      return null;
+    }
+
+    return cached.data;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function writeCachedRealData(cacheKey, data) {
+  try {
+    await AsyncStorage.setItem(
+      cacheKey,
+      JSON.stringify({
+        cached_at: new Date().toISOString(),
+        data,
+        source: "backend",
+      })
+    );
+  } catch (error) {}
+}
+
+async function fetchJsonWithRealCache(path, cacheKey, label) {
+  try {
+    const data = await fetchJson(path);
+    await writeCachedRealData(cacheKey, data);
+    return data;
+  } catch (error) {
+    const cachedData = await readCachedRealData(cacheKey);
+    if (cachedData !== null) {
+      console.warn(
+        `[TesoHub Music API] ${label} failed; using cached backend data.`,
+        error?.message || error
+      );
+      return cachedData;
+    }
+
+    console.warn(
+      `[TesoHub Music API] ${label} failed and no real cached data exists.`,
+      error?.message || error
+    );
+    throw error;
+  }
+}
+
+async function cachedArtistFromLists(id) {
+  const numericId = Number(id);
+  const [cachedArtists, cachedSongs] = await Promise.all([
+    readCachedRealData(CACHE_KEYS.artists),
+    readCachedRealData(CACHE_KEYS.songs),
+  ]);
+
+  const artist = Array.isArray(cachedArtists)
+    ? cachedArtists.find((item) => Number(item.id) === numericId)
+    : null;
+
+  if (!artist) return null;
+
+  const songs = Array.isArray(cachedSongs)
+    ? cachedSongs.filter((song) => Number(song.artist) === numericId)
+    : [];
+
+  return { ...artist, songs };
 }
 
 async function postDeviceAction(path, deviceId) {
@@ -168,59 +229,53 @@ export async function updateArtistStudioProfile(formData) {
 }
 
 export async function getArtists() {
-  try {
-    return await fetchJson("/artists/");
-  } catch (error) {
-    return fallbackOrThrow("artists", fallbackArtists, error);
-  }
+  return fetchJsonWithRealCache("/artists/", CACHE_KEYS.artists, "artists");
 }
 
 export async function getArtist(id) {
   try {
-    return await fetchJson(`/artists/${id}/`);
+    const artist = await fetchJson(`/artists/${id}/`);
+    await writeCachedRealData(CACHE_KEYS.artist(id), artist);
+    return artist;
   } catch (error) {
-    const artist = fallbackArtists.find((item) => item.id === Number(id));
-    const fallbackArtist = artist
-      ? {
-          ...artist,
-          songs: fallbackSongs.filter((song) => song.artist === Number(id)),
-        }
-      : null;
+    const cachedArtist =
+      (await readCachedRealData(CACHE_KEYS.artist(id))) ||
+      (await cachedArtistFromLists(id));
 
-    return fallbackOrThrow(`artist ${id}`, fallbackArtist, error);
+    if (cachedArtist) {
+      console.warn(
+        `[TesoHub Music API] artist ${id} failed; using cached backend data.`,
+        error?.message || error
+      );
+      return cachedArtist;
+    }
+
+    console.warn(
+      `[TesoHub Music API] artist ${id} failed and no real cached data exists.`,
+      error?.message || error
+    );
+    throw error;
   }
 }
 
 export async function getSongs() {
-  try {
-    return await fetchJson("/songs/");
-  } catch (error) {
-    return fallbackOrThrow("songs", fallbackSongs, error);
-  }
+  return fetchJsonWithRealCache("/songs/", CACHE_KEYS.songs, "songs");
 }
 
 export async function getFeaturedArtists() {
-  try {
-    return await fetchJson("/featured-artists/");
-  } catch (error) {
-    return fallbackOrThrow(
-      "featured artists",
-      fallbackArtists.filter((artist) => artist.is_featured),
-      error
-    );
-  }
+  return fetchJsonWithRealCache(
+    "/featured-artists/",
+    CACHE_KEYS.featuredArtists,
+    "featured artists"
+  );
 }
 
 export async function getFeaturedSongs() {
-  try {
-    return await fetchJson("/featured-songs/");
-  } catch (error) {
-    return fallbackOrThrow(
-      "featured songs",
-      fallbackSongs.filter((song) => song.is_featured),
-      error
-    );
-  }
+  return fetchJsonWithRealCache(
+    "/featured-songs/",
+    CACHE_KEYS.featuredSongs,
+    "featured songs"
+  );
 }
 
 export async function likeSong(id, deviceId) {
