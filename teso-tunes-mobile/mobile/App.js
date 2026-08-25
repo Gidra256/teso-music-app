@@ -9,7 +9,7 @@ import { useNavigation } from "@react-navigation/native";
 import { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Image, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import AppErrorBoundary from "./src/components/AppErrorBoundary";
 import CreatePlaylistModal from "./src/components/CreatePlaylistModal";
@@ -90,6 +90,7 @@ function AutoUpdateGate() {
 
 function MainTabs() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const { isAuthenticated } = useAuth();
   const [createVisible, setCreateVisible] = useState(false);
 
@@ -110,8 +111,8 @@ function MainTabs() {
           tabBarStyle: {
             backgroundColor: colors.card,
             borderTopColor: colors.border,
-            height: 70,
-            paddingBottom: 10,
+            height: 60 + Math.max(insets.bottom, 10),
+            paddingBottom: Math.max(insets.bottom, 10),
             paddingTop: 8,
           },
           tabBarActiveTintColor: colors.primary,

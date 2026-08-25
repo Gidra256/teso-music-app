@@ -1,19 +1,25 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePlayer } from "../context/PlayerContext";
-import { colors } from "../theme";
+import { colors, spacing } from "../theme";
 import { artworkSource } from "../utils/artwork";
 
 export default function MiniPlayer() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const { currentSong, isPlaying, progress, togglePlay } = usePlayer();
 
   if (!currentSong) return null;
 
   return (
-    <TouchableOpacity activeOpacity={0.86} style={styles.wrapper} onPress={() => navigation.navigate("Player")}>
+    <TouchableOpacity
+      activeOpacity={0.86}
+      style={[styles.wrapper, { bottom: Math.max(10, Math.min(insets.bottom + 10, 34)) }]}
+      onPress={() => navigation.navigate("Player")}
+    >
       <Image source={artworkSource(currentSong.cover_image)} style={styles.cover} />
       <View style={styles.copy}>
         <Text style={styles.title} numberOfLines={1}>{currentSong.title}</Text>
@@ -41,13 +47,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#26202A",
     borderRadius: 8,
-    bottom: 10,
     flexDirection: "row",
     gap: 10,
-    left: 18,
+    left: spacing.page,
+    maxWidth: 620,
     padding: 9,
     position: "absolute",
-    right: 18,
+    right: spacing.page,
   },
   cover: {
     borderRadius: 8,

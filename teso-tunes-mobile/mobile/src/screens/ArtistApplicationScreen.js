@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { submitArtistApplication } from "../api/musicApi";
+import GenreSelector from "../components/GenreSelector";
 import { useAuth } from "../context/AuthContext";
 import { colors, spacing } from "../theme";
 
@@ -45,6 +46,7 @@ export default function ArtistApplicationScreen({ navigation }) {
     country: "Uganda",
     email: listener?.email || "",
     genre: "",
+    genre_note: "",
     genuine_confirmed: false,
     phone: listener?.phone || "",
     region: "",
@@ -60,7 +62,7 @@ export default function ArtistApplicationScreen({ navigation }) {
     if (form.bio.trim().length < 20) return "Write a short artist biography.";
     if (!form.country.trim()) return "Enter your country.";
     if (!form.region.trim()) return "Enter your region or location.";
-    if (!form.genre.trim()) return "Enter your primary genre.";
+    if (!form.genre.trim()) return "Choose your primary genre.";
     if (!form.phone.trim()) return "Enter your phone number.";
     if (!form.email.trim()) return "Enter your email address.";
     if (!photo) return "Choose a profile photo.";
@@ -191,11 +193,12 @@ export default function ArtistApplicationScreen({ navigation }) {
               onChangeText={(value) => updateField("region", value)}
             />
           </View>
-          <StudioInput
-            icon="radio"
-            placeholder="Primary genre"
+          <GenreSelector
+            label="Primary genre"
+            note={form.genre_note}
             value={form.genre}
-            onChangeText={(value) => updateField("genre", value)}
+            onChange={(value) => updateField("genre", value)}
+            onChangeNote={(value) => updateField("genre_note", value)}
           />
           <StudioInput
             icon="link"

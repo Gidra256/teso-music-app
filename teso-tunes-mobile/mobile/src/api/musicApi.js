@@ -362,6 +362,10 @@ export async function getFeaturedSongs() {
   );
 }
 
+export async function getGenres() {
+  return fetchJson("/genres/");
+}
+
 export async function likeSong(id, deviceId) {
   return postDeviceAction(`/songs/${id}/like/`, deviceId);
 }

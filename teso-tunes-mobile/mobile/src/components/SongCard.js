@@ -1,18 +1,19 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useState } from "react";
-import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 import AddToPlaylistModal from "./AddToPlaylistModal";
 import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
-import { colors } from "../theme";
+import { colors, spacing } from "../theme";
 import { artworkSource } from "../utils/artwork";
 import { formatPlays } from "../utils/format";
 
 export default function SongCard({ song, compact = false, queue = [] }) {
   const navigation = useNavigation();
+  const { width } = useWindowDimensions();
   const { isAuthenticated } = useAuth();
   const { currentSong, isPlaying, playSong, togglePlay } = usePlayer();
   const { getSongLikeCount, isSongLiked, toggleSongLike } = useEngagement();
@@ -20,6 +21,10 @@ export default function SongCard({ song, compact = false, queue = [] }) {
   const active = currentSong?.id === song.id;
   const liked = isSongLiked(song.id);
   const likeCount = getSongLikeCount(song);
+  const compactTileSize = Math.min(
+    168,
+    Math.max(146, Math.round((width - spacing.page * 2 - 18) / 2.2))
+  );
   const handlePress = () => (active ? togglePlay() : playSong(song, queue));
 
   function openProfile() {
@@ -43,7 +48,7 @@ export default function SongCard({ song, compact = false, queue = [] }) {
 
   if (compact) {
     return (
-      <TouchableOpacity style={styles.tile} onPress={handlePress}>
+      <TouchableOpacity style={[styles.tile, { width: compactTileSize }]} onPress={handlePress}>
         <Image source={artworkSource(song.cover_image)} style={styles.tileCover} />
         <Text style={styles.tileTitle} numberOfLines={2}>{song.title}</Text>
         <Text style={styles.tileMeta} numberOfLines={2}>{song.artist_name}</Text>
@@ -170,13 +175,12 @@ const styles = StyleSheet.create({
   tile: {
     backgroundColor: "transparent",
     gap: 6,
-    width: 154,
   },
   tileCover: {
+    aspectRatio: 1,
     backgroundColor: colors.elevated,
     borderRadius: 5,
-    height: 154,
-    width: 154,
+    width: "100%",
   },
   tileTitle: {
     color: colors.text,

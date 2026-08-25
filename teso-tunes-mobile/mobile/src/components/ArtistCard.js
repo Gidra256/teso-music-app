@@ -1,15 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
-import { colors } from "../theme";
+import { colors, spacing } from "../theme";
 import { artworkSource } from "../utils/artwork";
 import { formatFollowers } from "../utils/format";
 
 export default function ArtistCard({ artist, onPress, compact = false }) {
   const navigation = useNavigation();
+  const { width } = useWindowDimensions();
   const { isAuthenticated } = useAuth();
   const {
     getArtistFollowerCount,
@@ -20,6 +21,10 @@ export default function ArtistCard({ artist, onPress, compact = false }) {
   const followed = isArtistFollowed(artist.id);
   const pending = isArtistFollowPending(artist.id);
   const followerCount = getArtistFollowerCount(artist);
+  const compactTileSize = Math.min(
+    168,
+    Math.max(146, Math.round((width - spacing.page * 2 - 18) / 2.2))
+  );
 
   function openProfile() {
     const parentNavigation = navigation.getParent?.();
@@ -41,7 +46,10 @@ export default function ArtistCard({ artist, onPress, compact = false }) {
   }
 
   return (
-    <TouchableOpacity style={[styles.card, compact && styles.compact]} onPress={onPress}>
+    <TouchableOpacity
+      style={[styles.card, compact && styles.compact, compact && { width: compactTileSize }]}
+      onPress={onPress}
+    >
       <Image source={artworkSource(artist.photo)} style={styles.photo} />
       <View style={styles.copy}>
         <Text style={styles.name} numberOfLines={1}>{artist.name}</Text>
@@ -77,12 +85,11 @@ const styles = StyleSheet.create({
   },
   compact: {
     flex: 0,
-    width: 154,
   },
   photo: {
+    aspectRatio: 1,
     backgroundColor: colors.elevated,
     borderRadius: 5,
-    height: 154,
     width: "100%",
   },
   copy: {

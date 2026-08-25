@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { createArtistStudioRelease } from "../api/musicApi";
+import GenreSelector from "../components/GenreSelector";
 import { colors, spacing } from "../theme";
 
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
@@ -53,6 +54,7 @@ export default function ReleaseUploadScreen({ navigation }) {
     explicit: false,
     featured_artist: "",
     genre: "",
+    genre_note: "",
     language: "Ateso",
     producer: "",
     release_date: todayKey(),
@@ -69,7 +71,7 @@ export default function ReleaseUploadScreen({ navigation }) {
     if (!form.title.trim()) return "Enter the song title.";
     if (!audio) return "Choose an audio file.";
     if (!cover) return "Choose cover artwork.";
-    if (!form.genre.trim()) return "Enter the genre.";
+    if (!form.genre.trim()) return "Choose the genre.";
     if (!form.language.trim()) return "Enter the language.";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(form.release_date.trim())) {
       return "Use release date format YYYY-MM-DD.";
@@ -206,11 +208,12 @@ export default function ReleaseUploadScreen({ navigation }) {
             onChangeText={(value) => updateField("featured_artist", value)}
           />
           <View style={styles.row}>
-            <ReleaseInput
-              icon="radio"
-              placeholder="Genre"
+            <GenreSelector
+              label="Genre"
+              note={form.genre_note}
               value={form.genre}
-              onChangeText={(value) => updateField("genre", value)}
+              onChange={(value) => updateField("genre", value)}
+              onChangeNote={(value) => updateField("genre_note", value)}
             />
             <ReleaseInput
               icon="language"

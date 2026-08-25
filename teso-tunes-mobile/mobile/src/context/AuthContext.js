@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { Platform } from "react-native";
 
 import {
   getListenerAccount,
@@ -13,6 +14,7 @@ import { useEngagement } from "./EngagementContext";
 
 const AUTH_TOKEN_KEY = "teso_tunes_auth_token";
 const AUTH_LISTENER_KEY = "teso_tunes_auth_listener";
+const DEVICE_NAME = `TesoHub ${Platform.OS}`;
 
 const AuthContext = createContext(null);
 
@@ -91,6 +93,7 @@ export function AuthProvider({ children }) {
     const result = await registerListenerAccount({
       ...payload,
       device_id: deviceId,
+      device_name: DEVICE_NAME,
     });
     await saveSession(result.token, result.listener);
     return result.listener;
@@ -101,6 +104,7 @@ export function AuthProvider({ children }) {
     const result = await loginListenerAccount({
       ...payload,
       device_id: deviceId,
+      device_name: DEVICE_NAME,
     });
     await saveSession(result.token, result.listener);
     return result.listener;

@@ -81,6 +81,22 @@ const RELEASE_STATUSES = new Set([
   "scheduled",
   "published",
 ]);
+const GENRE_OPTIONS = [
+  "Ateso Traditional",
+  "Teso Gospel",
+  "Gospel",
+  "Afrobeats",
+  "Amapiano",
+  "Dancehall",
+  "Reggae",
+  "Hip hop / Rap",
+  "R&B",
+  "Kadongo Kamu",
+  "Cultural / Folk",
+  "Instrumental",
+  "Other",
+  "Not sure",
+];
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -207,6 +223,19 @@ function normalizeDb(db) {
     artist_application_id: listener.artist_application_id
       ? Number(listener.artist_application_id)
       : null,
+  }));
+  db.authTokens = db.authTokens.map((session) => ({
+    ...session,
+    id:
+      session.id ||
+      crypto
+        .createHash("sha256")
+        .update(session.token_hash || `${session.listener}:${session.created_at}`)
+        .digest("hex")
+        .slice(0, 16),
+    device_id: session.device_id || "",
+    device_name: session.device_name || "",
+    last_active_at: session.last_active_at || session.created_at || null,
   }));
   db.releases = db.releases.map((release) => ({
     ...release,
@@ -468,6 +497,7 @@ function serializeSong(db, req, song) {
     audio_file: absoluteUrl(req, song.audio_file),
     cover_image: absoluteUrl(req, song.cover_image),
     genre: song.genre || "",
+    genre_note: song.genre_note || "",
     lyrics: song.lyrics || "",
     like_count: likeCount(db, song.id),
     play_count: Number(song.play_count || 0),
@@ -602,6 +632,7 @@ function serializeArtistApplication(db, req, application) {
     country: application.country || "",
     region: application.region || "",
     genre: application.genre || "",
+    genre_note: application.genre_note || "",
     phone: application.phone || "",
     email: application.email || "",
     photo: absoluteUrl(req, application.photo),
@@ -651,6 +682,7 @@ function serializeRelease(db, req, release) {
     release_type: release.release_type || "Single",
     featured_artist: release.featured_artist || "",
     genre: release.genre || "",
+    genre_note: release.genre_note || "",
     language: release.language || "",
     release_date: release.release_date || "",
     explicit: Boolean(release.explicit),
@@ -690,6 +722,7 @@ function publishRelease(db, release) {
     audio_file: release.audio_file || "",
     cover_image: release.cover_image || "",
     genre: release.genre || "",
+    genre_note: release.genre_note || "",
     lyrics: "",
     play_count: 0,
     release_date: release.release_date || "",
@@ -873,6 +906,32 @@ function cleanText(value) {
   return String(value || "").trim();
 }
 
+function normalizeGenre(value) {
+  const cleanGenre = cleanText(value);
+  if (!cleanGenre) return "";
+
+  const knownGenre = GENRE_OPTIONS.find(
+    (genre) => genre.toLowerCase() === cleanGenre.toLowerCase(),
+  );
+  return knownGenre || "Other";
+}
+
+function genrePayload(req) {
+  const submittedGenre = cleanText(req.body?.genre);
+  const genre = normalizeGenre(submittedGenre);
+  const submittedNote = cleanText(req.body?.genre_note);
+  const genreNote =
+    submittedNote ||
+    (genre === "Other" && submittedGenre.toLowerCase() !== "other"
+      ? submittedGenre
+      : "");
+
+  return {
+    genre,
+    genre_note: genre === "Other" || genre === "Not sure" ? genreNote : "",
+  };
+}
+
 function normalizeEmail(value) {
   return cleanText(value).toLowerCase();
 }
@@ -903,12 +962,17 @@ function hashToken(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-function createAuthSession(db, listener) {
+function createAuthSession(db, listener, deviceId = "", deviceName = "") {
+  const now = new Date().toISOString();
   const token = crypto.randomBytes(32).toString("hex");
   db.authTokens.push({
+    id: crypto.randomUUID(),
     token_hash: hashToken(token),
     listener: listener.id,
-    created_at: new Date().toISOString(),
+    device_id: cleanText(deviceId),
+    device_name: cleanText(deviceName),
+    created_at: now,
+    last_active_at: now,
   });
   return token;
 }
@@ -924,6 +988,7 @@ function findListenerByToken(db, req) {
   const tokenHash = hashToken(token);
   const session = db.authTokens.find((item) => item.token_hash === tokenHash);
   if (!session) return null;
+  session.last_active_at = new Date().toISOString();
   return db.listeners.find(
     (listener) => Number(listener.id) === Number(session.listener),
   );
@@ -986,13 +1051,15 @@ function authResponse(db, listener, token) {
 }
 
 function applicationPayload(req) {
+  const genreData = genrePayload(req);
   return {
     artist_name: cleanText(req.body?.artist_name),
     contact_name: cleanText(req.body?.contact_name),
     bio: cleanText(req.body?.bio),
     country: cleanText(req.body?.country),
     region: cleanText(req.body?.region),
-    genre: cleanText(req.body?.genre),
+    genre: genreData.genre,
+    genre_note: genreData.genre_note,
     phone: normalizePhone(req.body?.phone),
     email: normalizeEmail(req.body?.email),
     social_link: cleanText(req.body?.social_link),
@@ -1017,11 +1084,13 @@ function validateArtistApplication(payload, hasPhoto) {
 }
 
 function releasePayload(req) {
+  const genreData = genrePayload(req);
   return {
     title: cleanText(req.body?.title),
     release_type: cleanText(req.body?.release_type) || "Single",
     featured_artist: cleanText(req.body?.featured_artist),
-    genre: cleanText(req.body?.genre),
+    genre: genreData.genre,
+    genre_note: genreData.genre_note,
     language: cleanText(req.body?.language),
     release_date: cleanText(req.body?.release_date),
     explicit: boolValue(req.body?.explicit),
@@ -1177,6 +1246,7 @@ app.post("/api/auth/register/", async (req, res) => {
   const phone = normalizePhone(req.body?.phone);
   const password = String(req.body?.password || "");
   const deviceId = cleanText(req.body?.device_id);
+  const deviceName = cleanText(req.body?.device_name);
 
   if (name.length < 2) {
     return res.status(400).json({ detail: "Enter your profile name." });
@@ -1211,7 +1281,7 @@ app.post("/api/auth/register/", async (req, res) => {
   };
   db.listeners.push(listener);
   attachDeviceEngagement(db, listener, deviceId);
-  const token = createAuthSession(db, listener);
+  const token = createAuthSession(db, listener, deviceId, deviceName);
   await saveDb(db);
   res.status(201).json(authResponse(db, listener, token));
 });
@@ -1221,6 +1291,7 @@ app.post("/api/auth/login/", async (req, res) => {
   const identifier = cleanText(req.body?.identifier || req.body?.email || req.body?.phone);
   const password = String(req.body?.password || "");
   const deviceId = cleanText(req.body?.device_id);
+  const deviceName = cleanText(req.body?.device_name);
   const listener = findListenerByIdentifier(db, identifier);
 
   if (!listener || !verifyPassword(password, listener.password_hash)) {
@@ -1228,7 +1299,7 @@ app.post("/api/auth/login/", async (req, res) => {
   }
 
   attachDeviceEngagement(db, listener, deviceId);
-  const token = createAuthSession(db, listener);
+  const token = createAuthSession(db, listener, deviceId, deviceName);
   await saveDb(db);
   res.json(authResponse(db, listener, token));
 });
@@ -1239,6 +1310,7 @@ app.get("/api/auth/me/", async (req, res) => {
   if (!listener) {
     return res.status(401).json({ detail: "Login required." });
   }
+  await saveDb(db);
   res.json({ listener: serializeListener(db, listener) });
 });
 
@@ -1666,6 +1738,10 @@ app.get("/api/featured-songs/", async (req, res) => {
       serializeSong(db, req, song),
     ),
   );
+});
+
+app.get("/api/genres/", (req, res) => {
+  res.json(GENRE_OPTIONS);
 });
 
 app.get("/api/playlists/", async (req, res) => {
@@ -2228,6 +2304,7 @@ app.post(
   async (req, res) => {
     const db = await loadDb();
     const now = new Date().toISOString();
+    const genreData = genrePayload(req);
     const song = {
       id: db.nextIds.song++,
       artist: Number(req.body.artist),
@@ -2238,7 +2315,8 @@ app.post(
         uploadUrlFor(req.files?.cover_upload?.[0]) ||
         req.body.cover_image ||
         "",
-      genre: req.body.genre || "",
+      genre: genreData.genre,
+      genre_note: genreData.genre_note,
       lyrics: req.body.lyrics || "",
       play_count: numberOrZero(req.body.play_count),
       release_date: req.body.release_date || "",
@@ -2264,6 +2342,9 @@ app.put(
       (item) => Number(item.id) === Number(req.params.id),
     );
     if (!song) return res.status(404).json({ detail: "Song not found." });
+    const genreData = Object.prototype.hasOwnProperty.call(req.body || {}, "genre")
+      ? genrePayload(req)
+      : { genre: song.genre, genre_note: song.genre_note || "" };
     Object.assign(song, {
       artist: Number(req.body.artist || song.artist),
       title: req.body.title || song.title,
@@ -2275,7 +2356,8 @@ app.put(
         uploadUrlFor(req.files?.cover_upload?.[0]) ||
         req.body.cover_image ||
         song.cover_image,
-      genre: req.body.genre ?? song.genre,
+      genre: genreData.genre,
+      genre_note: genreData.genre_note,
       lyrics: req.body.lyrics ?? song.lyrics,
       play_count: numberOrZero(req.body.play_count ?? song.play_count),
       release_date: req.body.release_date ?? song.release_date,
