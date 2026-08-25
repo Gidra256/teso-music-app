@@ -21,6 +21,31 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "TesoAdmin@2026";
 const ADMIN_TOKEN =
   process.env.ADMIN_TOKEN || crypto.randomBytes(32).toString("hex");
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+const PUBLIC_SHARE_BASE_URL = (
+  process.env.PUBLIC_SHARE_BASE_URL ||
+  process.env.EXPO_PUBLIC_SHARE_BASE_URL ||
+  PUBLIC_BASE_URL ||
+  ""
+).replace(/\/+$/, "");
+const ANDROID_PACKAGE_NAME =
+  process.env.ANDROID_PACKAGE_NAME || "com.tesotunes.app";
+const ANDROID_SHA256_CERT_FINGERPRINTS = String(
+  process.env.ANDROID_SHA256_CERT_FINGERPRINTS || "",
+)
+  .split(",")
+  .map((fingerprint) => fingerprint.trim())
+  .filter(Boolean);
+const ANDROID_STORE_URL =
+  process.env.ANDROID_STORE_URL ||
+  process.env.EXPO_PUBLIC_ANDROID_STORE_URL ||
+  "";
+const IOS_BUNDLE_IDENTIFIER =
+  process.env.IOS_BUNDLE_IDENTIFIER ||
+  process.env.EXPO_PUBLIC_IOS_BUNDLE_IDENTIFIER ||
+  "";
+const IOS_STORE_URL =
+  process.env.IOS_STORE_URL || process.env.EXPO_PUBLIC_IOS_STORE_URL || "";
+const IOS_TEAM_ID = process.env.IOS_TEAM_ID || "";
 
 const app = express();
 app.set("trust proxy", true);
@@ -28,6 +53,7 @@ app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 app.use("/uploads", express.static(UPLOADS_DIR));
 app.use("/media", express.static(LEGACY_MEDIA_DIR));
+app.use("/app-assets", express.static(path.join(__dirname, "..", "mobile", "assets")));
 app.use("/admin", express.static(path.join(__dirname, "public")));
 
 app.get("/healthz", (req, res) => {
@@ -214,6 +240,189 @@ function absoluteUrl(req, value) {
   if (/^https?:\/\//i.test(value)) return value;
   const base = PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
   return `${base}${value.startsWith("/") ? value : `/${value}`}`;
+}
+
+function publicShareBaseUrl(req) {
+  return PUBLIC_SHARE_BASE_URL || PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+}
+
+function canonicalSongShareUrl(req, songId) {
+  return `${publicShareBaseUrl(req)}/song/${encodeURIComponent(String(songId))}`;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function trackProductEvent(eventName, payload = {}) {
+  console.log("[TesoHub Music Event]", {
+    event: eventName,
+    ...payload,
+    occurred_at: new Date().toISOString(),
+  });
+}
+
+function storeButton(url, label) {
+  if (!url) return "";
+  return `<a class="button secondary" href="${escapeHtml(url)}">${escapeHtml(label)}</a>`;
+}
+
+function renderSongLandingPage(req, db, song) {
+  const artist = db.artists.find(
+    (item) => Number(item.id) === Number(song.artist),
+  );
+  const title = song?.title || "TesoHub Music";
+  const artistName = artist?.name || "TesoHub Music";
+  const shareUrl = canonicalSongShareUrl(req, song.id);
+  const artworkUrl =
+    absoluteUrl(req, song.cover_image) ||
+    absoluteUrl(req, "/app-assets/images/tesohub-music.png");
+  const description = `Listen to ${title} by ${artistName} on TesoHub Music.`;
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${escapeHtml(title)} - TesoHub Music</title>
+    <meta name="description" content="${escapeHtml(description)}">
+    <meta property="og:type" content="music.song">
+    <meta property="og:title" content="${escapeHtml(title)}">
+    <meta property="og:description" content="${escapeHtml(description)}">
+    <meta property="og:image" content="${escapeHtml(artworkUrl)}">
+    <meta property="og:url" content="${escapeHtml(shareUrl)}">
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        align-items: center;
+        background: #050506;
+        color: #f8fafc;
+        display: flex;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        justify-content: center;
+        margin: 0;
+        min-height: 100vh;
+        padding: 24px;
+      }
+      main {
+        max-width: 430px;
+        width: 100%;
+      }
+      .artwork {
+        aspect-ratio: 1;
+        background: #18181b;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        box-shadow: 0 26px 60px rgba(32, 230, 243, 0.16);
+        object-fit: cover;
+        width: 100%;
+      }
+      .brand {
+        color: #20e6f3;
+        font-size: 13px;
+        font-weight: 900;
+        letter-spacing: 0;
+        margin-top: 22px;
+        text-transform: uppercase;
+      }
+      h1 {
+        font-size: clamp(30px, 8vw, 42px);
+        line-height: 1.05;
+        margin: 10px 0 8px;
+      }
+      .artist {
+        color: #cbd5e1;
+        font-size: 17px;
+        font-weight: 700;
+        margin: 0 0 22px;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .button {
+        align-items: center;
+        background: #20e6f3;
+        border: 1px solid #20e6f3;
+        border-radius: 8px;
+        color: #050506;
+        display: inline-flex;
+        font-size: 14px;
+        font-weight: 900;
+        justify-content: center;
+        min-height: 46px;
+        padding: 0 16px;
+        text-decoration: none;
+      }
+      .button.secondary {
+        background: rgba(255, 255, 255, 0.07);
+        border-color: rgba(255, 255, 255, 0.16);
+        color: #f8fafc;
+      }
+      .note {
+        color: #94a3b8;
+        font-size: 13px;
+        line-height: 1.5;
+        margin-top: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img class="artwork" src="${escapeHtml(artworkUrl)}" alt="">
+      <p class="brand">TesoHub Music</p>
+      <h1>${escapeHtml(title)}</h1>
+      <p class="artist">${escapeHtml(artistName)}</p>
+      <div class="actions">
+        ${storeButton(ANDROID_STORE_URL, "Get Android app")}
+        ${storeButton(IOS_STORE_URL, "Get iPhone app")}
+      </div>
+      <p class="note">Open this link on a phone with TesoHub Music installed to play the song in the app.</p>
+    </main>
+  </body>
+</html>`;
+}
+
+function renderUnavailableSongPage() {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Song unavailable - TesoHub Music</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        align-items: center;
+        background: #050506;
+        color: #f8fafc;
+        display: flex;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        justify-content: center;
+        margin: 0;
+        min-height: 100vh;
+        padding: 24px;
+        text-align: center;
+      }
+      main { max-width: 420px; }
+      h1 { font-size: 30px; margin: 0 0 10px; }
+      p { color: #cbd5e1; line-height: 1.5; margin: 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>This song is no longer available.</h1>
+      <p>It may have been removed or unpublished by TesoHub Music.</p>
+    </main>
+  </body>
+</html>`;
 }
 
 function likeCount(db, songId) {
@@ -811,6 +1020,80 @@ function createArtistFromApplication(db, application) {
 
 app.get("/", (req, res) => {
   res.redirect("/admin/");
+});
+
+app.get("/.well-known/assetlinks.json", (req, res) => {
+  if (ANDROID_SHA256_CERT_FINGERPRINTS.length === 0) {
+    return res.status(404).json({
+      detail:
+        "Configure ANDROID_SHA256_CERT_FINGERPRINTS before enabling Android App Links verification.",
+    });
+  }
+
+  res.type("application/json").send(
+    JSON.stringify(
+      [
+        {
+          relation: ["delegate_permission/common.handle_all_urls"],
+          target: {
+            namespace: "android_app",
+            package_name: ANDROID_PACKAGE_NAME,
+            sha256_cert_fingerprints: ANDROID_SHA256_CERT_FINGERPRINTS,
+          },
+        },
+      ],
+      null,
+      2,
+    ),
+  );
+});
+
+app.get("/.well-known/apple-app-site-association", (req, res) => {
+  if (!IOS_TEAM_ID || !IOS_BUNDLE_IDENTIFIER) {
+    return res.status(404).json({
+      detail:
+        "Configure IOS_TEAM_ID and IOS_BUNDLE_IDENTIFIER before enabling iOS Universal Links.",
+    });
+  }
+
+  res.type("application/json").send(
+    JSON.stringify(
+      {
+        applinks: {
+          apps: [],
+          details: [
+            {
+              appID: `${IOS_TEAM_ID}.${IOS_BUNDLE_IDENTIFIER}`,
+              paths: ["/song/*"],
+            },
+          ],
+        },
+      },
+      null,
+      2,
+    ),
+  );
+});
+
+app.get("/song/:id", async (req, res) => {
+  const db = await loadDbWithPublishedReleases();
+  const song = db.songs.find(
+    (item) => Number(item.id) === Number(req.params.id),
+  );
+
+  if (!song) {
+    trackProductEvent("shared_song_opened", {
+      available: false,
+      song_id: req.params.id,
+    });
+    return res.status(404).type("html").send(renderUnavailableSongPage());
+  }
+
+  trackProductEvent("shared_song_opened", {
+    available: true,
+    song_id: song.id,
+  });
+  res.type("html").send(renderSongLandingPage(req, db, song));
 });
 
 app.post("/api/auth/register/", async (req, res) => {

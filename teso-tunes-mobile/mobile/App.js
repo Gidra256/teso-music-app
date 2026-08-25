@@ -24,6 +24,7 @@ import SongsScreen from "./src/screens/SongsScreen";
 import PlayerScreen from "./src/screens/PlayerScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import ReleaseUploadScreen from "./src/screens/ReleaseUploadScreen";
+import { SHARE_BASE_URL } from "./src/config/api";
 import { colors } from "./src/theme";
 import { logUpdateDiagnostics } from "./src/utils/updateDiagnostics";
 
@@ -32,7 +33,7 @@ const Stack = createNativeStackNavigator();
 const APP_LOGO = require("./assets/images/tesohub-music.png");
 
 const linking = {
-  prefixes: [Linking.createURL("/"), "tesohubmusic://"],
+  prefixes: [Linking.createURL("/"), "tesohubmusic://", SHARE_BASE_URL],
   config: {
     screens: {
       TesoTabs: {
@@ -252,12 +253,29 @@ function AppNavigator() {
             />
           </>
         ) : (
-          <Stack.Screen
-            name="Profile"
-            component={ProfileScreen}
-            initialParams={{ loginRequired: true }}
-            options={{ headerShown: false }}
-          />
+          <>
+            <Stack.Screen
+              name="Profile"
+              component={ProfileScreen}
+              initialParams={{ loginRequired: true }}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="TesoTabs"
+              component={MainTabs}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="ArtistDetail"
+              component={ArtistDetailScreen}
+              options={{ title: "Artist" }}
+            />
+            <Stack.Screen
+              name="Player"
+              component={PlayerScreen}
+              options={{ headerShown: false }}
+            />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>

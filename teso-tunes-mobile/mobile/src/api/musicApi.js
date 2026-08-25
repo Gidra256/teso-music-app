@@ -12,6 +12,7 @@ const CACHE_KEYS = {
   artist: (id) => `tesohub_music_cache_artist_${id}`,
   featuredArtists: "tesohub_music_cache_featured_artists",
   featuredSongs: "tesohub_music_cache_featured_songs",
+  song: (id) => `tesohub_music_cache_song_${id}`,
   songs: "tesohub_music_cache_songs",
 };
 
@@ -60,6 +61,7 @@ async function fetchJson(path, options) {
       new Error(data?.detail || `API request failed: ${response.status}`)
     );
     error.detail = data?.detail;
+    error.status = response.status;
     throw error;
   }
 
@@ -137,6 +139,14 @@ async function cachedArtistFromLists(id) {
     : [];
 
   return { ...artist, songs };
+}
+
+async function cachedSongFromList(id) {
+  const numericId = Number(id);
+  const cachedSongs = await readCachedRealData(CACHE_KEYS.songs);
+
+  if (!Array.isArray(cachedSongs)) return null;
+  return cachedSongs.find((song) => Number(song.id) === numericId) || null;
 }
 
 async function postDeviceAction(path, deviceId) {
@@ -260,6 +270,36 @@ export async function getArtist(id) {
 
 export async function getSongs() {
   return fetchJsonWithRealCache("/songs/", CACHE_KEYS.songs, "songs");
+}
+
+export async function getSong(id) {
+  try {
+    const song = await fetchJson(`/songs/${id}/`);
+    await writeCachedRealData(CACHE_KEYS.song(id), song);
+    return song;
+  } catch (error) {
+    if (error?.status === 404) {
+      throw error;
+    }
+
+    const cachedSong =
+      (await readCachedRealData(CACHE_KEYS.song(id))) ||
+      (await cachedSongFromList(id));
+
+    if (cachedSong) {
+      console.warn(
+        `[TesoHub Music API] song ${id} failed; using cached backend data.`,
+        error?.message || error
+      );
+      return cachedSong;
+    }
+
+    console.warn(
+      `[TesoHub Music API] song ${id} failed and no real cached data exists.`,
+      error?.message || error
+    );
+    throw error;
+  }
 }
 
 export async function getFeaturedArtists() {

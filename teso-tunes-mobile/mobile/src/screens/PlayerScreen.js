@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Image,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -13,13 +12,14 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getSongs } from "../api/musicApi";
+import { getSong, getSongs } from "../api/musicApi";
 import SeekBar from "../components/SeekBar";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
 import { artworkSource } from "../utils/artwork";
 import { formatPlays, formatTime } from "../utils/format";
+import { shareSongLink, trackShareEvent } from "../utils/shareLinks";
 
 export default function PlayerScreen({ route, navigation }) {
   const {
@@ -42,6 +42,7 @@ export default function PlayerScreen({ route, navigation }) {
   const { height, width } = useWindowDimensions();
   const [previewTime, setPreviewTime] = useState(null);
   const [deepLinkLoading, setDeepLinkLoading] = useState(false);
+  const [deepLinkError, setDeepLinkError] = useState("");
 
   const deepLinkedSongId = route?.params?.id;
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
@@ -82,16 +83,25 @@ export default function PlayerScreen({ route, navigation }) {
 
     let mounted = true;
     setDeepLinkLoading(true);
+    setDeepLinkError("");
 
-    getSongs()
-      .then((songs) => {
+    Promise.all([
+      getSong(songId),
+      getSongs().catch(() => []),
+    ])
+      .then(([song, songs]) => {
         if (!mounted) return;
 
-        const song = songs.find((item) => String(item.id) === String(songId));
-
         if (song) {
-          playSong(song, songs);
+          const queue = Array.isArray(songs) && songs.length > 0 ? songs : [song];
+          playSong(song, queue);
+          trackShareEvent("deep_link_opened", { song_id: song.id });
+        } else {
+          setDeepLinkError("This song is no longer available.");
         }
+      })
+      .catch(() => {
+        if (mounted) setDeepLinkError("This song is no longer available.");
       })
       .finally(() => {
         if (mounted) setDeepLinkLoading(false);
@@ -105,12 +115,8 @@ export default function PlayerScreen({ route, navigation }) {
   async function shareSong() {
     if (!currentSong) return;
 
-    const artistName = currentSong.artist_name || "a Teso artist";
     try {
-      await Share.share({
-        message: `Listen to ${currentSong.title} by ${artistName} on TesoHub Music.`,
-        title: currentSong.title,
-      });
+      await shareSongLink(currentSong);
     } catch (error) {}
   }
 
@@ -144,9 +150,11 @@ export default function PlayerScreen({ route, navigation }) {
             <View style={styles.emptyIcon}>
               <Ionicons name="musical-notes" color={colors.accent} size={34} />
             </View>
-            <Text style={styles.emptyTitle}>No song selected</Text>
+            <Text style={styles.emptyTitle}>
+              {deepLinkError ? "Song unavailable" : deepLinkLoading ? "Opening song" : "No song selected"}
+            </Text>
             <Text style={styles.emptyText}>
-              Choose a song from TesoHub Music to start listening.
+              {deepLinkError || "Choose a song from TesoHub Music to start listening."}
             </Text>
             <TouchableOpacity
               activeOpacity={0.86}
