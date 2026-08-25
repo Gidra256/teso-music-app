@@ -172,12 +172,15 @@ function emptyDb() {
     authTokens: [],
     songLikes: [],
     artistFollows: [],
+    playlists: [],
+    playlistSongs: [],
     artistApplications: [],
     releases: [],
     nextIds: {
       artist: 1,
       artistApplication: 1,
       listener: 1,
+      playlist: 1,
       release: 1,
       song: 1,
     },
@@ -191,6 +194,8 @@ function normalizeDb(db) {
   db.authTokens = Array.isArray(db.authTokens) ? db.authTokens : [];
   db.songLikes = Array.isArray(db.songLikes) ? db.songLikes : [];
   db.artistFollows = Array.isArray(db.artistFollows) ? db.artistFollows : [];
+  db.playlists = Array.isArray(db.playlists) ? db.playlists : [];
+  db.playlistSongs = Array.isArray(db.playlistSongs) ? db.playlistSongs : [];
   db.artistApplications = Array.isArray(db.artistApplications)
     ? db.artistApplications
     : [];
@@ -210,6 +215,16 @@ function normalizeDb(db) {
     listener: release.listener ? Number(release.listener) : null,
     public_song: release.public_song ? Number(release.public_song) : null,
   }));
+  db.playlists = db.playlists.map((playlist) => ({
+    ...playlist,
+    owner: Number(playlist.owner),
+  }));
+  db.playlistSongs = db.playlistSongs.map((playlistSong) => ({
+    ...playlistSong,
+    playlist: Number(playlistSong.playlist),
+    song: Number(playlistSong.song),
+    position: Number(playlistSong.position || 0),
+  }));
   db.nextIds = db.nextIds || {};
   db.nextIds.artist = Math.max(
     Number(db.nextIds.artist || 1),
@@ -227,6 +242,10 @@ function normalizeDb(db) {
   db.nextIds.release = Math.max(
     Number(db.nextIds.release || 1),
     maxNextId(db.releases),
+  );
+  db.nextIds.playlist = Math.max(
+    Number(db.nextIds.playlist || 1),
+    maxNextId(db.playlists),
   );
   return db;
 }
@@ -480,6 +499,61 @@ function serializeArtist(db, req, artist, includeSongs = false) {
   }
 
   return serialized;
+}
+
+function playlistEntriesFor(db, playlistId) {
+  return db.playlistSongs
+    .filter((entry) => Number(entry.playlist) === Number(playlistId))
+    .sort((first, second) => {
+      if (Number(first.position || 0) !== Number(second.position || 0)) {
+        return Number(first.position || 0) - Number(second.position || 0);
+      }
+      return String(first.added_at || "").localeCompare(String(second.added_at || ""));
+    });
+}
+
+function serializePlaylist(db, req, playlist, includeSongs = false) {
+  const owner = db.listeners.find(
+    (listener) => Number(listener.id) === Number(playlist.owner),
+  );
+  const entries = playlistEntriesFor(db, playlist.id);
+  const serialized = {
+    id: playlist.id,
+    owner: playlist.owner,
+    owner_name: owner?.name || "TesoHub listener",
+    name: playlist.name || "Untitled Playlist",
+    description: playlist.description || "",
+    artwork: absoluteUrl(req, playlist.artwork),
+    song_count: entries.length,
+    created_at: playlist.created_at,
+    updated_at: playlist.updated_at,
+  };
+
+  if (includeSongs) {
+    serialized.songs = entries
+      .map((entry) => {
+        const song = db.songs.find((item) => Number(item.id) === Number(entry.song));
+        return song
+          ? {
+              ...serializeSong(db, req, song),
+              playlist_position: entry.position,
+              playlist_added_at: entry.added_at,
+            }
+          : null;
+      })
+      .filter(Boolean);
+  }
+
+  return serialized;
+}
+
+function findOwnedPlaylist(db, listener, playlistId) {
+  if (!listener) return null;
+  return db.playlists.find(
+    (playlist) =>
+      Number(playlist.id) === Number(playlistId) &&
+      Number(playlist.owner) === Number(listener.id),
+  );
 }
 
 function todayKey() {
@@ -1592,6 +1666,170 @@ app.get("/api/featured-songs/", async (req, res) => {
       serializeSong(db, req, song),
     ),
   );
+});
+
+app.get("/api/playlists/", async (req, res) => {
+  const db = await loadDbWithPublishedReleases();
+  const listener = requireListener(db, req, res);
+  if (!listener) return;
+
+  const playlists = db.playlists
+    .filter((playlist) => Number(playlist.owner) === Number(listener.id))
+    .sort((first, second) =>
+      String(second.updated_at || second.created_at || "").localeCompare(
+        String(first.updated_at || first.created_at || ""),
+      ),
+    );
+  res.json(playlists.map((playlist) => serializePlaylist(db, req, playlist)));
+});
+
+app.post("/api/playlists/", async (req, res) => {
+  const db = await loadDb();
+  const listener = requireListener(db, req, res);
+  if (!listener) return;
+
+  const name = cleanText(req.body?.name);
+  if (name.length < 1) {
+    return res.status(400).json({ detail: "Enter a playlist name." });
+  }
+
+  const now = new Date().toISOString();
+  const playlist = {
+    id: db.nextIds.playlist++,
+    owner: listener.id,
+    name,
+    description: cleanText(req.body?.description),
+    artwork: cleanText(req.body?.artwork),
+    created_at: now,
+    updated_at: now,
+  };
+  db.playlists.push(playlist);
+  await saveDb(db);
+  res.status(201).json(serializePlaylist(db, req, playlist, true));
+});
+
+app.get("/api/playlists/:id/", async (req, res) => {
+  const db = await loadDbWithPublishedReleases();
+  const listener = requireListener(db, req, res);
+  if (!listener) return;
+
+  const playlist = findOwnedPlaylist(db, listener, req.params.id);
+  if (!playlist) return res.status(404).json({ detail: "Playlist not found." });
+
+  res.json(serializePlaylist(db, req, playlist, true));
+});
+
+app.put("/api/playlists/:id/", async (req, res) => {
+  const db = await loadDb();
+  const listener = requireListener(db, req, res);
+  if (!listener) return;
+
+  const playlist = findOwnedPlaylist(db, listener, req.params.id);
+  if (!playlist) return res.status(404).json({ detail: "Playlist not found." });
+
+  const nextName = cleanText(req.body?.name);
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "name") && nextName.length < 1) {
+    return res.status(400).json({ detail: "Enter a playlist name." });
+  }
+
+  if (nextName) playlist.name = nextName;
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "description")) {
+    playlist.description = cleanText(req.body?.description);
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "artwork")) {
+    playlist.artwork = cleanText(req.body?.artwork);
+  }
+  playlist.updated_at = new Date().toISOString();
+  await saveDb(db);
+  res.json(serializePlaylist(db, req, playlist, true));
+});
+
+app.delete("/api/playlists/:id/", async (req, res) => {
+  const db = await loadDb();
+  const listener = requireListener(db, req, res);
+  if (!listener) return;
+
+  const playlist = findOwnedPlaylist(db, listener, req.params.id);
+  if (!playlist) return res.status(404).json({ detail: "Playlist not found." });
+
+  db.playlists = db.playlists.filter(
+    (item) => Number(item.id) !== Number(playlist.id),
+  );
+  db.playlistSongs = db.playlistSongs.filter(
+    (item) => Number(item.playlist) !== Number(playlist.id),
+  );
+  await saveDb(db);
+  res.json({ deleted: true });
+});
+
+app.post("/api/playlists/:id/songs/", async (req, res) => {
+  const db = await loadDbWithPublishedReleases();
+  const listener = requireListener(db, req, res);
+  if (!listener) return;
+
+  const playlist = findOwnedPlaylist(db, listener, req.params.id);
+  if (!playlist) return res.status(404).json({ detail: "Playlist not found." });
+
+  const songId = Number(req.body?.song || req.body?.song_id);
+  const song = db.songs.find((item) => Number(item.id) === songId);
+  if (!song) return res.status(404).json({ detail: "Song not found." });
+
+  const existing = db.playlistSongs.find(
+    (item) =>
+      Number(item.playlist) === Number(playlist.id) &&
+      Number(item.song) === Number(song.id),
+  );
+  if (existing) {
+    return res.json({
+      added: false,
+      duplicate: true,
+      playlist: serializePlaylist(db, req, playlist, true),
+    });
+  }
+
+  const entries = playlistEntriesFor(db, playlist.id);
+  const nextPosition =
+    entries.reduce(
+      (maxPosition, item) => Math.max(maxPosition, Number(item.position || 0)),
+      0,
+    ) + 1;
+  db.playlistSongs.push({
+    playlist: playlist.id,
+    song: song.id,
+    position: nextPosition,
+    added_at: new Date().toISOString(),
+  });
+  playlist.updated_at = new Date().toISOString();
+  await saveDb(db);
+  res.status(201).json({
+    added: true,
+    duplicate: false,
+    playlist: serializePlaylist(db, req, playlist, true),
+  });
+});
+
+app.delete("/api/playlists/:id/songs/:songId/", async (req, res) => {
+  const db = await loadDb();
+  const listener = requireListener(db, req, res);
+  if (!listener) return;
+
+  const playlist = findOwnedPlaylist(db, listener, req.params.id);
+  if (!playlist) return res.status(404).json({ detail: "Playlist not found." });
+
+  const beforeCount = db.playlistSongs.length;
+  db.playlistSongs = db.playlistSongs.filter(
+    (item) =>
+      !(
+        Number(item.playlist) === Number(playlist.id) &&
+        Number(item.song) === Number(req.params.songId)
+      ),
+  );
+  playlist.updated_at = new Date().toISOString();
+  await saveDb(db);
+  res.json({
+    removed: db.playlistSongs.length !== beforeCount,
+    playlist: serializePlaylist(db, req, playlist, true),
+  });
 });
 
 app.post("/api/songs/:id/like/", async (req, res) => {

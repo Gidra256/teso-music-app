@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getSong, getSongs } from "../api/musicApi";
+import AddToPlaylistModal from "../components/AddToPlaylistModal";
 import SeekBar from "../components/SeekBar";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
@@ -43,6 +44,7 @@ export default function PlayerScreen({ route, navigation }) {
   const [previewTime, setPreviewTime] = useState(null);
   const [deepLinkLoading, setDeepLinkLoading] = useState(false);
   const [deepLinkError, setDeepLinkError] = useState("");
+  const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
 
   const deepLinkedSongId = route?.params?.id;
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
@@ -127,7 +129,7 @@ export default function PlayerScreen({ route, navigation }) {
   }
 
   function openSongs() {
-    navigation?.navigate("TesoTabs", { screen: "Songs" });
+    navigation?.navigate("Songs");
   }
 
   function goBackOrSongs() {
@@ -159,7 +161,7 @@ export default function PlayerScreen({ route, navigation }) {
             <TouchableOpacity
               activeOpacity={0.86}
               style={styles.browseButton}
-              onPress={() => navigation?.navigate("TesoTabs", { screen: "Songs" })}
+              onPress={openSongs}
             >
               <Ionicons name="albums" color={colors.text} size={18} />
               <Text style={styles.browseButtonText}>Browse Songs</Text>
@@ -296,7 +298,11 @@ export default function PlayerScreen({ route, navigation }) {
           ) : (
             <TrackAction icon="person-circle-outline" label="Artist" />
           )}
-          <TrackAction icon="ellipsis-horizontal-circle-outline" label="More" />
+          <TrackAction
+            icon="ellipsis-horizontal-circle-outline"
+            label="More"
+            onPress={() => setPlaylistModalVisible(true)}
+          />
         </View>
 
         <View style={styles.infoCard}>
@@ -321,6 +327,11 @@ export default function PlayerScreen({ route, navigation }) {
           </Text>
         </View>
       </ScrollView>
+      <AddToPlaylistModal
+        visible={playlistModalVisible}
+        song={currentSong}
+        onClose={() => setPlaylistModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }

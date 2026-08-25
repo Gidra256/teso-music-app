@@ -238,6 +238,50 @@ export async function updateArtistStudioProfile(formData) {
   });
 }
 
+export async function getPlaylists() {
+  return fetchJson("/playlists/");
+}
+
+export async function createPlaylist(payload) {
+  return fetchJson("/playlists/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getPlaylist(id) {
+  return fetchJson(`/playlists/${id}/`);
+}
+
+export async function updatePlaylist(id, payload) {
+  return fetchJson(`/playlists/${id}/`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deletePlaylist(id) {
+  return fetchJson(`/playlists/${id}/`, {
+    method: "DELETE",
+  });
+}
+
+export async function addSongToPlaylist(playlistId, songId) {
+  return fetchJson(`/playlists/${playlistId}/songs/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ song_id: songId }),
+  });
+}
+
+export async function removeSongFromPlaylist(playlistId, songId) {
+  return fetchJson(`/playlists/${playlistId}/songs/${songId}/`, {
+    method: "DELETE",
+  });
+}
+
 export async function getArtists() {
   return fetchJsonWithRealCache("/artists/", CACHE_KEYS.artists, "artists");
 }

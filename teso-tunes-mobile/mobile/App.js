@@ -5,12 +5,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Linking from "expo-linking";
 import * as Updates from "expo-updates";
-import { useEffect, useRef } from "react";
+import { useNavigation } from "@react-navigation/native";
+import { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Image, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import AppErrorBoundary from "./src/components/AppErrorBoundary";
+import CreatePlaylistModal from "./src/components/CreatePlaylistModal";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { EngagementProvider } from "./src/context/EngagementContext";
 import { PlayerProvider } from "./src/context/PlayerContext";
@@ -22,9 +24,11 @@ import HomeScreen from "./src/screens/HomeScreen";
 import SearchScreen from "./src/screens/SearchScreen";
 import SongsScreen from "./src/screens/SongsScreen";
 import PlayerScreen from "./src/screens/PlayerScreen";
+import PlaylistDetailScreen from "./src/screens/PlaylistDetailScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import ReleaseUploadScreen from "./src/screens/ReleaseUploadScreen";
 import { SHARE_BASE_URL } from "./src/config/api";
+import YourLibraryScreen from "./src/screens/YourLibraryScreen";
 import { colors } from "./src/theme";
 import { logUpdateDiagnostics } from "./src/utils/updateDiagnostics";
 
@@ -40,17 +44,20 @@ const linking = {
         path: "",
         screens: {
           Home: "home",
-          Songs: "songs",
-          Artists: "artists",
           Search: "search",
+          Library: "library",
+          Create: "create",
         },
       },
+      Songs: "songs",
+      Artists: "artists",
       Profile: "profile",
       ArtistApplication: "artist-application",
       ArtistStudio: "artist-studio",
       ReleaseUpload: "artist-studio/upload",
       Player: "song/:id",
       ArtistDetail: "artist/:id",
+      PlaylistDetail: "playlist/:id",
     },
   },
 };
@@ -82,39 +89,79 @@ function AutoUpdateGate() {
 }
 
 function MainTabs() {
+  const navigation = useNavigation();
+  const { isAuthenticated } = useAuth();
+  const [createVisible, setCreateVisible] = useState(false);
+
+  function openCreate() {
+    if (!isAuthenticated) {
+      navigation.navigate("Profile", { loginRequired: true });
+      return;
+    }
+
+    setCreateVisible(true);
+  }
+
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: colors.card,
-          borderTopColor: colors.border,
-          height: 68,
-          paddingBottom: 10,
-          paddingTop: 8,
-        },
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.muted,
-        tabBarLabelStyle: { fontSize: 12, fontWeight: "700" },
-        tabBarIcon: ({ color, size }) => {
-          const icons = {
-            Home: "home",
-            Songs: "musical-notes",
-            Artists: "people",
-            Search: "search",
-          };
-          return (
-            <Ionicons name={icons[route.name]} color={color} size={size} />
-          );
-        },
-      })}
-    >
-      <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Songs" component={SongsScreen} />
-      <Tab.Screen name="Artists" component={ArtistsScreen} />
-      <Tab.Screen name="Search" component={SearchScreen} />
-    </Tab.Navigator>
+    <>
+      <Tab.Navigator
+        screenOptions={({ route }) => ({
+          headerShown: false,
+          tabBarStyle: {
+            backgroundColor: colors.card,
+            borderTopColor: colors.border,
+            height: 70,
+            paddingBottom: 10,
+            paddingTop: 8,
+          },
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.muted,
+          tabBarLabelStyle: { fontSize: 11, fontWeight: "700" },
+          tabBarIcon: ({ color, size }) => {
+            const icons = {
+              Home: "home",
+              Search: "search",
+              Library: "library",
+              Create: "add-circle",
+            };
+            return (
+              <Ionicons name={icons[route.name]} color={color} size={size} />
+            );
+          },
+        })}
+      >
+        <Tab.Screen name="Home" component={HomeScreen} />
+        <Tab.Screen name="Search" component={SearchScreen} />
+        <Tab.Screen
+          name="Library"
+          component={YourLibraryScreen}
+          options={{ tabBarLabel: "Your Library" }}
+        />
+        <Tab.Screen
+          name="Create"
+          component={CreateScreenPlaceholder}
+          listeners={{
+            tabPress: (event) => {
+              event.preventDefault();
+              openCreate();
+            },
+          }}
+        />
+      </Tab.Navigator>
+      <CreatePlaylistModal
+        visible={createVisible}
+        onClose={() => setCreateVisible(false)}
+        onCreated={(playlist) => {
+          setCreateVisible(false);
+          navigation.navigate("PlaylistDetail", { id: playlist.id });
+        }}
+      />
+    </>
   );
+}
+
+function CreateScreenPlaceholder() {
+  return <View style={styles.placeholderScreen} />;
 }
 
 function LoadingScreen() {
@@ -227,6 +274,21 @@ function AppNavigator() {
               options={{ title: "Artist" }}
             />
             <Stack.Screen
+              name="Songs"
+              component={SongsScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Artists"
+              component={ArtistsScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="PlaylistDetail"
+              component={PlaylistDetailScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
               name="Profile"
               component={ProfileScreen}
               options={{ headerShown: false }}
@@ -269,6 +331,16 @@ function AppNavigator() {
               name="ArtistDetail"
               component={ArtistDetailScreen}
               options={{ title: "Artist" }}
+            />
+            <Stack.Screen
+              name="Songs"
+              component={SongsScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Artists"
+              component={ArtistsScreen}
+              options={{ headerShown: false }}
             />
             <Stack.Screen
               name="Player"
@@ -347,5 +419,9 @@ const styles = StyleSheet.create({
   },
   loadingBarAccent: {
     backgroundColor: colors.accent,
+  },
+  placeholderScreen: {
+    backgroundColor: colors.background,
+    flex: 1,
   },
 });

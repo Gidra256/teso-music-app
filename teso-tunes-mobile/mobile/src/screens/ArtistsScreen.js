@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -46,7 +47,18 @@ export default function ArtistsScreen({ navigation }) {
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <ProfileAvatarButton />
+          {navigation?.canGoBack?.() ? (
+            <TouchableOpacity
+              activeOpacity={0.82}
+              accessibilityLabel="Go back"
+              style={styles.navButton}
+              onPress={() => navigation.goBack()}
+            >
+              <Ionicons name="arrow-back" color={colors.softText} size={21} />
+            </TouchableOpacity>
+          ) : (
+            <ProfileAvatarButton />
+          )}
           <Text style={styles.title}>Artists</Text>
           <View style={styles.titleSpacer} />
         </View>
@@ -97,6 +109,13 @@ const styles = StyleSheet.create({
   },
   titleSpacer: {
     flex: 1,
+  },
+  navButton: {
+    alignItems: "center",
+    borderRadius: 22,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
   },
   title: {
     color: colors.text,

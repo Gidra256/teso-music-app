@@ -1,35 +1,41 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { BACKEND_CONNECTION_ERROR, getSongs } from "../api/musicApi";
+import { BACKEND_CONNECTION_ERROR, getArtists, getSongs } from "../api/musicApi";
+import ArtistCard from "../components/ArtistCard";
 import MiniPlayer from "../components/MiniPlayer";
 import ProfileAvatarButton from "../components/ProfileAvatarButton";
 import SearchBar from "../components/SearchBar";
 import SongCard from "../components/SongCard";
 import { colors, spacing } from "../theme";
 
-export default function SearchScreen() {
+export default function SearchScreen({ navigation }) {
   const [query, setQuery] = useState("");
   const [songs, setSongs] = useState([]);
+  const [artists, setArtists] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const loadSongs = useCallback(() => {
-    getSongs()
-      .then((items) => {
+    setLoading(true);
+    Promise.all([getSongs(), getArtists()])
+      .then(([songItems, artistItems]) => {
         setError("");
-        setSongs(items);
+        setSongs(Array.isArray(songItems) ? songItems : []);
+        setArtists(Array.isArray(artistItems) ? artistItems : []);
       })
       .catch((loadError) => {
         setError(loadError?.message || BACKEND_CONNECTION_ERROR);
-      });
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     loadSongs();
   }, [loadSongs]);
 
-  const results = useMemo(() => {
+  const songResults = useMemo(() => {
     if (!query.trim()) return songs.slice(0, 12);
     return songs.filter((song) => {
       const needle = query.toLowerCase();
@@ -41,6 +47,30 @@ export default function SearchScreen() {
     });
   }, [songs, query]);
 
+  const artistResults = useMemo(() => {
+    if (!query.trim()) return artists.slice(0, 8);
+    return artists.filter((artist) => {
+      const needle = query.toLowerCase();
+      return (
+        artist.name.toLowerCase().includes(needle) ||
+        (artist.category || "").toLowerCase().includes(needle) ||
+        (artist.location || "").toLowerCase().includes(needle)
+      );
+    });
+  }, [artists, query]);
+
+  const hasResults = songResults.length > 0 || artistResults.length > 0;
+
+  function openArtist(artist) {
+    const parentNavigation = navigation.getParent?.();
+    if (parentNavigation?.navigate) {
+      parentNavigation.navigate("ArtistDetail", { id: artist.id });
+      return;
+    }
+
+    navigation.navigate("ArtistDetail", { id: artist.id });
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
@@ -51,7 +81,9 @@ export default function SearchScreen() {
         </View>
         <SearchBar value={query} onChangeText={setQuery} placeholder="Find songs, artists, genres" />
       </View>
-      {error ? (
+      {loading ? (
+        <ActivityIndicator color={colors.primary} style={styles.loader} />
+      ) : error ? (
         <View style={styles.stateBlock}>
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity activeOpacity={0.84} style={styles.retryButton} onPress={loadSongs}>
@@ -59,14 +91,36 @@ export default function SearchScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        <FlatList
-          data={results}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={({ item }) => <SongCard song={item} queue={results} />}
-          contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.empty}>No songs found.</Text>}
-          showsVerticalScrollIndicator={false}
-        />
+        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+          {artistResults.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Artists</Text>
+              <View style={styles.artistGrid}>
+                {artistResults.map((artist) => (
+                  <View key={artist.id} style={styles.artistCell}>
+                    <ArtistCard
+                      artist={artist}
+                      onPress={() => openArtist(artist)}
+                    />
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          {songResults.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Songs</Text>
+              <View style={styles.songList}>
+                {songResults.map((song) => (
+                  <SongCard key={song.id} song={song} queue={songResults} />
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          {!hasResults ? <Text style={styles.empty}>No songs or artists found.</Text> : null}
+        </ScrollView>
       )}
       <MiniPlayer />
     </SafeAreaView>
@@ -100,6 +154,28 @@ const styles = StyleSheet.create({
     padding: spacing.page,
     paddingBottom: 110,
     paddingTop: 0,
+  },
+  section: {
+    gap: 12,
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontSize: 19,
+    fontWeight: "950",
+  },
+  songList: {
+    gap: 4,
+  },
+  artistGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 18,
+  },
+  artistCell: {
+    width: "47%",
+  },
+  loader: {
+    marginTop: 30,
   },
   empty: {
     color: colors.muted,

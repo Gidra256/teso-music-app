@@ -7,6 +7,21 @@ import { incrementSongPlay } from "../api/musicApi";
 
 const PlayerContext = createContext(null);
 const BACKGROUND_PLAYBACK_KEY = "teso_tunes_background_playback";
+const RECENTLY_PLAYED_KEY = "teso_tunes_recently_played";
+const RECENTLY_PLAYED_LIMIT = 30;
+
+function compactRecentSong(song) {
+  return {
+    id: song.id,
+    artist: song.artist || song.artist_id || null,
+    artist_id: song.artist_id || song.artist || null,
+    artist_name: song.artist_name || "",
+    audio_file: song.audio_file || "",
+    cover_image: song.cover_image || "",
+    genre: song.genre || "",
+    title: song.title || "Untitled song",
+  };
+}
 
 export function PlayerProvider({ children }) {
   const soundRef = useRef(null);
@@ -20,6 +35,7 @@ export function PlayerProvider({ children }) {
   const lastCountedSongIdRef = useRef(null);
   const currentTimeRef = useRef(0);
   const durationRef = useRef(0);
+  const recentlyPlayedRef = useRef([]);
   const audioModeReadyRef = useRef(false);
   const backgroundPlaybackEnabledRef = useRef(true);
   const [currentSong, setCurrentSong] = useState(null);
@@ -29,10 +45,12 @@ export function PlayerProvider({ children }) {
   const [didFinish, setDidFinish] = useState(false);
   const [isRepeatOn, setIsRepeatOn] = useState(false);
   const [isShuffleOn, setIsShuffleOn] = useState(false);
+  const [recentlyPlayed, setRecentlyPlayed] = useState([]);
   const [backgroundPlaybackEnabled, setBackgroundPlaybackEnabledState] = useState(true);
 
   useEffect(() => {
     loadAudioSettings();
+    loadRecentlyPlayed();
 
     const appStateSubscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active") {
@@ -45,6 +63,40 @@ export function PlayerProvider({ children }) {
       unloadCurrentSound();
     };
   }, []);
+
+  async function loadRecentlyPlayed() {
+    try {
+      const savedSongs = await AsyncStorage.getItem(RECENTLY_PLAYED_KEY);
+      const parsedSongs = JSON.parse(savedSongs || "[]");
+      const nextSongs = Array.isArray(parsedSongs)
+        ? parsedSongs.filter((song) => song?.id).slice(0, RECENTLY_PLAYED_LIMIT)
+        : [];
+      recentlyPlayedRef.current = nextSongs;
+      setRecentlyPlayed(nextSongs);
+    } catch (error) {
+      recentlyPlayedRef.current = [];
+      setRecentlyPlayed([]);
+    }
+  }
+
+  async function recordRecentlyPlayed(song) {
+    if (!song?.id) return;
+
+    const compactSong = compactRecentSong(song);
+    const nextSongs = [
+      compactSong,
+      ...recentlyPlayedRef.current.filter(
+        (item) => Number(item?.id) !== Number(song.id)
+      ),
+    ].slice(0, RECENTLY_PLAYED_LIMIT);
+
+    recentlyPlayedRef.current = nextSongs;
+    setRecentlyPlayed(nextSongs);
+
+    try {
+      await AsyncStorage.setItem(RECENTLY_PLAYED_KEY, JSON.stringify(nextSongs));
+    } catch (error) {}
+  }
 
   async function loadAudioSettings() {
     try {
@@ -320,6 +372,7 @@ export function PlayerProvider({ children }) {
       activateLockScreenControls(player, song);
       player.play();
       recordPlayCount(song);
+      recordRecentlyPlayed(song);
       syncPlaybackStatus(currentStatusFor(player));
       syncPlayerStatusSoon(player);
     } catch (error) {
@@ -459,6 +512,7 @@ export function PlayerProvider({ children }) {
         duration > 0 && Number.isFinite(currentTime)
           ? Math.min(Math.max(currentTime / duration, 0), 1)
           : 0,
+      recentlyPlayed,
       seekBy,
       seekTo,
       setBackgroundPlaybackEnabled,
@@ -475,6 +529,7 @@ export function PlayerProvider({ children }) {
       isPlaying,
       isRepeatOn,
       isShuffleOn,
+      recentlyPlayed,
     ]
   );
 

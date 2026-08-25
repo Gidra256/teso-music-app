@@ -71,6 +71,16 @@ export default function HomeScreen({ navigation }) {
 
   const hasCatalog = songs.length > 0 || artists.length > 0 || featuredSongs.length > 0 || featuredArtists.length > 0;
 
+  function openStackScreen(name, params) {
+    const parentNavigation = navigation.getParent?.();
+    if (parentNavigation?.navigate) {
+      parentNavigation.navigate(name, params);
+      return;
+    }
+
+    navigation.navigate(name, params);
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -79,7 +89,7 @@ export default function HomeScreen({ navigation }) {
           <TouchableOpacity style={styles.activeChip} onPress={() => setSearch("")}>
             <Text style={styles.activeChipText}>All</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.chip} onPress={() => setSearch("")}>
+          <TouchableOpacity style={styles.chip} onPress={() => openStackScreen("Songs")}>
             <Text style={styles.chipText}>Music</Text>
           </TouchableOpacity>
         </View>
@@ -122,7 +132,7 @@ export default function HomeScreen({ navigation }) {
                   data={featuredArtists}
                   keyExtractor={(item) => String(item.id)}
                   renderItem={({ item }) => (
-                    <ArtistCard artist={item} compact onPress={() => navigation.navigate("ArtistDetail", { id: item.id })} />
+                    <ArtistCard artist={item} compact onPress={() => openStackScreen("ArtistDetail", { id: item.id })} />
                   )}
                   showsHorizontalScrollIndicator={false}
                   ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
@@ -152,7 +162,7 @@ export default function HomeScreen({ navigation }) {
                   data={mostFollowedArtists}
                   keyExtractor={(item) => String(item.id)}
                   renderItem={({ item }) => (
-                    <ArtistCard artist={item} compact onPress={() => navigation.navigate("ArtistDetail", { id: item.id })} />
+                    <ArtistCard artist={item} compact onPress={() => openStackScreen("ArtistDetail", { id: item.id })} />
                   )}
                   showsHorizontalScrollIndicator={false}
                   ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
