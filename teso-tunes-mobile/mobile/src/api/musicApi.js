@@ -366,6 +366,10 @@ export async function getGenres() {
   return fetchJson("/genres/");
 }
 
+export async function getPlatformStatus() {
+  return fetchJson("/platform-status/");
+}
+
 export async function likeSong(id, deviceId) {
   return postDeviceAction(`/songs/${id}/like/`, deviceId);
 }

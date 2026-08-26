@@ -78,7 +78,7 @@ async function main() {
 
   const remoteSongs = await request("/admin-api/songs", { headers: authHeaders });
   for (const song of remoteSongs) {
-    await request(`/admin-api/songs/${song.id}`, {
+    await request(`/admin-api/songs/${song.id}?confirm=DELETE%20FOREVER`, {
       method: "DELETE",
       headers: authHeaders,
     });
@@ -86,7 +86,7 @@ async function main() {
 
   const remoteArtists = await request("/admin-api/artists", { headers: authHeaders });
   for (const artist of remoteArtists) {
-    await request(`/admin-api/artists/${artist.id}`, {
+    await request(`/admin-api/artists/${artist.id}?confirm=DELETE%20FOREVER`, {
       method: "DELETE",
       headers: authHeaders,
     });

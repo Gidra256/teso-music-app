@@ -28,6 +28,7 @@ import PlaylistDetailScreen from "./src/screens/PlaylistDetailScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import ReleaseUploadScreen from "./src/screens/ReleaseUploadScreen";
 import { SHARE_BASE_URL } from "./src/config/api";
+import { getPlatformStatus } from "./src/api/musicApi";
 import YourLibraryScreen from "./src/screens/YourLibraryScreen";
 import { colors } from "./src/theme";
 import { logUpdateDiagnostics } from "./src/utils/updateDiagnostics";
@@ -238,14 +239,68 @@ function LoadingScreen() {
   );
 }
 
+function MaintenanceScreen({ message, announcement }) {
+  return (
+    <LinearGradient
+      colors={[colors.background, "#071C20", "#170819", colors.background]}
+      style={styles.maintenanceScreen}
+    >
+      <Image source={APP_LOGO} style={styles.maintenanceLogo} />
+      <Text style={styles.maintenanceEyebrow}>TesoHub Music</Text>
+      <Text style={styles.maintenanceTitle}>We will be back soon</Text>
+      <Text style={styles.maintenanceMessage}>
+        {message || "TesoHub Music is temporarily under maintenance."}
+      </Text>
+      {announcement ? (
+        <View style={styles.maintenanceNotice}>
+          <Text style={styles.maintenanceNoticeText}>{announcement}</Text>
+        </View>
+      ) : null}
+    </LinearGradient>
+  );
+}
+
 function AppNavigator() {
   const { isAuthenticated, loading } = useAuth();
+  const [platformStatus, setPlatformStatus] = useState(null);
+  const [platformChecked, setPlatformChecked] = useState(false);
 
-  if (loading) {
+  useEffect(() => {
+    let mounted = true;
+
+    getPlatformStatus()
+      .then((status) => {
+        if (mounted) setPlatformStatus(status);
+      })
+      .catch(() => {
+        if (mounted) setPlatformStatus(null);
+      })
+      .finally(() => {
+        if (mounted) setPlatformChecked(true);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (loading || !platformChecked) {
     return (
       <>
         <StatusBar style="light" />
         <LoadingScreen />
+      </>
+    );
+  }
+
+  if (platformStatus?.maintenance_mode) {
+    return (
+      <>
+        <StatusBar style="light" />
+        <MaintenanceScreen
+          announcement={platformStatus.app_announcement}
+          message={platformStatus.maintenance_message}
+        />
       </>
     );
   }
@@ -420,6 +475,56 @@ const styles = StyleSheet.create({
   },
   loadingBarAccent: {
     backgroundColor: colors.accent,
+  },
+  maintenanceScreen: {
+    alignItems: "center",
+    backgroundColor: colors.background,
+    flex: 1,
+    justifyContent: "center",
+    padding: 28,
+  },
+  maintenanceLogo: {
+    borderRadius: 8,
+    height: 136,
+    marginBottom: 24,
+    width: 136,
+  },
+  maintenanceEyebrow: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "900",
+    marginBottom: 10,
+    textTransform: "uppercase",
+  },
+  maintenanceTitle: {
+    color: colors.text,
+    fontSize: 28,
+    fontWeight: "950",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  maintenanceMessage: {
+    color: colors.softText,
+    fontSize: 15,
+    lineHeight: 23,
+    maxWidth: 360,
+    textAlign: "center",
+  },
+  maintenanceNotice: {
+    backgroundColor: colors.elevated,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 20,
+    maxWidth: 360,
+    padding: 14,
+  },
+  maintenanceNoticeText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 20,
+    textAlign: "center",
   },
   placeholderScreen: {
     backgroundColor: colors.background,
