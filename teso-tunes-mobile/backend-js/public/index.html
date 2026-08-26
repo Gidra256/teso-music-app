@@ -1338,10 +1338,11 @@
 
       async function saveArtist(event) {
         event.preventDefault();
+        const form = event.target;
         setStatus("Saving artist...");
         await api(state.editingArtistId ? `/admin-api/artists/${state.editingArtistId}` : "/admin-api/artists", {
           method: state.editingArtistId ? "PUT" : "POST",
-          body: new FormData(event.currentTarget),
+          body: new FormData(form),
         });
         state.editingArtistId = null;
         await loadData();
@@ -1350,10 +1351,11 @@
 
       async function saveSong(event) {
         event.preventDefault();
+        const form = event.target;
         setStatus("Saving song...");
         await api(state.editingSongId ? `/admin-api/songs/${state.editingSongId}` : "/admin-api/songs", {
           method: state.editingSongId ? "PUT" : "POST",
-          body: new FormData(event.currentTarget),
+          body: new FormData(form),
         });
         state.editingSongId = null;
         await loadData();
@@ -1362,7 +1364,8 @@
 
       async function saveGenre(event) {
         event.preventDefault();
-        const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+        const form = event.target;
+        const data = Object.fromEntries(new FormData(form).entries());
         setStatus("Saving genre...");
         await api(state.editingGenreId ? `/admin-api/genres/${state.editingGenreId}` : "/admin-api/genres", {
           method: state.editingGenreId ? "PUT" : "POST",
@@ -1375,7 +1378,7 @@
 
       async function saveSettings(event) {
         event.preventDefault();
-        const form = event.currentTarget;
+        const form = event.target;
         const data = new FormData(form);
         const previous = state.settings || {};
         const nextMaintenance = form.elements.maintenance_mode.checked;
@@ -1586,10 +1589,10 @@
 
       document.addEventListener("submit", async (event) => {
         try {
-          if (event.target.id === "artistForm") await saveArtist(event);
-          if (event.target.id === "songForm") await saveSong(event);
-          if (event.target.id === "genreForm") await saveGenre(event);
-          if (event.target.id === "settingsForm") await saveSettings(event);
+          if (event.target.id === "artistForm") return await saveArtist(event);
+          if (event.target.id === "songForm") return await saveSong(event);
+          if (event.target.id === "genreForm") return await saveGenre(event);
+          if (event.target.id === "settingsForm") return await saveSettings(event);
         } catch (error) {
           event.preventDefault();
           setStatus(error.message);
