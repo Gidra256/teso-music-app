@@ -171,7 +171,7 @@ async function readLegacyMedia(value) {
 async function storageMap(client, legacyValue) {
   if (config.dryRun || !legacyValue) return null;
   const result = await client.query(
-    "select bucket, object_path from public.legacy_media_migrations where legacy_value = $1",
+    "select bucket, object_path from tesohub_music.legacy_media_migrations where legacy_value = $1",
     [legacyValue],
   );
   return result.rows[0] || null;
@@ -230,7 +230,7 @@ async function migrateMedia(client, { legacyValue, bucket, objectPath, mediaKind
 
     if (!config.dryRun) {
       await client.query(
-        `insert into public.legacy_media_migrations
+        `insert into tesohub_music.legacy_media_migrations
           (legacy_value, bucket, object_path, source_kind, bytes, content_type)
          values ($1, $2, $3, $4, $5, $6)
          on conflict (legacy_value) do update set
@@ -271,7 +271,7 @@ async function query(client, sql, params = []) {
 async function upsertListener(client, item) {
   await query(
     client,
-    `insert into public.listeners
+    `insert into tesohub_music.listeners
       (id, name, email, phone, password_hash, role, plan, status, artist_id,
        artist_application_id, suspension_reason, created_at, updated_at)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
@@ -309,7 +309,7 @@ async function upsertListener(client, item) {
 async function upsertArtist(client, item, photoPath) {
   await query(
     client,
-    `insert into public.artists
+    `insert into tesohub_music.artists
       (id, name, category, bio, photo_path, legacy_photo, location, is_featured,
        status, owner_listener_id, source_application_id, created_at, updated_at)
      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
@@ -347,7 +347,7 @@ async function upsertArtist(client, item, photoPath) {
 async function upsertSong(client, item, audioPath, coverPath) {
   await query(
     client,
-    `insert into public.songs
+    `insert into tesohub_music.songs
       (id, artist_id, title, audio_path, legacy_audio_file, cover_path, legacy_cover_image,
        genre, genre_note, lyrics, play_count, release_date, is_featured, status,
        source_release_id, created_at, updated_at)
@@ -394,7 +394,7 @@ async function upsertSong(client, item, audioPath, coverPath) {
 async function upsertGenre(client, item) {
   await query(
     client,
-    `insert into public.genres (id, name, active, position, created_at, updated_at)
+    `insert into tesohub_music.genres (id, name, active, position, created_at, updated_at)
      values ($1,$2,$3,$4,$5,$6)
      on conflict (id) do update set
       name = excluded.name,
@@ -416,7 +416,7 @@ async function upsertGenre(client, item) {
 async function upsertApplication(client, item, photoPath) {
   await query(
     client,
-    `insert into public.artist_applications
+    `insert into tesohub_music.artist_applications
       (id, listener_id, artist_id, artist_name, contact_name, bio, country, region,
        genre, genre_note, phone, email, photo_path, legacy_photo, social_link,
        genuine_confirmed, status, review_reason, rejection_reason, reviewed_by,
@@ -476,7 +476,7 @@ async function upsertApplication(client, item, photoPath) {
 async function upsertRelease(client, item, audioPath, coverPath) {
   await query(
     client,
-    `insert into public.releases
+    `insert into tesohub_music.releases
       (id, artist_id, listener_id, title, release_type, featured_artist, genre,
        genre_note, language, release_date, explicit, producer, songwriter,
        description, rights_confirmed, audio_path, legacy_audio_file, cover_path,
@@ -548,7 +548,7 @@ async function upsertSimpleRows(client, db) {
   for (const session of db.authTokens || []) {
     await query(
       client,
-      `insert into public.auth_tokens
+      `insert into tesohub_music.auth_tokens
         (id, listener_id, token_hash, device_id, device_name, created_at, last_active_at)
        values ($1,$2,$3,$4,$5,$6,$7)
        on conflict (id) do update set
@@ -573,7 +573,7 @@ async function upsertSimpleRows(client, db) {
   for (const like of db.songLikes || []) {
     await query(
       client,
-      `insert into public.song_likes (song_id, listener_id, device_id, created_at)
+      `insert into tesohub_music.song_likes (song_id, listener_id, device_id, created_at)
        values ($1,$2,$3,$4)
        on conflict do nothing`,
       [
@@ -589,7 +589,7 @@ async function upsertSimpleRows(client, db) {
   for (const follow of db.artistFollows || []) {
     await query(
       client,
-      `insert into public.artist_follows (artist_id, listener_id, device_id, created_at)
+      `insert into tesohub_music.artist_follows (artist_id, listener_id, device_id, created_at)
        values ($1,$2,$3,$4)
        on conflict do nothing`,
       [
@@ -612,7 +612,7 @@ async function upsertSimpleRows(client, db) {
     });
     await query(
       client,
-      `insert into public.playlists
+      `insert into tesohub_music.playlists
         (id, owner_id, name, description, artwork_path, legacy_artwork, created_at, updated_at)
        values ($1,$2,$3,$4,$5,$6,$7,$8)
        on conflict (id) do update set
@@ -639,7 +639,7 @@ async function upsertSimpleRows(client, db) {
   for (const entry of db.playlistSongs || []) {
     await query(
       client,
-      `insert into public.playlist_songs (playlist_id, song_id, position, added_at)
+      `insert into tesohub_music.playlist_songs (playlist_id, song_id, position, added_at)
        values ($1,$2,$3,$4)
        on conflict (playlist_id, song_id) do update set
         position = excluded.position,
@@ -657,7 +657,7 @@ async function upsertSimpleRows(client, db) {
   for (const report of db.reports || []) {
     await query(
       client,
-      `insert into public.reports
+      `insert into tesohub_music.reports
         (id, reporter_id, target_type, target_id, reason, status, notes, created_at, updated_at)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        on conflict (id) do update set
@@ -686,7 +686,7 @@ async function upsertSimpleRows(client, db) {
   const settings = db.platformSettings || {};
   await query(
     client,
-    `insert into public.platform_settings
+    `insert into tesohub_music.platform_settings
       (id, registration_enabled, artist_applications_enabled, music_uploads_enabled,
        maintenance_mode, maintenance_message, max_audio_upload_mb, max_artwork_upload_mb,
        supported_audio_formats, minimum_supported_app_version, app_announcement,
@@ -726,7 +726,7 @@ async function upsertSimpleRows(client, db) {
   for (const [key, enabled] of Object.entries(flags)) {
     await query(
       client,
-      `insert into public.feature_flags (key, enabled, updated_at)
+      `insert into tesohub_music.feature_flags (key, enabled, updated_at)
        values ($1,$2,now())
        on conflict (key) do update set enabled = excluded.enabled, updated_at = excluded.updated_at`,
       [key, Boolean(enabled)],
@@ -737,7 +737,7 @@ async function upsertSimpleRows(client, db) {
   for (const entry of db.adminAuditLogs || []) {
     await query(
       client,
-      `insert into public.admin_audit_logs
+      `insert into tesohub_music.admin_audit_logs
         (id, admin_user, admin_role, action, target_type, target_id, details, reason, created_at)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        on conflict (id) do update set
@@ -778,19 +778,19 @@ async function resetSequence(client, table, idColumn = "id") {
 
 async function resetSequences(client) {
   const tables = [
-    "public.listeners",
-    "public.artists",
-    "public.genres",
-    "public.artist_applications",
-    "public.songs",
-    "public.releases",
-    "public.song_likes",
-    "public.artist_follows",
-    "public.playlists",
-    "public.playlist_songs",
-    "public.reports",
-    "public.admin_audit_logs",
-    "public.listening_history",
+    "tesohub_music.listeners",
+    "tesohub_music.artists",
+    "tesohub_music.genres",
+    "tesohub_music.artist_applications",
+    "tesohub_music.songs",
+    "tesohub_music.releases",
+    "tesohub_music.song_likes",
+    "tesohub_music.artist_follows",
+    "tesohub_music.playlists",
+    "tesohub_music.playlist_songs",
+    "tesohub_music.reports",
+    "tesohub_music.admin_audit_logs",
+    "tesohub_music.listening_history",
   ];
   for (const table of tables) {
     await resetSequence(client, table);
@@ -920,7 +920,7 @@ async function main() {
 
     if (!config.dryRun) {
       await client.query(
-        `insert into public.migration_runs
+        `insert into tesohub_music.migration_runs
           (source_name, source_fingerprint, summary, started_at, finished_at)
          values ($1,$2,$3,$4,$5)`,
         [config.sourceName, fingerprint, summary, startedAt, summary.finishedAt],

@@ -39,7 +39,7 @@ const tableMap = {
 };
 
 async function tableCount(client, table) {
-  const result = await client.query(`select count(*)::int as count from public.${table}`);
+  const result = await client.query(`select count(*)::int as count from tesohub_music.${table}`);
   return result.rows[0].count;
 }
 
@@ -73,15 +73,15 @@ async function validateStorageObjects(client) {
 
   const mediaResult = await client.query(`
     select 'audio' as kind, $1::text as bucket, audio_path as object_path
-    from public.songs
+    from tesohub_music.songs
     where audio_path is not null
     union all
     select 'song_cover' as kind, $2::text as bucket, cover_path as object_path
-    from public.songs
+    from tesohub_music.songs
     where cover_path is not null
     union all
     select 'artist_photo' as kind, $3::text as bucket, photo_path as object_path
-    from public.artists
+    from tesohub_music.artists
     where photo_path is not null
   `, [audioBucket, artworkBucket, avatarBucket]);
 
@@ -118,29 +118,29 @@ async function main() {
 
     const brokenRefs = await client.query(`
       select 'songs.artist_id' as relationship, count(*)::int as broken
-      from public.songs s left join public.artists a on a.id = s.artist_id
+      from tesohub_music.songs s left join tesohub_music.artists a on a.id = s.artist_id
       where a.id is null
       union all
       select 'song_likes.song_id', count(*)::int
-      from public.song_likes l left join public.songs s on s.id = l.song_id
+      from tesohub_music.song_likes l left join tesohub_music.songs s on s.id = l.song_id
       where s.id is null
       union all
       select 'artist_follows.artist_id', count(*)::int
-      from public.artist_follows f left join public.artists a on a.id = f.artist_id
+      from tesohub_music.artist_follows f left join tesohub_music.artists a on a.id = f.artist_id
       where a.id is null
       union all
       select 'playlist_songs.playlist_id', count(*)::int
-      from public.playlist_songs ps left join public.playlists p on p.id = ps.playlist_id
+      from tesohub_music.playlist_songs ps left join tesohub_music.playlists p on p.id = ps.playlist_id
       where p.id is null
       union all
       select 'playlist_songs.song_id', count(*)::int
-      from public.playlist_songs ps left join public.songs s on s.id = ps.song_id
+      from tesohub_music.playlist_songs ps left join tesohub_music.songs s on s.id = ps.song_id
       where s.id is null
     `);
 
     const songsMissingAudio = await client.query(`
       select id, title, legacy_audio_file
-      from public.songs
+      from tesohub_music.songs
       where nullif(legacy_audio_file, '') is not null
         and audio_path is null
       order by id
