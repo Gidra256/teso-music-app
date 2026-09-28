@@ -14,7 +14,7 @@ const storageRoot = process.env.STORAGE_DIR
 const databaseUrl = process.env.DATABASE_URL || "";
 const legacyDbPath = process.env.LEGACY_DB_PATH || path.join(storageRoot, "data", "db.json");
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
-const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || "";
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const validateStorage = process.env.VALIDATE_STORAGE === "1";
 
 if (!databaseUrl) {
@@ -63,7 +63,10 @@ async function validateStorageObjects(client) {
     return { skipped: true, reason: "Set VALIDATE_STORAGE=1 to check object existence." };
   }
   if (!supabaseUrl || !supabaseSecretKey) {
-    return { skipped: true, reason: "SUPABASE_URL and SUPABASE_SECRET_KEY are required." };
+    return {
+      skipped: true,
+      reason: "SUPABASE_URL and SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY are required.",
+    };
   }
 
   const audioBucket = process.env.SUPABASE_AUDIO_BUCKET || "music-audio";
