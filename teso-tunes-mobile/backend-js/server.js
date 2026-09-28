@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import cors from "cors";
@@ -1162,6 +1163,110 @@ function requireAdminPermission(...permissions) {
 }
 
 const requireAdmin = requireAdminPermission();
+const migrationJobs = new Map();
+
+const MIGRATION_CONFIRMATIONS = {
+  migrate: "MIGRATE RENDER DATA TO SUPABASE",
+  schema: "APPLY SUPABASE SCHEMA",
+  validate: "VALIDATE SUPABASE MIGRATION",
+};
+
+function migrationScriptPath(filename) {
+  return path.join(__dirname, "scripts", filename);
+}
+
+function migrationJobSnapshot(job) {
+  return {
+    id: job.id,
+    kind: job.kind,
+    status: job.status,
+    exit_code: job.exitCode,
+    signal: job.signal,
+    started_at: job.startedAt,
+    finished_at: job.finishedAt,
+    logs: job.logs.slice(-120),
+  };
+}
+
+function pruneMigrationJobs() {
+  const jobs = [...migrationJobs.values()].sort((first, second) =>
+    String(second.startedAt).localeCompare(String(first.startedAt)),
+  );
+  for (const job of jobs.slice(20)) {
+    migrationJobs.delete(job.id);
+  }
+}
+
+function appendMigrationLog(job, source, chunk) {
+  const lines = String(chunk || "")
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean);
+  for (const line of lines) {
+    job.logs.push({
+      at: nowIso(),
+      source,
+      text: line,
+    });
+  }
+  if (job.logs.length > 400) {
+    job.logs = job.logs.slice(-400);
+  }
+}
+
+function startMigrationJob(kind, scriptName, env = {}) {
+  const id = crypto.randomUUID();
+  const job = {
+    id,
+    kind,
+    status: "running",
+    exitCode: null,
+    signal: null,
+    startedAt: nowIso(),
+    finishedAt: null,
+    logs: [],
+  };
+  migrationJobs.set(id, job);
+  pruneMigrationJobs();
+
+  const child = spawn(process.execPath, [migrationScriptPath(scriptName)], {
+    cwd: __dirname,
+    env: {
+      ...process.env,
+      ...env,
+    },
+    windowsHide: true,
+  });
+
+  appendMigrationLog(job, "system", `Started ${kind} job ${id}.`);
+  child.stdout.on("data", (chunk) => appendMigrationLog(job, "stdout", chunk));
+  child.stderr.on("data", (chunk) => appendMigrationLog(job, "stderr", chunk));
+  child.on("error", (error) => {
+    job.status = "failed";
+    job.finishedAt = nowIso();
+    appendMigrationLog(job, "error", error.message);
+  });
+  child.on("close", (code, signal) => {
+    job.exitCode = code;
+    job.signal = signal;
+    job.status = code === 0 ? "succeeded" : "failed";
+    job.finishedAt = nowIso();
+    appendMigrationLog(job, "system", `Finished with code ${code ?? "null"}.`);
+  });
+
+  return job;
+}
+
+function requireMigrationConfirmation(req, res, kind) {
+  const expected = MIGRATION_CONFIRMATIONS[kind];
+  if (req.body?.confirm !== expected) {
+    res.status(400).json({
+      detail: `Confirmation required. Send confirm: ${expected}`,
+    });
+    return false;
+  }
+  return true;
+}
 
 function appendAuditLog(db, req, action, targetType, targetId = null, details = {}) {
   const now = nowIso();
@@ -2956,6 +3061,65 @@ app.get("/admin-api/persistence-export", requireAdmin, async (req, res) => {
       : "Sensitive hashes are redacted. Add include_sensitive=true&confirm=EXPORT%20RAW%20HASHES for a migration export.",
     db: exportedDb,
   });
+});
+
+app.get("/admin-api/supabase-migration/jobs", requireAdmin, (req, res) => {
+  res.json(
+    [...migrationJobs.values()]
+      .sort((first, second) =>
+        String(second.startedAt).localeCompare(String(first.startedAt)),
+      )
+      .map(migrationJobSnapshot),
+  );
+});
+
+app.get("/admin-api/supabase-migration/jobs/:id", requireAdmin, (req, res) => {
+  const job = migrationJobs.get(req.params.id);
+  if (!job) return res.status(404).json({ detail: "Migration job not found." });
+  res.json(migrationJobSnapshot(job));
+});
+
+app.post("/admin-api/supabase-migration/schema", requireAdmin, (req, res) => {
+  if (!requireMigrationConfirmation(req, res, "schema")) return;
+  const activeJob = [...migrationJobs.values()].find((job) => job.status === "running");
+  if (activeJob) {
+    return res.status(409).json({
+      detail: "A migration job is already running.",
+      job: migrationJobSnapshot(activeJob),
+    });
+  }
+  const job = startMigrationJob("schema", "apply-supabase-schema.js");
+  res.status(202).json({ job: migrationJobSnapshot(job) });
+});
+
+app.post("/admin-api/supabase-migration/migrate", requireAdmin, (req, res) => {
+  if (!requireMigrationConfirmation(req, res, "migrate")) return;
+  const activeJob = [...migrationJobs.values()].find((job) => job.status === "running");
+  if (activeJob) {
+    return res.status(409).json({
+      detail: "A migration job is already running.",
+      job: migrationJobSnapshot(activeJob),
+    });
+  }
+  const job = startMigrationJob("migrate", "migrate-json-to-supabase.js", {
+    MIGRATION_SOURCE_NAME: `render-json-${Date.now()}`,
+  });
+  res.status(202).json({ job: migrationJobSnapshot(job) });
+});
+
+app.post("/admin-api/supabase-migration/validate", requireAdmin, (req, res) => {
+  if (!requireMigrationConfirmation(req, res, "validate")) return;
+  const activeJob = [...migrationJobs.values()].find((job) => job.status === "running");
+  if (activeJob) {
+    return res.status(409).json({
+      detail: "A migration job is already running.",
+      job: migrationJobSnapshot(activeJob),
+    });
+  }
+  const job = startMigrationJob("validate", "validate-supabase-migration.js", {
+    VALIDATE_STORAGE: "1",
+  });
+  res.status(202).json({ job: migrationJobSnapshot(job) });
 });
 
 app.get("/admin-api/artist-applications", requireAdminPermission("applications"), async (req, res) => {

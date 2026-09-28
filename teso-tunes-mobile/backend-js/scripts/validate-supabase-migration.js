@@ -7,9 +7,12 @@ import pg from "pg";
 const { Client } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, "..");
+const storageRoot = process.env.STORAGE_DIR
+  ? path.resolve(process.env.STORAGE_DIR)
+  : backendRoot;
 
 const databaseUrl = process.env.DATABASE_URL || "";
-const legacyDbPath = process.env.LEGACY_DB_PATH || path.join(backendRoot, "data", "db.json");
+const legacyDbPath = process.env.LEGACY_DB_PATH || path.join(storageRoot, "data", "db.json");
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
 const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || "";
 const validateStorage = process.env.VALIDATE_STORAGE === "1";

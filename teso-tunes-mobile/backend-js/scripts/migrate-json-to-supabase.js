@@ -9,6 +9,9 @@ const { Client } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(backendRoot, "..");
+const storageRoot = process.env.STORAGE_DIR
+  ? path.resolve(process.env.STORAGE_DIR)
+  : backendRoot;
 
 const config = {
   databaseUrl: process.env.DATABASE_URL || "",
@@ -18,9 +21,9 @@ const config = {
   artworkBucket: process.env.SUPABASE_ARTWORK_BUCKET || "artwork",
   avatarBucket: process.env.SUPABASE_AVATAR_BUCKET || "avatars",
   legacyDbPath:
-    process.env.LEGACY_DB_PATH || path.join(backendRoot, "data", "db.json"),
+    process.env.LEGACY_DB_PATH || path.join(storageRoot, "data", "db.json"),
   legacyUploadsDir:
-    process.env.LEGACY_UPLOADS_DIR || path.join(backendRoot, "uploads"),
+    process.env.LEGACY_UPLOADS_DIR || path.join(storageRoot, "uploads"),
   legacyMediaDir:
     process.env.LEGACY_MEDIA_DIR || path.join(repoRoot, "backend", "media"),
   publicBaseUrl: (process.env.PUBLIC_BASE_URL || "https://teso-music-app.onrender.com").replace(

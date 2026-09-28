@@ -9,6 +9,7 @@
     "export:render": "node scripts/export-render-persistence.js",
     "import:django": "node scripts/import-from-django.js",
     "migrate:supabase": "node scripts/migrate-json-to-supabase.js",
+    "schema:supabase": "node scripts/apply-supabase-schema.js",
     "validate:supabase": "node scripts/validate-supabase-migration.js"
   },
   "dependencies": {
