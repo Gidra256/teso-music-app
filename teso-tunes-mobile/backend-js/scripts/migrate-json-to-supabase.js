@@ -16,7 +16,7 @@ const storageRoot = process.env.STORAGE_DIR
 const config = {
   databaseUrl: process.env.DATABASE_URL || "",
   supabaseUrl: (process.env.SUPABASE_URL || "").replace(/\/+$/, ""),
-  supabaseSecretKey: process.env.SUPABASE_SECRET_KEY || "",
+  supabaseSecretKey: process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   audioBucket: process.env.SUPABASE_AUDIO_BUCKET || "music-audio",
   artworkBucket: process.env.SUPABASE_ARTWORK_BUCKET || "artwork",
   avatarBucket: process.env.SUPABASE_AVATAR_BUCKET || "avatars",
@@ -32,10 +32,15 @@ const config = {
   ),
   sourceName: process.env.MIGRATION_SOURCE_NAME || "legacy-json",
   dryRun: process.env.DRY_RUN === "1" || process.argv.includes("--dry-run"),
+  allowEmptyCatalog: process.env.ALLOW_EMPTY_CATALOG_MIGRATION === "1",
 };
 
-const requiredEnv = ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_SECRET_KEY"];
-const missingEnv = requiredEnv.filter((key) => !process.env[key]);
+const requiredEnv = [
+  ["DATABASE_URL", Boolean(process.env.DATABASE_URL)],
+  ["SUPABASE_URL", Boolean(process.env.SUPABASE_URL)],
+  ["SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY", Boolean(config.supabaseSecretKey)],
+];
+const missingEnv = requiredEnv.filter(([, present]) => !present).map(([key]) => key);
 if (missingEnv.length && !config.dryRun) {
   console.error(`Missing required env vars: ${missingEnv.join(", ")}`);
   process.exit(1);
@@ -829,6 +834,11 @@ async function main() {
   console.log(`Source fingerprint: ${fingerprint}`);
   if (config.dryRun) {
     console.log("DRY_RUN=1: no database or storage writes will be performed.");
+  }
+  if (!config.dryRun && !config.allowEmptyCatalog && summary.counts.artists === 0 && summary.counts.songs === 0) {
+    throw new Error(
+      "Refusing to migrate an empty catalog source. Set ALLOW_EMPTY_CATALOG_MIGRATION=1 only if this is intentional.",
+    );
   }
 
   const client = new Client({
