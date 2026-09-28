@@ -5,7 +5,11 @@ function cleanUrl(value) {
 }
 
 function getShareBaseUrl(env = process.env) {
-  return cleanUrl(env.EXPO_PUBLIC_SHARE_BASE_URL || DEFAULT_SHARE_BASE_URL);
+  return cleanUrl(
+    env.EXPO_PUBLIC_TESOHUB_MUSIC_WEB_URL ||
+      env.EXPO_PUBLIC_SHARE_BASE_URL ||
+      DEFAULT_SHARE_BASE_URL
+  );
 }
 
 function getAndroidStoreUrl(env = process.env) {

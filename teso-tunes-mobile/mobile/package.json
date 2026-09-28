@@ -10,12 +10,13 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@expo/metro-runtime": "~55.0.12",
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/bottom-tabs": "^7.0.0",
     "@react-navigation/native": "^7.0.0",
     "@react-navigation/native-stack": "^7.0.0",
-    "expo": "~55.0.30",
+    "expo": "~55.0.31",
     "expo-asset": "~55.0.20",
     "expo-audio": "~55.0.18",
     "expo-document-picker": "~55.0.17",
@@ -24,11 +25,13 @@
     "expo-linear-gradient": "~55.0.18",
     "expo-linking": "~55.0.17",
     "expo-status-bar": "~55.0.6",
-    "expo-updates": "~55.0.28",
+    "expo-updates": "~55.0.31",
     "react": "19.2.0",
+    "react-dom": "19.2.0",
     "react-native": "0.83.10",
     "react-native-safe-area-context": "~5.6.2",
-    "react-native-screens": "~4.23.0"
+    "react-native-screens": "~4.23.0",
+    "react-native-web": "^0.21.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",

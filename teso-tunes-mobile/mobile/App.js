@@ -1,13 +1,26 @@
-import { NavigationContainer } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  createNavigationContainerRef,
+  useNavigation,
+} from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Linking from "expo-linking";
 import * as Updates from "expo-updates";
-import { useNavigation } from "@react-navigation/native";
 import { useEffect, useRef, useState } from "react";
-import { Animated, Easing, Image, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  Easing,
+  Image,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -36,6 +49,8 @@ import { logUpdateDiagnostics } from "./src/utils/updateDiagnostics";
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 const APP_LOGO = require("./assets/images/tesohub-music.png");
+const DESKTOP_WEB_BREAKPOINT = 900;
+const navigationRef = createNavigationContainerRef();
 
 const linking = {
   prefixes: [Linking.createURL("/"), "tesohubmusic://", SHARE_BASE_URL],
@@ -44,7 +59,7 @@ const linking = {
       TesoTabs: {
         path: "",
         screens: {
-          Home: "home",
+          Home: "",
           Search: "search",
           Library: "library",
           Create: "create",
@@ -57,6 +72,7 @@ const linking = {
       ArtistStudio: "artist-studio",
       ReleaseUpload: "artist-studio/upload",
       Player: "song/:id",
+      Release: "release/:id",
       ArtistDetail: "artist/:id",
       PlaylistDetail: "playlist/:id",
     },
@@ -64,6 +80,27 @@ const linking = {
 };
 
 console.log("Expo Go deep link base:", Linking.createURL("/"));
+
+function navigateRoot(name, params) {
+  if (navigationRef.isReady()) {
+    navigationRef.navigate(name, params);
+  }
+}
+
+function navigateTab(screen) {
+  navigateRoot("TesoTabs", { screen });
+}
+
+function initialsForName(name) {
+  return (
+    name
+      ?.split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || ""
+  );
+}
 
 function AutoUpdateGate() {
   useEffect(() => {
@@ -92,8 +129,19 @@ function AutoUpdateGate() {
 function MainTabs() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const { isAuthenticated } = useAuth();
   const [createVisible, setCreateVisible] = useState(false);
+  const isDesktopWeb = Platform.OS === "web" && width >= DESKTOP_WEB_BREAKPOINT;
+  const tabBarStyle = isDesktopWeb
+    ? styles.hiddenTabBar
+    : {
+        backgroundColor: colors.card,
+        borderTopColor: colors.border,
+        height: 60 + Math.max(insets.bottom, 10),
+        paddingBottom: Math.max(insets.bottom, 10),
+        paddingTop: 8,
+      };
 
   function openCreate() {
     if (!isAuthenticated) {
@@ -109,13 +157,7 @@ function MainTabs() {
       <Tab.Navigator
         screenOptions={({ route }) => ({
           headerShown: false,
-          tabBarStyle: {
-            backgroundColor: colors.card,
-            borderTopColor: colors.border,
-            height: 60 + Math.max(insets.bottom, 10),
-            paddingBottom: Math.max(insets.bottom, 10),
-            paddingTop: 8,
-          },
+          tabBarStyle,
           tabBarActiveTintColor: colors.primary,
           tabBarInactiveTintColor: colors.muted,
           tabBarLabelStyle: { fontSize: 11, fontWeight: "700" },
@@ -164,6 +206,171 @@ function MainTabs() {
 
 function CreateScreenPlaceholder() {
   return <View style={styles.placeholderScreen} />;
+}
+
+function ReleaseRedirectScreen({ route, navigation }) {
+  useEffect(() => {
+    navigation.replace("Player", { id: route?.params?.id });
+  }, [navigation, route?.params?.id]);
+
+  return <LoadingScreen />;
+}
+
+function DesktopSidebar({ isAuthenticated, onCreate }) {
+  function openProtectedRoute(name, params) {
+    if (!isAuthenticated) {
+      navigateRoot("Profile", { loginRequired: true });
+      return;
+    }
+
+    navigateRoot(name, params);
+  }
+
+  return (
+    <View style={styles.desktopSidebar}>
+      <View style={styles.desktopBrand}>
+        <Image source={APP_LOGO} style={styles.desktopLogo} />
+        <View style={styles.desktopBrandCopy}>
+          <Text style={styles.desktopBrandTitle}>TesoHub</Text>
+          <Text style={styles.desktopBrandText}>Music</Text>
+        </View>
+      </View>
+      <View style={styles.desktopNav}>
+        <DesktopNavButton icon="home" label="Home" onPress={() => navigateTab("Home")} />
+        <DesktopNavButton icon="search" label="Search" onPress={() => navigateTab("Search")} />
+        <DesktopNavButton
+          icon="library"
+          label="Your Library"
+          onPress={() => navigateTab("Library")}
+        />
+        <DesktopNavButton icon="add-circle" label="Create" onPress={onCreate} />
+        <DesktopNavButton
+          icon="mic"
+          label="Artist Studio"
+          onPress={() => openProtectedRoute("ArtistStudio")}
+        />
+      </View>
+    </View>
+  );
+}
+
+function DesktopNavButton({ icon, label, onPress }) {
+  return (
+    <TouchableOpacity activeOpacity={0.82} style={styles.desktopNavButton} onPress={onPress}>
+      <Ionicons name={icon} color={colors.softText} size={21} />
+      <Text style={styles.desktopNavText}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function DesktopAccountButton() {
+  const { isAuthenticated, listener } = useAuth();
+  const initials = initialsForName(listener?.name);
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.82}
+      accessibilityLabel="Open profile"
+      style={[styles.desktopAccountButton, isAuthenticated && styles.desktopAccountButtonActive]}
+      onPress={() => navigateRoot("Profile")}
+    >
+      {initials ? (
+        <Text style={styles.desktopAccountInitials}>{initials}</Text>
+      ) : (
+        <Ionicons name="person" color={colors.text} size={18} />
+      )}
+    </TouchableOpacity>
+  );
+}
+
+function DesktopTopbar() {
+  return (
+    <View style={styles.desktopTopbar}>
+      <View>
+        <Text style={styles.desktopTopbarKicker}>TesoHub Music</Text>
+        <Text style={styles.desktopTopbarTitle}>Listen, manage, discover</Text>
+      </View>
+      <DesktopAccountButton />
+    </View>
+  );
+}
+
+function WebPwaRuntime() {
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+
+    document.documentElement.style.backgroundColor = colors.background;
+    document.body.style.backgroundColor = colors.background;
+
+    function ensureLink(rel, href, attributes = {}) {
+      const selector = `link[rel="${rel}"][href="${href}"]`;
+      if (document.querySelector(selector)) return;
+      const link = document.createElement("link");
+      link.rel = rel;
+      link.href = href;
+      Object.entries(attributes).forEach(([key, value]) => link.setAttribute(key, value));
+      document.head.appendChild(link);
+    }
+
+    function ensureMeta(name, content) {
+      let meta = document.querySelector(`meta[name="${name}"]`);
+      if (!meta) {
+        meta = document.createElement("meta");
+        meta.name = name;
+        document.head.appendChild(meta);
+      }
+      meta.content = content;
+    }
+
+    ensureLink("manifest", "/manifest.webmanifest");
+    ensureLink("apple-touch-icon", "/icons/tesohub-music.png");
+    ensureMeta("theme-color", colors.background);
+    ensureMeta("apple-mobile-web-app-capable", "yes");
+    ensureMeta("apple-mobile-web-app-title", "TesoHub Music");
+
+    const canRegisterServiceWorker =
+      typeof navigator !== "undefined" &&
+      "serviceWorker" in navigator &&
+      typeof window !== "undefined" &&
+      (window.location.protocol === "https:" || window.location.hostname === "localhost") &&
+      process.env.NODE_ENV === "production";
+
+    if (canRegisterServiceWorker) {
+      navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+    }
+  }, []);
+
+  return null;
+}
+
+function WebOfflineBanner() {
+  const [online, setOnline] = useState(() => {
+    if (Platform.OS !== "web" || typeof navigator === "undefined") return true;
+    return navigator.onLine !== false;
+  });
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return undefined;
+
+    const handleOnline = () => setOnline(true);
+    const handleOffline = () => setOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  if (Platform.OS !== "web" || online) return null;
+
+  return (
+    <View style={styles.offlineBanner}>
+      <Ionicons name="cloud-offline" color={colors.background} size={17} />
+      <Text style={styles.offlineText}>Offline. Streaming and account actions need internet.</Text>
+    </View>
+  );
 }
 
 function LoadingScreen() {
@@ -260,10 +467,130 @@ function MaintenanceScreen({ message, announcement }) {
   );
 }
 
+function RootStack({ isAuthenticated }) {
+  return (
+    <Stack.Navigator
+      key={isAuthenticated ? "signed-in" : "signed-out"}
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.background },
+        headerTintColor: colors.text,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      {isAuthenticated ? (
+        <>
+          <Stack.Screen
+            name="TesoTabs"
+            component={MainTabs}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="ArtistDetail"
+            component={ArtistDetailScreen}
+            options={{ title: "Artist" }}
+          />
+          <Stack.Screen
+            name="Songs"
+            component={SongsScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Artists"
+            component={ArtistsScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="PlaylistDetail"
+            component={PlaylistDetailScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Profile"
+            component={ProfileScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="ArtistApplication"
+            component={ArtistApplicationScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="ArtistStudio"
+            component={ArtistStudioScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="ReleaseUpload"
+            component={ReleaseUploadScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Release"
+            component={ReleaseRedirectScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Player"
+            component={PlayerScreen}
+            options={{ headerShown: false }}
+          />
+        </>
+      ) : (
+        <>
+          <Stack.Screen
+            name="Profile"
+            component={ProfileScreen}
+            initialParams={{ loginRequired: true }}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="TesoTabs"
+            component={MainTabs}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="ArtistDetail"
+            component={ArtistDetailScreen}
+            options={{ title: "Artist" }}
+          />
+          <Stack.Screen
+            name="Songs"
+            component={SongsScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Artists"
+            component={ArtistsScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="PlaylistDetail"
+            component={PlaylistDetailScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Release"
+            component={ReleaseRedirectScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Player"
+            component={PlayerScreen}
+            options={{ headerShown: false }}
+          />
+        </>
+      )}
+    </Stack.Navigator>
+  );
+}
+
 function AppNavigator() {
   const { isAuthenticated, loading } = useAuth();
+  const { width } = useWindowDimensions();
   const [platformStatus, setPlatformStatus] = useState(null);
   const [platformChecked, setPlatformChecked] = useState(false);
+  const [desktopCreateVisible, setDesktopCreateVisible] = useState(false);
+  const isDesktopWeb = Platform.OS === "web" && width >= DESKTOP_WEB_BREAKPOINT;
 
   useEffect(() => {
     let mounted = true;
@@ -305,107 +632,45 @@ function AppNavigator() {
     );
   }
 
+  function openDesktopCreate() {
+    if (!isAuthenticated) {
+      navigateRoot("Profile", { loginRequired: true });
+      return;
+    }
+
+    setDesktopCreateVisible(true);
+  }
+
   return (
-    <NavigationContainer linking={linking}>
+    <NavigationContainer ref={navigationRef} linking={linking}>
       <AutoUpdateGate />
+      <WebPwaRuntime />
       <StatusBar style="light" />
-      <Stack.Navigator
-        key={isAuthenticated ? "signed-in" : "signed-out"}
-        screenOptions={{
-          headerStyle: { backgroundColor: colors.background },
-          headerTintColor: colors.text,
-          contentStyle: { backgroundColor: colors.background },
+      {isDesktopWeb ? (
+        <View style={styles.desktopShell}>
+          <DesktopSidebar
+            isAuthenticated={isAuthenticated}
+            onCreate={openDesktopCreate}
+          />
+          <View style={styles.desktopMain}>
+            <DesktopTopbar />
+            <View style={styles.desktopNavigator}>
+              <RootStack isAuthenticated={isAuthenticated} />
+            </View>
+          </View>
+        </View>
+      ) : (
+        <RootStack isAuthenticated={isAuthenticated} />
+      )}
+      <CreatePlaylistModal
+        visible={desktopCreateVisible}
+        onClose={() => setDesktopCreateVisible(false)}
+        onCreated={(playlist) => {
+          setDesktopCreateVisible(false);
+          navigateRoot("PlaylistDetail", { id: playlist.id });
         }}
-      >
-        {isAuthenticated ? (
-          <>
-            <Stack.Screen
-              name="TesoTabs"
-              component={MainTabs}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="ArtistDetail"
-              component={ArtistDetailScreen}
-              options={{ title: "Artist" }}
-            />
-            <Stack.Screen
-              name="Songs"
-              component={SongsScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="Artists"
-              component={ArtistsScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="PlaylistDetail"
-              component={PlaylistDetailScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="Profile"
-              component={ProfileScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="ArtistApplication"
-              component={ArtistApplicationScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="ArtistStudio"
-              component={ArtistStudioScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="ReleaseUpload"
-              component={ReleaseUploadScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="Player"
-              component={PlayerScreen}
-              options={{ headerShown: false }}
-            />
-          </>
-        ) : (
-          <>
-            <Stack.Screen
-              name="Profile"
-              component={ProfileScreen}
-              initialParams={{ loginRequired: true }}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="TesoTabs"
-              component={MainTabs}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="ArtistDetail"
-              component={ArtistDetailScreen}
-              options={{ title: "Artist" }}
-            />
-            <Stack.Screen
-              name="Songs"
-              component={SongsScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="Artists"
-              component={ArtistsScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="Player"
-              component={PlayerScreen}
-              options={{ headerShown: false }}
-            />
-          </>
-        )}
-      </Stack.Navigator>
+      />
+      <WebOfflineBanner />
     </NavigationContainer>
   );
 }
@@ -529,5 +794,127 @@ const styles = StyleSheet.create({
   placeholderScreen: {
     backgroundColor: colors.background,
     flex: 1,
+  },
+  hiddenTabBar: {
+    display: "none",
+  },
+  desktopShell: {
+    backgroundColor: colors.background,
+    flex: 1,
+    flexDirection: "row",
+  },
+  desktopSidebar: {
+    backgroundColor: "#08080B",
+    borderRightColor: colors.border,
+    borderRightWidth: 1,
+    gap: 26,
+    paddingHorizontal: 18,
+    paddingTop: 24,
+    width: 236,
+  },
+  desktopBrand: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+  },
+  desktopLogo: {
+    borderRadius: 8,
+    height: 44,
+    width: 44,
+  },
+  desktopBrandCopy: {
+    gap: 1,
+  },
+  desktopBrandTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "950",
+  },
+  desktopBrandText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  desktopNav: {
+    gap: 8,
+  },
+  desktopNavButton: {
+    alignItems: "center",
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 46,
+    paddingHorizontal: 12,
+  },
+  desktopNavText: {
+    color: colors.softText,
+    fontSize: 15,
+    fontWeight: "850",
+  },
+  desktopMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  desktopTopbar: {
+    alignItems: "center",
+    backgroundColor: colors.background,
+    borderBottomColor: "rgba(255, 255, 255, 0.05)",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 72,
+    paddingHorizontal: 28,
+  },
+  desktopTopbarKicker: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  desktopTopbarTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "950",
+    marginTop: 3,
+  },
+  desktopAccountButton: {
+    alignItems: "center",
+    backgroundColor: colors.elevated,
+    borderColor: "rgba(244, 39, 200, 0.28)",
+    borderRadius: 21,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  desktopAccountButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: "rgba(244, 39, 200, 0.5)",
+  },
+  desktopAccountInitials: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "950",
+  },
+  desktopNavigator: {
+    flex: 1,
+  },
+  offlineBanner: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    bottom: 18,
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 42,
+    paddingHorizontal: 14,
+    position: "absolute",
+  },
+  offlineText: {
+    color: colors.background,
+    fontSize: 13,
+    fontWeight: "900",
   },
 });

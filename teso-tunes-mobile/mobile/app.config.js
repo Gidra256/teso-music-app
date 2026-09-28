@@ -21,6 +21,16 @@ module.exports = ({ config }) => {
     shareBaseUrl,
   };
 
+  appConfig.web = {
+    ...(appConfig.web || {}),
+    backgroundColor: "#050506",
+    bundler: "metro",
+    favicon: "./assets/images/tesohub-music.png",
+    name: "TesoHub Music",
+    shortName: "TesoHub",
+    themeColor: "#050506",
+  };
+
   appConfig.android = {
     ...(appConfig.android || {}),
     intentFilters: shareHost

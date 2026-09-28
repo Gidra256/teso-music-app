@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -26,12 +27,39 @@ function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function fileFromAsset(asset, fallbackName, fallbackType) {
+async function fileFromAsset(asset, fallbackName, fallbackType) {
+  const name = asset.fileName || asset.name || asset.file?.name || fallbackName;
+  const type = asset.mimeType || asset.type || asset.file?.type || fallbackType;
+
+  if (Platform.OS === "web") {
+    if (asset.file) {
+      return asset.file;
+    }
+
+    if (asset.uri) {
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+      if (typeof File !== "undefined") {
+        return new File([blob], name, { type: blob.type || type });
+      }
+      return blob;
+    }
+  }
+
   return {
-    name: asset.fileName || asset.name || fallbackName,
-    type: asset.mimeType || fallbackType,
+    name,
+    type,
     uri: asset.uri,
   };
+}
+
+function appendPickedFile(body, fieldName, file, fallbackName) {
+  if (Platform.OS === "web" && typeof Blob !== "undefined" && file instanceof Blob) {
+    body.append(fieldName, file, file.name || fallbackName);
+    return;
+  }
+
+  body.append(fieldName, file);
 }
 
 function isTooLarge(asset) {
@@ -117,7 +145,7 @@ export default function ReleaseUploadScreen({ navigation }) {
     setCover(result.assets[0]);
   }
 
-  function buildFormData(submitForReview) {
+  async function buildFormData(submitForReview) {
     const body = new FormData();
     Object.entries(form).forEach(([key, value]) => {
       body.append(key, typeof value === "boolean" ? String(value) : value);
@@ -125,10 +153,20 @@ export default function ReleaseUploadScreen({ navigation }) {
     body.append("release_type", "Single");
     body.append("submit_for_review", String(submitForReview));
     if (audio) {
-      body.append("audio_upload", fileFromAsset(audio, "release-audio.mp3", "audio/mpeg"));
+      appendPickedFile(
+        body,
+        "audio_upload",
+        await fileFromAsset(audio, "release-audio.mp3", "audio/mpeg"),
+        "release-audio.mp3",
+      );
     }
     if (cover) {
-      body.append("cover_upload", fileFromAsset(cover, "cover-art.jpg", "image/jpeg"));
+      appendPickedFile(
+        body,
+        "cover_upload",
+        await fileFromAsset(cover, "cover-art.jpg", "image/jpeg"),
+        "cover-art.jpg",
+      );
     }
     return body;
   }
@@ -142,13 +180,16 @@ export default function ReleaseUploadScreen({ navigation }) {
     setSaving(true);
     setError("");
     try {
-      await createArtistStudioRelease(buildFormData(submitForReview));
-      Alert.alert(
-        submitForReview ? "Release submitted" : "Draft saved",
-        submitForReview
-          ? "Your song is now under admin review."
-          : "Your release draft has been saved."
-      );
+      await createArtistStudioRelease(await buildFormData(submitForReview));
+      const successTitle = submitForReview ? "Release submitted" : "Draft saved";
+      const successMessage = submitForReview
+        ? "Your song is now under admin review."
+        : "Your release draft has been saved.";
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        window.alert(`${successTitle}\n${successMessage}`);
+      } else {
+        Alert.alert(successTitle, successMessage);
+      }
       navigation.goBack();
     } catch (saveError) {
       setError(errorMessage(saveError));

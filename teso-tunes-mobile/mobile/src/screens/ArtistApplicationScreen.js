@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -20,12 +21,39 @@ import GenreSelector from "../components/GenreSelector";
 import { useAuth } from "../context/AuthContext";
 import { colors, spacing } from "../theme";
 
-function pickedFile(asset, fallbackName, fallbackType) {
+async function pickedFile(asset, fallbackName, fallbackType) {
+  const name = asset.fileName || asset.name || asset.file?.name || fallbackName;
+  const type = asset.mimeType || asset.type || asset.file?.type || fallbackType;
+
+  if (Platform.OS === "web") {
+    if (asset.file) {
+      return asset.file;
+    }
+
+    if (asset.uri) {
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+      if (typeof File !== "undefined") {
+        return new File([blob], name, { type: blob.type || type });
+      }
+      return blob;
+    }
+  }
+
   return {
-    name: asset.fileName || asset.name || fallbackName,
-    type: asset.mimeType || fallbackType,
+    name,
+    type,
     uri: asset.uri,
   };
+}
+
+function appendPickedFile(body, fieldName, file, fallbackName) {
+  if (Platform.OS === "web" && typeof Blob !== "undefined" && file instanceof Blob) {
+    body.append(fieldName, file, file.name || fallbackName);
+    return;
+  }
+
+  body.append(fieldName, file);
 }
 
 function errorMessage(error) {
@@ -100,11 +128,20 @@ export default function ArtistApplicationScreen({ navigation }) {
       Object.entries(form).forEach(([key, value]) => {
         body.append(key, typeof value === "boolean" ? String(value) : value);
       });
-      body.append("photo_file", pickedFile(photo, "artist-photo.jpg", "image/jpeg"));
+      appendPickedFile(
+        body,
+        "photo_file",
+        await pickedFile(photo, "artist-photo.jpg", "image/jpeg"),
+        "artist-photo.jpg",
+      );
 
       await submitArtistApplication(body);
       await refreshAccount();
-      Alert.alert("Application sent", "Your artist application is under review.");
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        window.alert("Application sent\nYour artist application is under review.");
+      } else {
+        Alert.alert("Application sent", "Your artist application is under review.");
+      }
       navigation.goBack();
     } catch (submitError) {
       setError(errorMessage(submitError));

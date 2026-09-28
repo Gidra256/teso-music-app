@@ -161,6 +161,7 @@ export default function ProfileScreen({ navigation, route }) {
     (profileForm.name.trim() !== listener.name ||
       profileForm.email.trim() !== (listener.email || "") ||
       profileForm.phone.trim() !== (listener.phone || ""));
+  const canLeaveProfile = isAuthenticated || !loginRequired;
 
   function updateAuthField(field, value) {
     setAuthForm((current) => ({ ...current, [field]: value }));
@@ -194,6 +195,7 @@ export default function ProfileScreen({ navigation, route }) {
       }
       setAuthForm({ email: "", identifier: "", name: "", password: "", phone: "" });
       await loadProfile({ refresh: true });
+      navigation.navigate("TesoTabs", { screen: "Home" });
     } catch (actionError) {
       setError(messageFromError(actionError));
     } finally {
@@ -228,9 +230,9 @@ export default function ProfileScreen({ navigation, route }) {
   }
 
   function goBackOrHome() {
-    if (loginRequired) return;
+    if (!canLeaveProfile) return;
 
-    if (navigation?.canGoBack?.()) {
+    if (!loginRequired && navigation?.canGoBack?.()) {
       navigation.goBack();
       return;
     }
@@ -256,17 +258,21 @@ export default function ProfileScreen({ navigation, route }) {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.pageTopBar}>
-          {loginRequired ? (
-            <View style={styles.topBarSpacer} />
-          ) : (
+          {canLeaveProfile ? (
             <TouchableOpacity
               activeOpacity={0.82}
-              accessibilityLabel="Back"
+              accessibilityLabel={loginRequired ? "Go home" : "Back"}
               style={styles.backButton}
               onPress={goBackOrHome}
             >
-              <Ionicons name="chevron-back" color={colors.softText} size={22} />
+              <Ionicons
+                name={loginRequired ? "home" : "chevron-back"}
+                color={colors.softText}
+                size={22}
+              />
             </TouchableOpacity>
+          ) : (
+            <View style={styles.topBarSpacer} />
           )}
           <Text style={styles.pageTitle}>Profile</Text>
           <View style={styles.topBarSpacer} />

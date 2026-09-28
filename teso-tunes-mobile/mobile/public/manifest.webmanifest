@@ -1,0 +1,21 @@
+{
+  "name": "TesoHub Music",
+  "short_name": "TesoHub",
+  "description": "Listen to TesoHub Music on web and mobile.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#050506",
+  "theme_color": "#050506",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/tesohub-music.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["music", "entertainment"],
+  "prefer_related_applications": false
+}
