@@ -2928,6 +2928,36 @@ app.get("/admin-api/audit-log", requireAdmin, async (req, res) => {
   );
 });
 
+app.get("/admin-api/persistence-export", requireAdmin, async (req, res) => {
+  const includeSensitive =
+    req.query?.include_sensitive === "true" &&
+    req.query?.confirm === "EXPORT RAW HASHES";
+  const db = await loadDb();
+  const exportedDb = includeSensitive
+    ? db
+    : {
+        ...db,
+        authTokens: db.authTokens.map((session) => ({
+          ...session,
+          token_hash: session.token_hash ? "[redacted]" : "",
+        })),
+        listeners: db.listeners.map((listener) => ({
+          ...listener,
+          password_hash: listener.password_hash ? "[redacted]" : "",
+        })),
+      };
+
+  res.set("cache-control", "no-store");
+  res.json({
+    exported_at: nowIso(),
+    includes_sensitive_hashes: includeSensitive,
+    warning: includeSensitive
+      ? "This export includes password/session hashes. Store it privately and delete temporary copies after migration validation."
+      : "Sensitive hashes are redacted. Add include_sensitive=true&confirm=EXPORT%20RAW%20HASHES for a migration export.",
+    db: exportedDb,
+  });
+});
+
 app.get("/admin-api/artist-applications", requireAdminPermission("applications"), async (req, res) => {
   const db = await loadDb();
   const status = cleanText(req.query?.status);

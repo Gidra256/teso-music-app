@@ -6,11 +6,15 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "import:django": "node scripts/import-from-django.js"
+    "export:render": "node scripts/export-render-persistence.js",
+    "import:django": "node scripts/import-from-django.js",
+    "migrate:supabase": "node scripts/migrate-json-to-supabase.js",
+    "validate:supabase": "node scripts/validate-supabase-migration.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "multer": "^2.2.0"
+    "multer": "^2.2.0",
+    "pg": "^8.23.0"
   }
 }

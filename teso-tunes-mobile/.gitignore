@@ -5,6 +5,7 @@ backend-js/node_modules/
 backend-js/js-server*.log
 backend-js/data/db.json
 backend-js/uploads/
+backups/
 mobile/node_modules/
 .expo/
 *.pyc
