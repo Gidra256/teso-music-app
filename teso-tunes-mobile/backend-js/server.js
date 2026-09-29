@@ -8,7 +8,25 @@ import cors from "cors";
 import express from "express";
 import multer from "multer";
 
+import { createSupabasePersistence } from "./supabasePersistence.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SUPABASE_SECRET_KEY =
+  process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const SUPABASE_BUCKETS = {
+  audio: process.env.SUPABASE_AUDIO_BUCKET || "music-audio",
+  artwork: process.env.SUPABASE_ARTWORK_BUCKET || "artwork",
+  avatars: process.env.SUPABASE_AVATAR_BUCKET || "avatars",
+};
+const HAS_SUPABASE_ENV = Boolean(
+  process.env.DATABASE_URL || process.env.SUPABASE_URL || SUPABASE_SECRET_KEY,
+);
+const PERSISTENCE_BACKEND = (
+  process.env.PERSISTENCE_BACKEND ||
+  process.env.DATA_BACKEND ||
+  (HAS_SUPABASE_ENV ? "supabase" : "json")
+).toLowerCase();
+const USE_SUPABASE_PERSISTENCE = PERSISTENCE_BACKEND === "supabase";
 const STORAGE_DIR = process.env.STORAGE_DIR
   ? path.resolve(process.env.STORAGE_DIR)
   : __dirname;
@@ -48,6 +66,26 @@ const IOS_STORE_URL =
   process.env.IOS_STORE_URL || process.env.EXPO_PUBLIC_IOS_STORE_URL || "";
 const IOS_TEAM_ID = process.env.IOS_TEAM_ID || "";
 
+function encodeStoragePath(objectPath) {
+  return String(objectPath || "")
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function storageUrlFor(bucket, objectPath) {
+  return `/api/storage/${encodeURIComponent(bucket)}/${encodeStoragePath(objectPath)}`;
+}
+
+const supabasePersistence = createSupabasePersistence({
+  databaseUrl: process.env.DATABASE_URL || "",
+  supabaseUrl: (process.env.SUPABASE_URL || "").replace(/\/+$/, ""),
+  secretKey: SUPABASE_SECRET_KEY,
+  buckets: SUPABASE_BUCKETS,
+  storageUrlFor,
+});
+
 const app = express();
 app.set("trust proxy", true);
 app.use(cors());
@@ -57,8 +95,35 @@ app.use("/media", express.static(LEGACY_MEDIA_DIR));
 app.use("/app-assets", express.static(path.join(__dirname, "..", "mobile", "assets")));
 app.use("/admin", express.static(path.join(__dirname, "public")));
 
+for (const method of ["get", "post", "put", "delete", "patch"]) {
+  const original = app[method].bind(app);
+  app[method] = (routePath, ...handlers) =>
+    original(
+      routePath,
+      ...handlers.map((handler) => {
+        if (typeof handler !== "function" || handler.length === 4) return handler;
+        return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+      }),
+    );
+}
+
 app.get("/healthz", (req, res) => {
-  res.json({ status: "ok", service: "teso-tunes-api" });
+  res.json({
+    status: "ok",
+    service: "teso-tunes-api",
+    persistence_backend: PERSISTENCE_BACKEND,
+  });
+});
+
+app.get("/api/storage/:bucket/*", async (req, res, next) => {
+  try {
+    if (!USE_SUPABASE_PERSISTENCE) {
+      return res.status(404).json({ detail: "Media not found." });
+    }
+    await supabasePersistence.streamObject(req, res);
+  } catch (error) {
+    next(error);
+  }
 });
 
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
@@ -123,22 +188,24 @@ const GENRE_OPTIONS = [
 ];
 
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: async (req, file, cb) => {
-      const folder = uploadFolderFor(file.fieldname);
-      await fs.mkdir(folder, { recursive: true });
-      cb(null, folder);
-    },
-    filename: (req, file, cb) => {
-      const extension = path.extname(file.originalname || "");
-      const safeName = path
-        .basename(file.originalname || "upload", extension)
-        .replace(/[^a-z0-9]+/gi, "-")
-        .replace(/^-|-$/g, "")
-        .toLowerCase();
-      cb(null, `${Date.now()}-${safeName || "upload"}${extension}`);
-    },
-  }),
+  storage: USE_SUPABASE_PERSISTENCE
+    ? multer.memoryStorage()
+    : multer.diskStorage({
+        destination: async (req, file, cb) => {
+          const folder = uploadFolderFor(file.fieldname);
+          await fs.mkdir(folder, { recursive: true });
+          cb(null, folder);
+        },
+        filename: (req, file, cb) => {
+          const extension = path.extname(file.originalname || "");
+          const safeName = path
+            .basename(file.originalname || "upload", extension)
+            .replace(/[^a-z0-9]+/gi, "-")
+            .replace(/^-|-$/g, "")
+            .toLowerCase();
+          cb(null, `${Date.now()}-${safeName || "upload"}${extension}`);
+        },
+      }),
   limits: {
     fileSize: MAX_UPLOAD_BYTES,
     files: 4,
@@ -175,8 +242,11 @@ function uploadFolderFor(fieldname) {
   return UPLOADS_DIR;
 }
 
-function uploadUrlFor(file) {
+async function uploadUrlFor(file) {
   if (!file) return "";
+  if (USE_SUPABASE_PERSISTENCE) {
+    return supabasePersistence.uploadFile(file);
+  }
   const relative = path
     .relative(UPLOADS_DIR, file.path)
     .split(path.sep)
@@ -185,6 +255,10 @@ function uploadUrlFor(file) {
 }
 
 async function ensureDb() {
+  if (USE_SUPABASE_PERSISTENCE) {
+    supabasePersistence.assertConfigured();
+    return;
+  }
   await fs.mkdir(DATA_DIR, { recursive: true });
   try {
     await fs.access(DB_PATH);
@@ -194,12 +268,19 @@ async function ensureDb() {
 }
 
 async function loadDb() {
+  if (USE_SUPABASE_PERSISTENCE) {
+    return normalizeDb(await supabasePersistence.loadDb());
+  }
   await ensureDb();
   const raw = await fs.readFile(DB_PATH, "utf8");
   return normalizeDb(JSON.parse(raw));
 }
 
 async function saveDb(db) {
+  if (USE_SUPABASE_PERSISTENCE) {
+    await supabasePersistence.saveDb(normalizeDb(db));
+    return;
+  }
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.writeFile(DB_PATH, `${JSON.stringify(db, null, 2)}\n`);
 }
@@ -1904,7 +1985,7 @@ app.post(
       id: db.nextIds.artistApplication++,
       listener: listener.id,
       ...payload,
-      photo: uploadUrlFor(req.file),
+      photo: await uploadUrlFor(req.file),
       status: "pending",
       review_reason: "",
       rejection_reason: "",
@@ -2007,8 +2088,8 @@ app.post(
       songwriter: "",
       description: "",
       rights_confirmed: false,
-      audio_file: uploadUrlFor(req.files?.audio_upload?.[0]),
-      cover_image: uploadUrlFor(req.files?.cover_upload?.[0]),
+      audio_file: await uploadUrlFor(req.files?.audio_upload?.[0]),
+      cover_image: await uploadUrlFor(req.files?.cover_upload?.[0]),
       status: "draft",
       rejection_reason: "",
       review_reason: "",
@@ -2069,9 +2150,9 @@ app.put(
     assignReleasePayload(release, releasePayload(req, db));
     release.release_type = "Single";
     release.audio_file =
-      uploadUrlFor(req.files?.audio_upload?.[0]) || release.audio_file;
+      (await uploadUrlFor(req.files?.audio_upload?.[0])) || release.audio_file;
     release.cover_image =
-      uploadUrlFor(req.files?.cover_upload?.[0]) || release.cover_image;
+      (await uploadUrlFor(req.files?.cover_upload?.[0])) || release.cover_image;
     release.updated_at = new Date().toISOString();
 
     if (boolValue(req.body?.submit_for_review)) {
@@ -2135,7 +2216,7 @@ app.put(
       cleanText(req.body?.category) || account.artist.category;
     account.artist.location =
       cleanText(req.body?.location) || account.artist.location;
-    account.artist.photo = uploadUrlFor(req.file) || account.artist.photo;
+    account.artist.photo = (await uploadUrlFor(req.file)) || account.artist.photo;
     account.artist.updated_at = new Date().toISOString();
     await saveDb(db);
     res.json(serializeArtist(db, req, account.artist));
@@ -2990,33 +3071,34 @@ app.get("/admin-api/discovery", requireAdminPermission("discovery"), async (req,
 
 app.get("/admin-api/platform-health", requireAdmin, async (req, res) => {
   const db = await loadDb();
-  const [dbStatResult, uploadsStatResult] = await Promise.allSettled([
-    fs.stat(DB_PATH),
-    fs.stat(UPLOADS_DIR),
-  ]);
+  const [dbStatResult, uploadsStatResult] = USE_SUPABASE_PERSISTENCE
+    ? [{ status: "rejected" }, { status: "rejected" }]
+    : await Promise.allSettled([fs.stat(DB_PATH), fs.stat(UPLOADS_DIR)]);
   const dbStat = dbStatResult.status === "fulfilled" ? dbStatResult.value : null;
-  const uploadsStat =
-    uploadsStatResult.status === "fulfilled" ? uploadsStatResult.value : null;
+  const uploadsStat = uploadsStatResult.status === "fulfilled" ? uploadsStatResult.value : null;
   res.json({
     backend_status: "ok",
     app_backend_version: "teso-tunes-backend-js@1.0.0",
+    persistence_backend: PERSISTENCE_BACKEND,
     database: {
-      type: "json-file",
-      available: Boolean(dbStat?.isFile()),
-      path_kind: "local-render-filesystem",
+      type: USE_SUPABASE_PERSISTENCE ? "supabase-postgres" : "json-file",
+      available: USE_SUPABASE_PERSISTENCE || Boolean(dbStat?.isFile()),
+      path_kind: USE_SUPABASE_PERSISTENCE ? "supabase-postgres" : "local-render-filesystem",
       updated_at: dbStat?.mtime?.toISOString?.() || null,
       bytes: dbStat?.size || 0,
     },
     media_storage: {
-      type: "local-uploads-folder",
-      available: Boolean(uploadsStat?.isDirectory()),
-      path_kind: "local-render-filesystem",
+      type: USE_SUPABASE_PERSISTENCE ? "supabase-storage" : "local-uploads-folder",
+      available: USE_SUPABASE_PERSISTENCE || Boolean(uploadsStat?.isDirectory()),
+      path_kind: USE_SUPABASE_PERSISTENCE ? "supabase-storage" : "local-render-filesystem",
     },
     counts: dashboardPayload(db),
-    warnings: [
-      "Production data still uses JSON files and local uploads. Render local storage can be reset on restart/deploy.",
-      "Permanent target is PostgreSQL for data plus object storage for audio/artwork.",
-    ],
+    warnings: USE_SUPABASE_PERSISTENCE
+      ? []
+      : [
+          "Production data still uses JSON files and local uploads. Render local storage can be reset on restart/deploy.",
+          "Permanent target is PostgreSQL for data plus object storage for audio/artwork.",
+        ],
   });
 });
 
@@ -3387,7 +3469,7 @@ app.post(
       name: req.body.name || "Untitled Artist",
       category: req.body.category || "Other Secular Artists",
       bio: req.body.bio || "",
-      photo: uploadUrlFor(req.file) || req.body.photo || "",
+      photo: (await uploadUrlFor(req.file)) || req.body.photo || "",
       location: req.body.location || "",
       is_featured: boolValue(req.body.is_featured),
       status: ARTIST_STATUSES.has(req.body.status) ? req.body.status : "active",
@@ -3421,7 +3503,7 @@ app.put(
       name: req.body.name || artist.name,
       category: req.body.category || artist.category,
       bio: req.body.bio ?? artist.bio,
-      photo: uploadUrlFor(req.file) || req.body.photo || artist.photo,
+      photo: (await uploadUrlFor(req.file)) || req.body.photo || artist.photo,
       location: req.body.location ?? artist.location,
       is_featured: boolValue(req.body.is_featured),
       status: ARTIST_STATUSES.has(req.body.status) ? req.body.status : artist.status || "active",
@@ -3536,9 +3618,9 @@ app.post(
       artist: Number(req.body.artist),
       title: req.body.title || "Untitled Song",
       audio_file:
-        uploadUrlFor(req.files?.audio_upload?.[0]) || req.body.audio_file || "",
+        (await uploadUrlFor(req.files?.audio_upload?.[0])) || req.body.audio_file || "",
       cover_image:
-        uploadUrlFor(req.files?.cover_upload?.[0]) ||
+        (await uploadUrlFor(req.files?.cover_upload?.[0])) ||
         req.body.cover_image ||
         "",
       genre: genreData.genre,
@@ -3585,11 +3667,11 @@ app.put(
       artist: Number(req.body.artist || song.artist),
       title: req.body.title || song.title,
       audio_file:
-        uploadUrlFor(req.files?.audio_upload?.[0]) ||
+        (await uploadUrlFor(req.files?.audio_upload?.[0])) ||
         req.body.audio_file ||
         song.audio_file,
       cover_image:
-        uploadUrlFor(req.files?.cover_upload?.[0]) ||
+        (await uploadUrlFor(req.files?.cover_upload?.[0])) ||
         req.body.cover_image ||
         song.cover_image,
       genre: genreData.genre,
