@@ -36,3 +36,19 @@ services:
       name: teso-tunes-storage
       mountPath: /var/data
       sizeGB: 1
+
+  - type: web
+    name: tesohub-music-pwa
+    runtime: static
+    rootDir: teso-tunes-mobile/mobile
+    buildCommand: npm install && npx expo export --platform web --output-dir dist
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: 22.15.1
+      - key: EXPO_PUBLIC_MUSIC_API_BASE_URL
+        value: https://teso-music-app.onrender.com/api
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
