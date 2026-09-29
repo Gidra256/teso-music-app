@@ -8,6 +8,7 @@ import cors from "cors";
 import express from "express";
 import multer from "multer";
 
+import { perfMetricsMiddleware } from "./perfMetrics.js";
 import { createSupabasePersistence } from "./supabasePersistence.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -89,6 +90,7 @@ const supabasePersistence = createSupabasePersistence({
 const app = express();
 app.set("trust proxy", true);
 app.use(cors());
+app.use(perfMetricsMiddleware);
 app.use(express.json({ limit: "2mb" }));
 app.use("/uploads", express.static(UPLOADS_DIR));
 app.use("/media", express.static(LEGACY_MEDIA_DIR));
@@ -1380,6 +1382,26 @@ function requireListener(db, req, res) {
   return listener;
 }
 
+async function supabaseListenerFromRequest(req) {
+  if (!USE_SUPABASE_PERSISTENCE) return null;
+  const token = getBearerToken(req);
+  if (!token) return null;
+  return supabasePersistence.listenerByTokenHash(hashToken(token));
+}
+
+async function requireSupabaseListener(req, res) {
+  const listener = await supabaseListenerFromRequest(req);
+  if (!listener) {
+    res.status(401).json({ detail: "Login required." });
+    return null;
+  }
+  if (listener.status === "suspended") {
+    res.status(403).json({ detail: "This account is suspended." });
+    return null;
+  }
+  return listener;
+}
+
 function requireArtist(db, req, res) {
   const listener = requireListener(db, req, res);
   if (!listener) return null;
@@ -1559,6 +1581,52 @@ function authResponse(db, listener, token) {
   return {
     token,
     listener: serializeListener(db, listener),
+  };
+}
+
+function directSongResponse(req, song) {
+  if (!song) return null;
+  return {
+    ...song,
+    audio_file: absoluteUrl(req, song.audio_file),
+    cover_image: absoluteUrl(req, song.cover_image),
+  };
+}
+
+function directArtistResponse(req, artist) {
+  if (!artist) return null;
+  return {
+    ...artist,
+    photo: absoluteUrl(req, artist.photo),
+    ...(Array.isArray(artist.songs)
+      ? { songs: artist.songs.map((song) => directSongResponse(req, song)) }
+      : {}),
+  };
+}
+
+function directPlaylistResponse(req, playlist) {
+  if (!playlist) return null;
+  return {
+    ...playlist,
+    artwork: absoluteUrl(req, playlist.artwork),
+    ...(Array.isArray(playlist.songs)
+      ? { songs: playlist.songs.map((song) => directSongResponse(req, song)) }
+      : {}),
+  };
+}
+
+function makeAuthTokenPayload(listener, token) {
+  return { token, listener };
+}
+
+function newAuthSessionPayload(deviceId = "", deviceName = "") {
+  const token = crypto.randomBytes(32).toString("hex");
+  return {
+    deviceId: cleanText(deviceId),
+    deviceName: cleanText(deviceName),
+    sessionId: crypto.randomUUID(),
+    token,
+    tokenHash: hashToken(token),
   };
 }
 
@@ -1799,16 +1867,17 @@ app.get("/song/:id", async (req, res) => {
 });
 
 app.get("/api/platform-status/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    return res.json(publicPlatformStatus({
+      platformSettings: await supabasePersistence.platformSettings(),
+    }));
+  }
+
   const db = await loadDb();
   res.json(publicPlatformStatus(db));
 });
 
 app.post("/api/auth/register/", async (req, res) => {
-  const db = await loadDb();
-  const settings = platformSettingsFor(db);
-  if (!settings.registration_enabled || !featureFlagsFor(db).registrations_enabled) {
-    return res.status(403).json({ detail: "New account registration is temporarily disabled." });
-  }
   const name = cleanText(req.body?.name);
   const email = normalizeEmail(req.body?.email);
   const phone = normalizePhone(req.body?.phone);
@@ -1824,6 +1893,35 @@ app.post("/api/auth/register/", async (req, res) => {
   }
   if (password.length < 6) {
     return res.status(400).json({ detail: "Password must be at least 6 characters." });
+  }
+
+  if (USE_SUPABASE_PERSISTENCE) {
+    const settings = normalizePlatformSettings(await supabasePersistence.platformSettings());
+    if (!settings.registration_enabled || !settings.feature_flags.registrations_enabled) {
+      return res.status(403).json({ detail: "New account registration is temporarily disabled." });
+    }
+    if (await supabasePersistence.loginExists({ email, phone })) {
+      return res.status(409).json({ detail: "An account already exists." });
+    }
+
+    const session = newAuthSessionPayload(deviceId, deviceName);
+    const listener = await supabasePersistence.createListenerAccount({
+      deviceId: session.deviceId,
+      deviceName: session.deviceName,
+      email,
+      name,
+      passwordHash: hashPassword(password),
+      phone,
+      sessionId: session.sessionId,
+      tokenHash: session.tokenHash,
+    });
+    return res.status(201).json(makeAuthTokenPayload(listener, session.token));
+  }
+
+  const db = await loadDb();
+  const settings = platformSettingsFor(db);
+  if (!settings.registration_enabled || !featureFlagsFor(db).registrations_enabled) {
+    return res.status(403).json({ detail: "New account registration is temporarily disabled." });
   }
   if (
     db.listeners.some(
@@ -1855,11 +1953,36 @@ app.post("/api/auth/register/", async (req, res) => {
 });
 
 app.post("/api/auth/login/", async (req, res) => {
-  const db = await loadDb();
   const identifier = cleanText(req.body?.identifier || req.body?.email || req.body?.phone);
   const password = String(req.body?.password || "");
   const deviceId = cleanText(req.body?.device_id);
   const deviceName = cleanText(req.body?.device_name);
+
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await supabasePersistence.listenerByIdentifier({
+      email: normalizeEmail(identifier),
+      phone: normalizePhone(identifier),
+    });
+
+    if (!listener || !verifyPassword(password, listener.password_hash)) {
+      return res.status(401).json({ detail: "Invalid login details." });
+    }
+    if (listener.status === "suspended") {
+      return res.status(403).json({ detail: "This account is suspended." });
+    }
+
+    const session = newAuthSessionPayload(deviceId, deviceName);
+    const profile = await supabasePersistence.createAuthSession({
+      deviceId: session.deviceId,
+      deviceName: session.deviceName,
+      listenerId: listener.id,
+      sessionId: session.sessionId,
+      tokenHash: session.tokenHash,
+    });
+    return res.json(makeAuthTokenPayload(profile, session.token));
+  }
+
+  const db = await loadDb();
   const listener = findListenerByIdentifier(db, identifier);
 
   if (!listener || !verifyPassword(password, listener.password_hash)) {
@@ -1876,6 +1999,14 @@ app.post("/api/auth/login/", async (req, res) => {
 });
 
 app.get("/api/auth/me/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+    return res.json({
+      listener: await supabasePersistence.listenerProfile(listener.id),
+    });
+  }
+
   const db = await loadDb();
   const listener = requireListener(db, req, res);
   if (!listener) return;
@@ -2224,9 +2355,14 @@ app.put(
 );
 
 app.get("/api/artists/", async (req, res) => {
-  const db = await loadDbWithPublishedReleases();
   const category = String(req.query.category || "").toLowerCase();
   const search = String(req.query.search || "").toLowerCase();
+  if (USE_SUPABASE_PERSISTENCE) {
+    const artists = await supabasePersistence.listPublicArtists({ category, search });
+    return res.json(artists.map((artist) => directArtistResponse(req, artist)));
+  }
+
+  const db = await loadDbWithPublishedReleases();
   const artists = sortArtists(publicArtistsFor(db)).filter((artist) => {
     const categoryMatches =
       !category || artist.category.toLowerCase() === category;
@@ -2237,6 +2373,14 @@ app.get("/api/artists/", async (req, res) => {
 });
 
 app.get("/api/artists/:id/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    const artist = await supabasePersistence.getPublicArtist(req.params.id, {
+      includeSongs: true,
+    });
+    if (!artist) return res.status(404).json({ detail: "Artist not found." });
+    return res.json(directArtistResponse(req, artist));
+  }
+
   const db = await loadDbWithPublishedReleases();
   const artist = db.artists.find(
     (item) => Number(item.id) === Number(req.params.id),
@@ -2248,9 +2392,14 @@ app.get("/api/artists/:id/", async (req, res) => {
 });
 
 app.get("/api/songs/", async (req, res) => {
-  const db = await loadDbWithPublishedReleases();
   const category = String(req.query.category || "").toLowerCase();
   const search = String(req.query.search || "").toLowerCase();
+  if (USE_SUPABASE_PERSISTENCE) {
+    const songs = await supabasePersistence.listPublicSongs({ category, search });
+    return res.json(songs.map((song) => directSongResponse(req, song)));
+  }
+
+  const db = await loadDbWithPublishedReleases();
   const songs = sortSongs(publicSongsFor(db)).filter((song) => {
     const artist = db.artists.find(
       (item) => Number(item.id) === Number(song.artist),
@@ -2292,6 +2441,12 @@ app.get("/api/hub/search-documents/", async (req, res) => {
   res.json(documents);
 });
 app.get("/api/songs/:id/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    const song = await supabasePersistence.getPublicSong(req.params.id);
+    if (!song) return res.status(404).json({ detail: "Song not found." });
+    return res.json(directSongResponse(req, song));
+  }
+
   const db = await loadDbWithPublishedReleases();
   const song = db.songs.find(
     (item) => Number(item.id) === Number(req.params.id),
@@ -2351,6 +2506,13 @@ app.get("/api/genres/", async (req, res) => {
 });
 
 app.get("/api/playlists/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+    const playlists = await supabasePersistence.listPlaylists(listener.id);
+    return res.json(playlists.map((playlist) => directPlaylistResponse(req, playlist)));
+  }
+
   const db = await loadDbWithPublishedReleases();
   const listener = requireListener(db, req, res);
   if (!listener) return;
@@ -2366,14 +2528,26 @@ app.get("/api/playlists/", async (req, res) => {
 });
 
 app.post("/api/playlists/", async (req, res) => {
-  const db = await loadDb();
-  const listener = requireListener(db, req, res);
-  if (!listener) return;
-
   const name = cleanText(req.body?.name);
   if (name.length < 1) {
     return res.status(400).json({ detail: "Enter a playlist name." });
   }
+
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+    const playlist = await supabasePersistence.createPlaylist({
+      artwork: cleanText(req.body?.artwork),
+      description: cleanText(req.body?.description),
+      listenerId: listener.id,
+      name,
+    });
+    return res.status(201).json(directPlaylistResponse(req, playlist));
+  }
+
+  const db = await loadDb();
+  const listener = requireListener(db, req, res);
+  if (!listener) return;
 
   const now = new Date().toISOString();
   const playlist = {
@@ -2391,6 +2565,14 @@ app.post("/api/playlists/", async (req, res) => {
 });
 
 app.get("/api/playlists/:id/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+    const playlist = await supabasePersistence.getPlaylist(listener.id, req.params.id);
+    if (!playlist) return res.status(404).json({ detail: "Playlist not found." });
+    return res.json(directPlaylistResponse(req, playlist));
+  }
+
   const db = await loadDbWithPublishedReleases();
   const listener = requireListener(db, req, res);
   if (!listener) return;
@@ -2402,17 +2584,35 @@ app.get("/api/playlists/:id/", async (req, res) => {
 });
 
 app.put("/api/playlists/:id/", async (req, res) => {
+  const nextName = cleanText(req.body?.name);
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "name") && nextName.length < 1) {
+    return res.status(400).json({ detail: "Enter a playlist name." });
+  }
+
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+    const playlist = await supabasePersistence.updatePlaylist({
+      artwork: Object.prototype.hasOwnProperty.call(req.body || {}, "artwork")
+        ? cleanText(req.body?.artwork)
+        : undefined,
+      description: Object.prototype.hasOwnProperty.call(req.body || {}, "description")
+        ? cleanText(req.body?.description)
+        : undefined,
+      listenerId: listener.id,
+      name: nextName || undefined,
+      playlistId: req.params.id,
+    });
+    if (!playlist) return res.status(404).json({ detail: "Playlist not found." });
+    return res.json(directPlaylistResponse(req, playlist));
+  }
+
   const db = await loadDb();
   const listener = requireListener(db, req, res);
   if (!listener) return;
 
   const playlist = findOwnedPlaylist(db, listener, req.params.id);
   if (!playlist) return res.status(404).json({ detail: "Playlist not found." });
-
-  const nextName = cleanText(req.body?.name);
-  if (Object.prototype.hasOwnProperty.call(req.body || {}, "name") && nextName.length < 1) {
-    return res.status(400).json({ detail: "Enter a playlist name." });
-  }
 
   if (nextName) playlist.name = nextName;
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "description")) {
@@ -2427,6 +2627,14 @@ app.put("/api/playlists/:id/", async (req, res) => {
 });
 
 app.delete("/api/playlists/:id/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+    const deleted = await supabasePersistence.deletePlaylist(listener.id, req.params.id);
+    if (!deleted) return res.status(404).json({ detail: "Playlist not found." });
+    return res.json({ deleted: true });
+  }
+
   const db = await loadDb();
   const listener = requireListener(db, req, res);
   if (!listener) return;
@@ -2445,6 +2653,26 @@ app.delete("/api/playlists/:id/", async (req, res) => {
 });
 
 app.post("/api/playlists/:id/songs/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+    const result = await supabasePersistence.addSongToPlaylist({
+      listenerId: listener.id,
+      playlistId: req.params.id,
+      songId: Number(req.body?.song || req.body?.song_id),
+    });
+    if (result?.notFound === "playlist") {
+      return res.status(404).json({ detail: "Playlist not found." });
+    }
+    if (result?.notFound === "song") {
+      return res.status(404).json({ detail: "Song not found." });
+    }
+    return res.status(result.added ? 201 : 200).json({
+      ...result,
+      playlist: directPlaylistResponse(req, result.playlist),
+    });
+  }
+
   const db = await loadDbWithPublishedReleases();
   const listener = requireListener(db, req, res);
   if (!listener) return;
@@ -2493,6 +2721,21 @@ app.post("/api/playlists/:id/songs/", async (req, res) => {
 });
 
 app.delete("/api/playlists/:id/songs/:songId/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+    const result = await supabasePersistence.removeSongFromPlaylist({
+      listenerId: listener.id,
+      playlistId: req.params.id,
+      songId: req.params.songId,
+    });
+    if (!result) return res.status(404).json({ detail: "Playlist not found." });
+    return res.json({
+      removed: result.removed,
+      playlist: directPlaylistResponse(req, result.playlist),
+    });
+  }
+
   const db = await loadDb();
   const listener = requireListener(db, req, res);
   if (!listener) return;
@@ -2517,6 +2760,20 @@ app.delete("/api/playlists/:id/songs/:songId/", async (req, res) => {
 });
 
 app.post("/api/songs/:id/like/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await supabaseListenerFromRequest(req);
+    const deviceId = getDeviceId(req);
+    if (!deviceId && !listener)
+      return res.status(400).json({ detail: "device_id or login is required." });
+    const result = await supabasePersistence.likeSong({
+      deviceId,
+      listenerId: listener?.id || null,
+      songId: Number(req.params.id),
+    });
+    if (result.notFound) return res.status(404).json({ detail: "Song not found." });
+    return res.json(result);
+  }
+
   const db = await loadDb();
   const song = db.songs.find(
     (item) => Number(item.id) === Number(req.params.id),
@@ -2551,6 +2808,20 @@ app.post("/api/songs/:id/like/", async (req, res) => {
 });
 
 app.post("/api/songs/:id/unlike/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await supabaseListenerFromRequest(req);
+    const deviceId = getDeviceId(req);
+    if (!deviceId && !listener)
+      return res.status(400).json({ detail: "device_id or login is required." });
+    const result = await supabasePersistence.unlikeSong({
+      deviceId,
+      listenerId: listener?.id || null,
+      songId: Number(req.params.id),
+    });
+    if (result.notFound) return res.status(404).json({ detail: "Song not found." });
+    return res.json(result);
+  }
+
   const db = await loadDb();
   const song = db.songs.find(
     (item) => Number(item.id) === Number(req.params.id),
@@ -2575,6 +2846,20 @@ app.post("/api/songs/:id/unlike/", async (req, res) => {
 });
 
 app.post("/api/artists/:id/follow/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await supabaseListenerFromRequest(req);
+    const deviceId = getDeviceId(req);
+    if (!deviceId && !listener)
+      return res.status(400).json({ detail: "device_id or login is required." });
+    const result = await supabasePersistence.followArtist({
+      artistId: Number(req.params.id),
+      deviceId,
+      listenerId: listener?.id || null,
+    });
+    if (result.notFound) return res.status(404).json({ detail: "Artist not found." });
+    return res.json(result);
+  }
+
   const db = await loadDb();
   const artist = db.artists.find(
     (item) => Number(item.id) === Number(req.params.id),
@@ -2609,6 +2894,20 @@ app.post("/api/artists/:id/follow/", async (req, res) => {
 });
 
 app.post("/api/artists/:id/unfollow/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) {
+    const listener = await supabaseListenerFromRequest(req);
+    const deviceId = getDeviceId(req);
+    if (!deviceId && !listener)
+      return res.status(400).json({ detail: "device_id or login is required." });
+    const result = await supabasePersistence.unfollowArtist({
+      artistId: Number(req.params.id),
+      deviceId,
+      listenerId: listener?.id || null,
+    });
+    if (result.notFound) return res.status(404).json({ detail: "Artist not found." });
+    return res.json(result);
+  }
+
   const db = await loadDb();
   const artist = db.artists.find(
     (item) => Number(item.id) === Number(req.params.id),

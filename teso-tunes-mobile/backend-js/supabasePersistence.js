@@ -5,6 +5,12 @@ import { Readable } from "node:stream";
 
 import pg from "pg";
 
+import {
+  recordDbAcquire,
+  recordDbQuery,
+  recordStorageOperation,
+} from "./perfMetrics.js";
+
 const { Pool } = pg;
 
 function cleanText(value) {
@@ -14,6 +20,11 @@ function cleanText(value) {
 function numberOrNull(value) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function numberOrZero(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
 }
 
 function toIso(value) {
@@ -101,6 +112,11 @@ function idList(items) {
     .filter((id) => Number.isFinite(id) && id > 0);
 }
 
+function toNumberArray(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((item) => Number(item)).filter(Number.isFinite))];
+}
+
 async function deleteMissing(client, table, ids, columnType = "bigint") {
   if (ids.length === 0) {
     await client.query(`delete from tesohub_music.${table}`);
@@ -121,6 +137,16 @@ export function createSupabasePersistence({
 }) {
   let pool = null;
 
+  function instrumentQueryTarget(target) {
+    if (!target || target.__tesohubPerfInstrumented) return target;
+    const originalQuery = target.query.bind(target);
+    target.query = (...args) => recordDbQuery(() => originalQuery(...args));
+    Object.defineProperty(target, "__tesohubPerfInstrumented", {
+      value: true,
+    });
+    return target;
+  }
+
   function assertConfigured() {
     const missing = [];
     if (!databaseUrl) missing.push("DATABASE_URL");
@@ -134,10 +160,18 @@ export function createSupabasePersistence({
   function getPool() {
     assertConfigured();
     if (!pool) {
-      pool = new Pool({
+      const poolConfig = {
         connectionString: databaseUrl,
         max: Number(process.env.SUPABASE_POOL_SIZE || 1),
-      });
+      };
+      if (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === "false") {
+        poolConfig.ssl = { rejectUnauthorized: false };
+      }
+      pool = new Pool(poolConfig);
+      instrumentQueryTarget(pool);
+      const originalConnect = pool.connect.bind(pool);
+      pool.connect = (...args) =>
+        recordDbAcquire(async () => instrumentQueryTarget(await originalConnect(...args)));
     }
     return pool;
   }
@@ -147,6 +181,70 @@ export function createSupabasePersistence({
       `select * from tesohub_music.${table} order by ${orderBy}`,
     );
     return result.rows;
+  }
+
+  async function publishDueReleases() {
+    const pool = getPool();
+    const dueResult = await pool.query(
+      `select exists (
+         select 1
+         from tesohub_music.releases
+         where status = 'scheduled'
+           and (release_date is null or release_date <= current_date)
+       ) as has_due_release`,
+    );
+    if (!dueResult.rows[0]?.has_due_release) return;
+
+    await pool.query(
+      `with due as (
+         select *
+         from tesohub_music.releases
+         where status = 'scheduled'
+           and (release_date is null or release_date <= current_date)
+           and public_song_id is null
+       ),
+       inserted as (
+         insert into tesohub_music.songs
+          (artist_id, title, audio_path, legacy_audio_file, cover_path,
+           legacy_cover_image, genre, genre_note, lyrics, play_count, release_date,
+           is_featured, status, source_release_id, created_at, updated_at)
+         select
+           artist_id,
+           coalesce(nullif(title, ''), 'Untitled Song'),
+           audio_path,
+           legacy_audio_file,
+           cover_path,
+           legacy_cover_image,
+           genre,
+           genre_note,
+           '',
+           0,
+           release_date,
+           false,
+           'published',
+           id,
+           now(),
+           now()
+         from due
+         returning id, source_release_id
+       )
+       update tesohub_music.releases release
+       set public_song_id = inserted.id,
+           status = 'published',
+           published_at = coalesce(release.published_at, now()),
+           updated_at = now()
+       from inserted
+       where release.id = inserted.source_release_id`,
+    );
+    await pool.query(
+      `update tesohub_music.releases
+       set status = 'published',
+           published_at = coalesce(published_at, now()),
+           updated_at = now()
+       where status = 'scheduled'
+         and (release_date is null or release_date <= current_date)
+         and public_song_id is not null`,
+    );
   }
 
   function artistFromRow(row) {
@@ -259,6 +357,88 @@ export function createSupabasePersistence({
       published_at: toIso(row.published_at),
       created_at: toIso(row.created_at),
       updated_at: toIso(row.updated_at),
+    };
+  }
+
+  function publicArtistFromRow(row) {
+    const artist = artistFromRow(row);
+    return {
+      ...artist,
+      follower_count: Number(row.follower_count || 0),
+      published_song_count: Number(row.published_song_count || 0),
+      song_count: Number(row.song_count || 0),
+      stream_count: Number(row.stream_count || 0),
+    };
+  }
+
+  function publicSongFromRow(row) {
+    const song = songFromRow(row);
+    return {
+      id: song.id,
+      artist: song.artist,
+      artist_name: row.artist_name || "",
+      artist_category: row.artist_category || "",
+      title: song.title,
+      audio_file: song.audio_file,
+      cover_image: song.cover_image,
+      genre: song.genre || "",
+      genre_note: song.genre_note || "",
+      lyrics: song.lyrics || "",
+      like_count: Number(row.like_count || 0),
+      play_count: Number(song.play_count || 0),
+      release_date: song.release_date || null,
+      is_featured: Boolean(song.is_featured),
+      status: song.status || "published",
+      created_at: song.created_at,
+      updated_at: song.updated_at || null,
+    };
+  }
+
+  function compactApplicationFromRow(row) {
+    if (!row?.application_id) return null;
+    return {
+      id: Number(row.application_id),
+      artist_name: row.application_artist_name || "",
+      status: row.application_status || "pending",
+      review_reason: row.application_review_reason || "",
+      rejection_reason: row.application_rejection_reason || "",
+      created_at: toIso(row.application_created_at),
+      updated_at: toIso(row.application_updated_at),
+      reviewed_at: toIso(row.application_reviewed_at),
+    };
+  }
+
+  function listenerProfileFromRow(row) {
+    if (!row) return null;
+    return {
+      id: Number(row.id),
+      name: row.name || "",
+      email: row.email || "",
+      phone: row.phone || "",
+      role: row.role || "listener",
+      artist_id: row.artist_id ? Number(row.artist_id) : null,
+      artist_application: compactApplicationFromRow(row),
+      liked_song_ids: toNumberArray(row.liked_song_ids),
+      followed_artist_ids: toNumberArray(row.followed_artist_ids),
+      created_at: toIso(row.created_at),
+      updated_at: toIso(row.updated_at),
+    };
+  }
+
+  function playlistFromRow(row, songs = []) {
+    return {
+      id: Number(row.id),
+      owner: Number(row.owner_id),
+      owner_name: row.owner_name || "TesoHub listener",
+      name: row.name || "Untitled Playlist",
+      description: row.description || "",
+      artwork: row.artwork_path
+        ? storageUrlFor(buckets.artwork, row.artwork_path)
+        : row.legacy_artwork || "",
+      song_count: Number(row.song_count || songs.length || 0),
+      created_at: toIso(row.created_at),
+      updated_at: toIso(row.updated_at),
+      ...(songs ? { songs } : {}),
     };
   }
 
@@ -397,6 +577,748 @@ export function createSupabasePersistence({
           created_at: toIso(entry.created_at),
       })),
     };
+  }
+
+  async function listPublicArtists({ category = "", search = "" } = {}) {
+    await publishDueReleases();
+    const params = [];
+    const filters = ["artist.status <> 'removed'"];
+    if (category) {
+      params.push(String(category).toLowerCase());
+      filters.push(`lower(artist.category) = $${params.length}`);
+    }
+    if (search) {
+      params.push(`%${String(search).toLowerCase()}%`);
+      filters.push(`lower(artist.name) like $${params.length}`);
+    }
+
+    const result = await getPool().query(
+      `select
+         artist.*,
+         coalesce(follows.follower_count, 0)::int as follower_count,
+         coalesce(songs.song_count, 0)::int as song_count,
+         coalesce(songs.published_song_count, 0)::int as published_song_count,
+         coalesce(songs.stream_count, 0)::bigint as stream_count
+       from tesohub_music.artists artist
+       left join (
+         select artist_id, count(*) as follower_count
+         from tesohub_music.artist_follows
+         group by artist_id
+       ) follows on follows.artist_id = artist.id
+       left join (
+         select
+           artist_id,
+           count(*) as song_count,
+           count(*) filter (where status not in ('hidden', 'removed')) as published_song_count,
+           coalesce(sum(play_count), 0) as stream_count
+         from tesohub_music.songs
+         group by artist_id
+       ) songs on songs.artist_id = artist.id
+       where ${filters.join(" and ")}
+       order by lower(artist.name), artist.name`,
+      params,
+    );
+    return result.rows.map(publicArtistFromRow);
+  }
+
+  async function getPublicArtist(artistId, { includeSongs = false } = {}) {
+    await publishDueReleases();
+    const result = await getPool().query(
+      `select
+         artist.*,
+         coalesce(follows.follower_count, 0)::int as follower_count,
+         coalesce(songs.song_count, 0)::int as song_count,
+         coalesce(songs.published_song_count, 0)::int as published_song_count,
+         coalesce(songs.stream_count, 0)::bigint as stream_count
+       from tesohub_music.artists artist
+       left join (
+         select artist_id, count(*) as follower_count
+         from tesohub_music.artist_follows
+         group by artist_id
+       ) follows on follows.artist_id = artist.id
+       left join (
+         select
+           artist_id,
+           count(*) as song_count,
+           count(*) filter (where status not in ('hidden', 'removed')) as published_song_count,
+           coalesce(sum(play_count), 0) as stream_count
+         from tesohub_music.songs
+         group by artist_id
+       ) songs on songs.artist_id = artist.id
+       where artist.id = $1 and artist.status <> 'removed'`,
+      [artistId],
+    );
+    const artist = result.rows[0] ? publicArtistFromRow(result.rows[0]) : null;
+    if (!artist || !includeSongs) return artist;
+    artist.songs = await listPublicSongs({ artistId: artist.id });
+    return artist;
+  }
+
+  async function listPublicSongs({ artistId = null, category = "", search = "" } = {}) {
+    await publishDueReleases();
+    const params = [];
+    const filters = [
+      "song.status not in ('hidden', 'removed')",
+      "artist.status <> 'removed'",
+    ];
+    if (artistId) {
+      params.push(Number(artistId));
+      filters.push(`song.artist_id = $${params.length}`);
+    }
+    if (category) {
+      params.push(String(category).toLowerCase());
+      filters.push(`lower(artist.category) = $${params.length}`);
+    }
+    if (search) {
+      params.push(`%${String(search).toLowerCase()}%`);
+      filters.push(
+        `(lower(song.title) like $${params.length} or lower(artist.name) like $${params.length})`,
+      );
+    }
+
+    const result = await getPool().query(
+      `select
+         song.*,
+         artist.name as artist_name,
+         artist.category as artist_category,
+         coalesce(likes.like_count, 0)::int as like_count
+       from tesohub_music.songs song
+       join tesohub_music.artists artist on artist.id = song.artist_id
+       left join (
+         select song_id, count(*) as like_count
+         from tesohub_music.song_likes
+         group by song_id
+       ) likes on likes.song_id = song.id
+       where ${filters.join(" and ")}
+       order by song.is_featured desc, song.play_count desc, lower(song.title), song.title`,
+      params,
+    );
+    return result.rows.map(publicSongFromRow);
+  }
+
+  async function getPublicSong(songId) {
+    await publishDueReleases();
+    const result = await getPool().query(
+      `select
+         song.*,
+         artist.name as artist_name,
+         artist.category as artist_category,
+         coalesce(likes.like_count, 0)::int as like_count
+       from tesohub_music.songs song
+       join tesohub_music.artists artist on artist.id = song.artist_id
+       left join (
+         select song_id, count(*) as like_count
+         from tesohub_music.song_likes
+         group by song_id
+       ) likes on likes.song_id = song.id
+       where song.id = $1
+         and song.status not in ('hidden', 'removed')
+         and artist.status <> 'removed'`,
+      [songId],
+    );
+    return result.rows[0] ? publicSongFromRow(result.rows[0]) : null;
+  }
+
+  async function platformSettings() {
+    const result = await getPool().query(
+      `select
+         settings.*,
+         coalesce(
+           jsonb_object_agg(flags.key, flags.enabled)
+             filter (where flags.key is not null),
+           '{}'::jsonb
+         ) as feature_flags
+       from tesohub_music.platform_settings settings
+       left join tesohub_music.feature_flags flags on true
+       where settings.id = 1
+       group by settings.id`,
+    );
+    const row = result.rows[0] || {};
+    return {
+      registration_enabled: row.registration_enabled !== false,
+      artist_applications_enabled: row.artist_applications_enabled !== false,
+      music_uploads_enabled: row.music_uploads_enabled !== false,
+      maintenance_mode: Boolean(row.maintenance_mode),
+      maintenance_message: row.maintenance_message || "",
+      max_audio_upload_mb: Number(row.max_audio_upload_mb || 80),
+      max_artwork_upload_mb: Number(row.max_artwork_upload_mb || 10),
+      supported_audio_formats: row.supported_audio_formats || [],
+      minimum_supported_app_version: row.minimum_supported_app_version || "",
+      app_announcement: row.app_announcement || "",
+      feature_flags: row.feature_flags || {},
+      updated_by: row.updated_by || "",
+      created_at: toIso(row.created_at),
+      updated_at: toIso(row.updated_at),
+    };
+  }
+
+  async function listenerProfile(listenerId, client = getPool()) {
+    const result = await client.query(
+      `select
+         listener.*,
+         coalesce(likes.ids, '{}'::bigint[]) as liked_song_ids,
+         coalesce(follows.ids, '{}'::bigint[]) as followed_artist_ids,
+         application.id as application_id,
+         application.artist_name as application_artist_name,
+         application.status as application_status,
+         application.review_reason as application_review_reason,
+         application.rejection_reason as application_rejection_reason,
+         application.created_at as application_created_at,
+         application.updated_at as application_updated_at,
+         application.reviewed_at as application_reviewed_at
+       from tesohub_music.listeners listener
+       left join lateral (
+         select array_agg(distinct song_id) as ids
+         from tesohub_music.song_likes
+         where listener_id = listener.id
+       ) likes on true
+       left join lateral (
+         select array_agg(distinct artist_id) as ids
+         from tesohub_music.artist_follows
+         where listener_id = listener.id
+       ) follows on true
+       left join lateral (
+         select *
+         from tesohub_music.artist_applications
+         where listener_id = listener.id
+         order by id desc
+         limit 1
+       ) application on true
+       where listener.id = $1`,
+      [listenerId],
+    );
+    return listenerProfileFromRow(result.rows[0]);
+  }
+
+  async function listenerByTokenHash(tokenHash) {
+    if (!tokenHash) return null;
+    const result = await getPool().query(
+      `with session as (
+         update tesohub_music.auth_tokens
+         set last_active_at = now()
+         where token_hash = $1
+         returning listener_id
+       )
+       select listener.*
+       from tesohub_music.listeners listener
+       join session on session.listener_id = listener.id`,
+      [tokenHash],
+    );
+    return result.rows[0] ? listenerFromRow(result.rows[0]) : null;
+  }
+
+  async function listenerByIdentifier({ email = "", phone = "" } = {}) {
+    const filters = [];
+    const params = [];
+    if (email) {
+      params.push(String(email).toLowerCase());
+      filters.push(`lower(email) = $${params.length}`);
+    }
+    if (phone) {
+      params.push(String(phone));
+      filters.push(`phone = $${params.length}`);
+    }
+    if (filters.length === 0) return null;
+    const result = await getPool().query(
+      `select *
+       from tesohub_music.listeners
+       where ${filters.join(" or ")}
+       order by id
+       limit 1`,
+      params,
+    );
+    return result.rows[0] ? listenerFromRow(result.rows[0]) : null;
+  }
+
+  async function loginExists({ email = "", phone = "" } = {}) {
+    return Boolean(await listenerByIdentifier({ email, phone }));
+  }
+
+  async function attachDeviceEngagement(client, listenerId, deviceId) {
+    if (!listenerId || !deviceId) return;
+    await client.query(
+      `update tesohub_music.song_likes like_row
+       set listener_id = $1
+       where like_row.device_id = $2
+         and not exists (
+           select 1
+           from tesohub_music.song_likes duplicate
+           where duplicate.song_id = like_row.song_id
+             and duplicate.listener_id = $1
+         )`,
+      [listenerId, deviceId],
+    );
+    await client.query(
+      `update tesohub_music.artist_follows follow_row
+       set listener_id = $1
+       where follow_row.device_id = $2
+         and not exists (
+           select 1
+           from tesohub_music.artist_follows duplicate
+           where duplicate.artist_id = follow_row.artist_id
+             and duplicate.listener_id = $1
+         )`,
+      [listenerId, deviceId],
+    );
+  }
+
+  async function createListenerAccount({
+    deviceId = "",
+    deviceName = "",
+    email = "",
+    name = "",
+    passwordHash = "",
+    phone = "",
+    sessionId,
+    tokenHash,
+  }) {
+    const client = await getPool().connect();
+    try {
+      await client.query("begin");
+      const listenerResult = await client.query(
+        `insert into tesohub_music.listeners
+          (name, email, phone, password_hash, role, plan, status, created_at, updated_at)
+         values ($1,$2,$3,$4,'listener','free','active',now(),now())
+         returning *`,
+        [name, email, phone, passwordHash],
+      );
+      const listener = listenerFromRow(listenerResult.rows[0]);
+      await attachDeviceEngagement(client, listener.id, deviceId);
+      await client.query(
+        `insert into tesohub_music.auth_tokens
+          (id, listener_id, token_hash, device_id, device_name, created_at, last_active_at)
+         values ($1,$2,$3,$4,$5,now(),now())`,
+        [sessionId, listener.id, tokenHash, deviceId, deviceName],
+      );
+      const profile = await listenerProfile(listener.id, client);
+      await client.query("commit");
+      return profile;
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async function createAuthSession({
+    deviceId = "",
+    deviceName = "",
+    listenerId,
+    sessionId,
+    tokenHash,
+  }) {
+    const client = await getPool().connect();
+    try {
+      await client.query("begin");
+      await attachDeviceEngagement(client, listenerId, deviceId);
+      await client.query(
+        `insert into tesohub_music.auth_tokens
+          (id, listener_id, token_hash, device_id, device_name, created_at, last_active_at)
+         values ($1,$2,$3,$4,$5,now(),now())`,
+        [sessionId, listenerId, tokenHash, deviceId, deviceName],
+      );
+      const profile = await listenerProfile(listenerId, client);
+      await client.query("commit");
+      return profile;
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async function followArtist({ artistId, deviceId = "", listenerId = null }) {
+    const result = await getPool().query(
+      `with target as (
+         select id
+         from tesohub_music.artists
+         where id = $1 and status <> 'removed'
+       ),
+       inserted as (
+         insert into tesohub_music.artist_follows
+          (artist_id, listener_id, device_id, created_at)
+         select id, $2::bigint, $3::text, now()
+         from target
+         on conflict do nothing
+       ),
+       updated as (
+         update tesohub_music.artist_follows follow_row
+         set listener_id = $2::bigint
+         where $2::bigint is not null
+           and $3::text <> ''
+           and follow_row.artist_id = $1
+           and follow_row.device_id = $3::text
+           and follow_row.listener_id is null
+           and exists (select 1 from target)
+           and not exists (
+             select 1
+             from tesohub_music.artist_follows duplicate
+             where duplicate.artist_id = follow_row.artist_id
+               and duplicate.listener_id = $2::bigint
+           )
+       )
+       select
+         exists(select 1 from target) as found,
+         (
+           select count(*)::int
+           from tesohub_music.artist_follows
+           where artist_id = $1
+         ) as follower_count`,
+      [artistId, numberOrNull(listenerId), deviceId || ""],
+    );
+    if (!result.rows[0]?.found) return { notFound: true };
+    return {
+      followed: true,
+      follower_count: Math.max(0, Number(result.rows[0]?.follower_count || 0)),
+    };
+  }
+
+  async function unfollowArtist({ artistId, deviceId = "", listenerId = null }) {
+    const result = await getPool().query(
+      `with target as (
+         select id
+         from tesohub_music.artists
+         where id = $1 and status <> 'removed'
+       ),
+       deleted as (
+         delete from tesohub_music.artist_follows
+         where artist_id = $1
+           and exists (select 1 from target)
+           and (
+             ($2::bigint is not null and listener_id = $2::bigint)
+             or ($3::text <> '' and device_id = $3::text)
+           )
+       )
+       select
+         exists(select 1 from target) as found,
+         (
+           select count(*)::int
+           from tesohub_music.artist_follows
+           where artist_id = $1
+         ) as follower_count`,
+      [artistId, numberOrNull(listenerId), deviceId || ""],
+    );
+    if (!result.rows[0]?.found) return { notFound: true };
+    return {
+      followed: false,
+      follower_count: Math.max(0, Number(result.rows[0]?.follower_count || 0)),
+    };
+  }
+
+  async function likeSong({ songId, deviceId = "", listenerId = null }) {
+    const result = await getPool().query(
+      `with target as (
+         select song.id
+         from tesohub_music.songs song
+         join tesohub_music.artists artist on artist.id = song.artist_id
+         where song.id = $1
+           and song.status not in ('hidden', 'removed')
+           and artist.status <> 'removed'
+       ),
+       inserted as (
+         insert into tesohub_music.song_likes
+          (song_id, listener_id, device_id, created_at)
+         select id, $2::bigint, $3::text, now()
+         from target
+         on conflict do nothing
+       ),
+       updated as (
+         update tesohub_music.song_likes like_row
+         set listener_id = $2::bigint
+         where $2::bigint is not null
+           and $3::text <> ''
+           and like_row.song_id = $1
+           and like_row.device_id = $3::text
+           and like_row.listener_id is null
+           and exists (select 1 from target)
+           and not exists (
+             select 1
+             from tesohub_music.song_likes duplicate
+             where duplicate.song_id = like_row.song_id
+               and duplicate.listener_id = $2::bigint
+           )
+       )
+       select
+         exists(select 1 from target) as found,
+         (
+           select count(*)::int
+           from tesohub_music.song_likes
+           where song_id = $1
+         ) as like_count`,
+      [songId, numberOrNull(listenerId), deviceId || ""],
+    );
+    if (!result.rows[0]?.found) return { notFound: true };
+    return {
+      liked: true,
+      like_count: Math.max(0, Number(result.rows[0]?.like_count || 0)),
+    };
+  }
+
+  async function unlikeSong({ songId, deviceId = "", listenerId = null }) {
+    const result = await getPool().query(
+      `with target as (
+         select song.id
+         from tesohub_music.songs song
+         join tesohub_music.artists artist on artist.id = song.artist_id
+         where song.id = $1
+           and song.status not in ('hidden', 'removed')
+           and artist.status <> 'removed'
+       ),
+       deleted as (
+         delete from tesohub_music.song_likes
+         where song_id = $1
+           and exists (select 1 from target)
+           and (
+             ($2::bigint is not null and listener_id = $2::bigint)
+             or ($3::text <> '' and device_id = $3::text)
+           )
+       )
+       select
+         exists(select 1 from target) as found,
+         (
+           select count(*)::int
+           from tesohub_music.song_likes
+           where song_id = $1
+         ) as like_count`,
+      [songId, numberOrNull(listenerId), deviceId || ""],
+    );
+    if (!result.rows[0]?.found) return { notFound: true };
+    return {
+      liked: false,
+      like_count: Math.max(0, Number(result.rows[0]?.like_count || 0)),
+    };
+  }
+
+  async function playlistSongsFor(playlistId, client = getPool()) {
+    const result = await client.query(
+      `select
+         song.*,
+         artist.name as artist_name,
+         artist.category as artist_category,
+         coalesce(likes.like_count, 0)::int as like_count,
+         entry.position as playlist_position,
+         entry.added_at as playlist_added_at
+       from tesohub_music.playlist_songs entry
+       join tesohub_music.songs song on song.id = entry.song_id
+       join tesohub_music.artists artist on artist.id = song.artist_id
+       left join (
+         select song_id, count(*) as like_count
+         from tesohub_music.song_likes
+         group by song_id
+       ) likes on likes.song_id = song.id
+       where entry.playlist_id = $1
+         and song.status not in ('hidden', 'removed')
+         and artist.status <> 'removed'
+       order by entry.position, entry.added_at, entry.id`,
+      [playlistId],
+    );
+    return result.rows.map((row) => ({
+      ...publicSongFromRow(row),
+      playlist_position: Number(row.playlist_position || 0),
+      playlist_added_at: toIso(row.playlist_added_at),
+    }));
+  }
+
+  async function playlistRowForOwner(listenerId, playlistId, client = getPool()) {
+    const result = await client.query(
+      `select
+         playlist.*,
+         listener.name as owner_name,
+         coalesce(song_counts.song_count, 0)::int as song_count
+       from tesohub_music.playlists playlist
+       join tesohub_music.listeners listener on listener.id = playlist.owner_id
+       left join (
+         select playlist_id, count(*) as song_count
+         from tesohub_music.playlist_songs
+         group by playlist_id
+       ) song_counts on song_counts.playlist_id = playlist.id
+       where playlist.id = $1 and playlist.owner_id = $2`,
+      [playlistId, listenerId],
+    );
+    return result.rows[0] || null;
+  }
+
+  async function listPlaylists(listenerId) {
+    const result = await getPool().query(
+      `select
+         playlist.*,
+         listener.name as owner_name,
+         coalesce(song_counts.song_count, 0)::int as song_count
+       from tesohub_music.playlists playlist
+       join tesohub_music.listeners listener on listener.id = playlist.owner_id
+       left join (
+         select playlist_id, count(*) as song_count
+         from tesohub_music.playlist_songs
+         group by playlist_id
+       ) song_counts on song_counts.playlist_id = playlist.id
+       where playlist.owner_id = $1
+       order by coalesce(playlist.updated_at, playlist.created_at) desc`,
+      [listenerId],
+    );
+    return result.rows.map((row) => playlistFromRow(row, null));
+  }
+
+  async function getPlaylist(listenerId, playlistId) {
+    const row = await playlistRowForOwner(listenerId, playlistId);
+    if (!row) return null;
+    return playlistFromRow(row, await playlistSongsFor(playlistId));
+  }
+
+  async function createPlaylist({ artwork = "", description = "", listenerId, name }) {
+    const result = await getPool().query(
+      `insert into tesohub_music.playlists
+        (owner_id, name, description, legacy_artwork, created_at, updated_at)
+       values ($1,$2,$3,$4,now(),now())
+       returning *,
+         (select name from tesohub_music.listeners where id = $1) as owner_name,
+         0::int as song_count`,
+      [listenerId, name, description, artwork],
+    );
+    return playlistFromRow(result.rows[0], []);
+  }
+
+  async function updatePlaylist({ artwork, description, listenerId, name, playlistId }) {
+    const existing = await playlistRowForOwner(listenerId, playlistId);
+    if (!existing) return null;
+    const result = await getPool().query(
+      `update tesohub_music.playlists
+       set name = coalesce($3, name),
+           description = coalesce($4, description),
+           legacy_artwork = coalesce($5, legacy_artwork),
+           updated_at = now()
+       where id = $1 and owner_id = $2
+       returning *,
+         (select name from tesohub_music.listeners where id = $2) as owner_name,
+         (select count(*)::int from tesohub_music.playlist_songs where playlist_id = $1) as song_count`,
+      [
+        playlistId,
+        listenerId,
+        name ?? null,
+        description ?? null,
+        artwork ?? null,
+      ],
+    );
+    return playlistFromRow(result.rows[0], await playlistSongsFor(playlistId));
+  }
+
+  async function deletePlaylist(listenerId, playlistId) {
+    const result = await getPool().query(
+      `delete from tesohub_music.playlists
+       where id = $1 and owner_id = $2`,
+      [playlistId, listenerId],
+    );
+    return result.rowCount > 0;
+  }
+
+  async function addSongToPlaylist({ listenerId, playlistId, songId }) {
+    const client = await getPool().connect();
+    try {
+      await client.query("begin");
+      const playlist = await playlistRowForOwner(listenerId, playlistId, client);
+      if (!playlist) {
+        await client.query("rollback");
+        return { notFound: "playlist" };
+      }
+      const songResult = await client.query(
+        `select song.id
+         from tesohub_music.songs song
+         join tesohub_music.artists artist on artist.id = song.artist_id
+         where song.id = $1
+           and song.status not in ('hidden', 'removed')
+           and artist.status <> 'removed'`,
+        [songId],
+      );
+      if (songResult.rowCount === 0) {
+        await client.query("rollback");
+        return { notFound: "song" };
+      }
+      const existing = await client.query(
+        `select id
+         from tesohub_music.playlist_songs
+         where playlist_id = $1 and song_id = $2`,
+        [playlistId, songId],
+      );
+      if (existing.rowCount > 0) {
+        await client.query("commit");
+        return {
+          added: false,
+          duplicate: true,
+          playlist: playlistFromRow(
+            await playlistRowForOwner(listenerId, playlistId, client),
+            await playlistSongsFor(playlistId, client),
+          ),
+        };
+      }
+      const positionResult = await client.query(
+        `select coalesce(max(position), 0) + 1 as next_position
+         from tesohub_music.playlist_songs
+         where playlist_id = $1`,
+        [playlistId],
+      );
+      await client.query(
+        `insert into tesohub_music.playlist_songs
+          (playlist_id, song_id, position, added_at)
+         values ($1,$2,$3,now())`,
+        [
+          playlistId,
+          songId,
+          Number(positionResult.rows[0]?.next_position || 1),
+        ],
+      );
+      await client.query(
+        `update tesohub_music.playlists
+         set updated_at = now()
+         where id = $1`,
+        [playlistId],
+      );
+      const nextPlaylist = playlistFromRow(
+        await playlistRowForOwner(listenerId, playlistId, client),
+        await playlistSongsFor(playlistId, client),
+      );
+      await client.query("commit");
+      return { added: true, duplicate: false, playlist: nextPlaylist };
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async function removeSongFromPlaylist({ listenerId, playlistId, songId }) {
+    const client = await getPool().connect();
+    try {
+      await client.query("begin");
+      const playlist = await playlistRowForOwner(listenerId, playlistId, client);
+      if (!playlist) {
+        await client.query("rollback");
+        return null;
+      }
+      const result = await client.query(
+        `delete from tesohub_music.playlist_songs
+         where playlist_id = $1 and song_id = $2`,
+        [playlistId, songId],
+      );
+      await client.query(
+        `update tesohub_music.playlists
+         set updated_at = now()
+         where id = $1`,
+        [playlistId],
+      );
+      const nextPlaylist = playlistFromRow(
+        await playlistRowForOwner(listenerId, playlistId, client),
+        await playlistSongsFor(playlistId, client),
+      );
+      await client.query("commit");
+      return { removed: result.rowCount > 0, playlist: nextPlaylist };
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async function upsertListener(client, listener) {
@@ -908,16 +1830,18 @@ export function createSupabasePersistence({
     const body = file.buffer || (file.path ? await fs.readFile(file.path) : null);
     if (!body) throw new Error("Upload file buffer is missing.");
 
-    const response = await fetch(`${supabaseUrl}/storage/v1/object/${bucket}/${encodedPath}`, {
-      method: "POST",
-      headers: {
-        apikey: secretKey,
-        authorization: `Bearer ${secretKey}`,
-        "content-type": file.mimetype || "application/octet-stream",
-        "x-upsert": "true",
-      },
-      body,
-    });
+    const response = await recordStorageOperation(() =>
+      fetch(`${supabaseUrl}/storage/v1/object/${bucket}/${encodedPath}`, {
+        method: "POST",
+        headers: {
+          apikey: secretKey,
+          authorization: `Bearer ${secretKey}`,
+          "content-type": file.mimetype || "application/octet-stream",
+          "x-upsert": "true",
+        },
+        body,
+      }),
+    );
 
     if (!response.ok) {
       const text = await response.text().catch(() => "");
@@ -943,9 +1867,11 @@ export function createSupabasePersistence({
     const range = req.get("range");
     if (range) headers.range = range;
 
-    const response = await fetch(
-      `${supabaseUrl}/storage/v1/object/${bucket}/${encodeObjectPath(objectPath)}`,
-      { headers },
+    const response = await recordStorageOperation(() =>
+      fetch(
+        `${supabaseUrl}/storage/v1/object/${bucket}/${encodeObjectPath(objectPath)}`,
+        { headers },
+      ),
     );
 
     if (!response.ok) {
@@ -980,9 +1906,31 @@ export function createSupabasePersistence({
 
   return {
     assertConfigured,
+    addSongToPlaylist,
+    createAuthSession,
+    createListenerAccount,
+    createPlaylist,
+    deletePlaylist,
+    followArtist,
+    getPlaylist,
+    getPublicArtist,
+    getPublicSong,
+    likeSong,
+    listenerByIdentifier,
+    listenerByTokenHash,
+    listenerProfile,
+    listPlaylists,
+    listPublicArtists,
+    listPublicSongs,
     loadDb,
+    loginExists,
+    platformSettings,
+    removeSongFromPlaylist,
     saveDb,
     streamObject,
+    unfollowArtist,
+    unlikeSong,
+    updatePlaylist,
     uploadFile,
   };
 }
