@@ -4,15 +4,18 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   addSongToPlaylist,
@@ -24,6 +27,7 @@ import { colors, spacing } from "../theme";
 
 export default function AddToPlaylistModal({ visible, song, onClose }) {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const { isAuthenticated } = useAuth();
   const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -121,11 +125,13 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        enabled={Platform.OS !== "web"}
         style={styles.backdrop}
       >
         <TouchableOpacity activeOpacity={1} style={styles.dismissArea} onPress={onClose} />
-        <View style={styles.sheet}>
+        <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
+        <View style={[styles.sheet, { paddingBottom: Math.max(24, insets.bottom + 16) }]}>
           <View style={styles.handle} />
           <View style={styles.header}>
             <View style={styles.headerCopy}>
@@ -160,11 +166,14 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
             <View style={styles.createBox}>
               <TextInput
                 autoCapitalize="words"
+                blurOnSubmit
                 placeholder="Playlist name"
                 placeholderTextColor={colors.muted}
+                returnKeyType="done"
                 style={styles.input}
                 value={newName}
                 onChangeText={setNewName}
+                onSubmitEditing={handleCreateAndAdd}
               />
               <View style={styles.createActions}>
                 <TouchableOpacity
@@ -248,6 +257,7 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
           {message ? <Text style={styles.success}>{message}</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
+        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -268,9 +278,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 8,
     borderTopRightRadius: 8,
     borderWidth: 1,
-    maxHeight: "82%",
+    maxHeight: "88%",
     padding: spacing.page,
-    paddingBottom: 28,
   },
   handle: {
     alignSelf: "center",
@@ -368,7 +377,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   list: {
-    maxHeight: 330,
+    maxHeight: "58%",
   },
   loader: {
     marginVertical: 22,

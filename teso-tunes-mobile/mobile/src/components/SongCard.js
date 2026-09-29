@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useState } from "react";
-import { Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 import AddToPlaylistModal from "./AddToPlaylistModal";
 import { useAuth } from "../context/AuthContext";
@@ -16,10 +16,11 @@ export default function SongCard({ song, compact = false, queue = [] }) {
   const { width } = useWindowDimensions();
   const { isAuthenticated } = useAuth();
   const { currentSong, isPlaying, playSong, togglePlay } = usePlayer();
-  const { getSongLikeCount, isSongLiked, toggleSongLike } = useEngagement();
+  const { getSongLikeCount, isSongLiked, isSongLikePending, toggleSongLike } = useEngagement();
   const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
   const active = currentSong?.id === song.id;
   const liked = isSongLiked(song.id);
+  const likePending = isSongLikePending(song.id);
   const likeCount = getSongLikeCount(song);
   const compactTileSize = Math.min(
     168,
@@ -53,13 +54,18 @@ export default function SongCard({ song, compact = false, queue = [] }) {
         <Text style={styles.tileTitle} numberOfLines={2}>{song.title}</Text>
         <Text style={styles.tileMeta} numberOfLines={2}>{song.artist_name}</Text>
         <TouchableOpacity
-          style={styles.tileLikeButton}
+          disabled={likePending}
+          style={[styles.tileLikeButton, likePending && styles.pendingLikeButton]}
           onPress={(event) => {
             event.stopPropagation?.();
             handleLikePress();
           }}
         >
-          <Ionicons name={liked ? "heart" : "heart-outline"} color={liked ? colors.primary : colors.muted} size={15} />
+          {likePending ? (
+            <ActivityIndicator color={liked ? colors.primary : colors.muted} size="small" />
+          ) : (
+            <Ionicons name={liked ? "heart" : "heart-outline"} color={liked ? colors.primary : colors.muted} size={15} />
+          )}
           <Text style={[styles.likes, liked && styles.likedText]}>{formatPlays(likeCount)}</Text>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -74,13 +80,18 @@ export default function SongCard({ song, compact = false, queue = [] }) {
           <Text style={styles.title} numberOfLines={1}>{song.title}</Text>
           <Text style={styles.meta} numberOfLines={1}>{song.artist_name}</Text>
           <TouchableOpacity
-            style={styles.likeButton}
+            disabled={likePending}
+            style={[styles.likeButton, likePending && styles.pendingLikeButton]}
             onPress={(event) => {
               event.stopPropagation?.();
               handleLikePress();
             }}
           >
-            <Ionicons name={liked ? "heart" : "heart-outline"} color={liked ? colors.primary : colors.muted} size={16} />
+            {likePending ? (
+              <ActivityIndicator color={liked ? colors.primary : colors.muted} size="small" />
+            ) : (
+              <Ionicons name={liked ? "heart" : "heart-outline"} color={liked ? colors.primary : colors.muted} size={16} />
+            )}
             <Text style={[styles.likes, liked && styles.likedText]}>{formatPlays(likeCount)}</Text>
           </TouchableOpacity>
         </View>
@@ -145,6 +156,9 @@ const styles = StyleSheet.create({
     minHeight: 26,
     paddingRight: 8,
     paddingVertical: 2,
+  },
+  pendingLikeButton: {
+    opacity: 0.72,
   },
   likes: {
     color: colors.muted,

@@ -4,6 +4,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -177,6 +179,7 @@ export default function ProfileScreen({ navigation, route }) {
   }
 
   async function submitAuth() {
+    if (submitting) return;
     setSubmitting(true);
     setError("");
     try {
@@ -204,7 +207,7 @@ export default function ProfileScreen({ navigation, route }) {
   }
 
   async function saveProfile() {
-    if (!hasProfileChanges) return;
+    if (!hasProfileChanges || submitting) return;
     setSubmitting(true);
     setError("");
     try {
@@ -245,9 +248,16 @@ export default function ProfileScreen({ navigation, route }) {
   }
 
   return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      enabled={Platform.OS !== "web"}
+      style={styles.keyboardAvoider}
+    >
     <SafeAreaView style={styles.safe}>
       <ScrollView
         contentContainerStyle={styles.content}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -355,9 +365,11 @@ export default function ProfileScreen({ navigation, route }) {
                 placeholder="Phone"
                 value={profileForm.phone}
                 keyboardType="phone-pad"
+                returnKeyType="done"
                 onChangeText={(value) =>
                   setProfileForm((current) => ({ ...current, phone: value }))
                 }
+                onSubmitEditing={saveProfile}
               />
               <TouchableOpacity
                 accessibilityLabel="Save profile"
@@ -461,6 +473,7 @@ export default function ProfileScreen({ navigation, route }) {
       </ScrollView>
       {isAuthenticated ? <MiniPlayer /> : null}
     </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -587,6 +600,7 @@ function AuthCard({
   }, [authMode]);
 
   function handleSubmitPress() {
+    if (submitting) return;
     if (validationMessage) {
       setShowValidation(true);
       return;
@@ -646,9 +660,11 @@ function AuthCard({
       <ProfileInput
         icon="lock-closed"
         placeholder="Password"
+        returnKeyType="done"
         secureTextEntry
         value={authForm.password}
         onChangeText={(value) => updateAuthField("password", value)}
+        onSubmitEditing={handleSubmitPress}
       />
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -773,6 +789,10 @@ function EmptyState({ actionIcon, icon, onPress, title }) {
 
 const styles = StyleSheet.create({
   safe: {
+    backgroundColor: colors.background,
+    flex: 1,
+  },
+  keyboardAvoider: {
     backgroundColor: colors.background,
     flex: 1,
   },

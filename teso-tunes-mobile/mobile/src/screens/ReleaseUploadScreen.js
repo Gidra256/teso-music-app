@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -172,6 +173,7 @@ export default function ReleaseUploadScreen({ navigation }) {
   }
 
   async function saveRelease(submitForReview) {
+    if (saving) return;
     if (submitForReview && submitValidation) {
       setError(submitValidation);
       return;
@@ -199,8 +201,18 @@ export default function ReleaseUploadScreen({ navigation }) {
   }
 
   return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      enabled={Platform.OS !== "web"}
+      style={styles.keyboardAvoider}
+    >
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.topbar}>
           <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
             <Ionicons name="chevron-back" color={colors.softText} size={22} />
@@ -348,6 +360,7 @@ export default function ReleaseUploadScreen({ navigation }) {
         </View>
       </ScrollView>
     </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -366,6 +379,10 @@ function ReleaseInput({ icon, style, ...props }) {
 
 const styles = StyleSheet.create({
   safe: {
+    backgroundColor: colors.background,
+    flex: 1,
+  },
+  keyboardAvoider: {
     backgroundColor: colors.background,
     flex: 1,
   },

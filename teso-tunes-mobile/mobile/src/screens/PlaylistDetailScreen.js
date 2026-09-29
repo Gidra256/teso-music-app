@@ -6,6 +6,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -13,10 +14,11 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   addSongToPlaylist,
@@ -334,43 +336,51 @@ function RenameModal({
   saving,
   visible,
 }) {
+  const insets = useSafeAreaInsets();
+
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        enabled={Platform.OS !== "web"}
         style={styles.modalBackdrop}
       >
         <TouchableOpacity activeOpacity={1} style={styles.dismissArea} onPress={onClose} />
-        <View style={styles.sheet}>
-          <View style={styles.handle} />
-          <Text style={styles.sheetTitle}>Edit playlist</Text>
-          <TextInput
-            autoCapitalize="words"
-            placeholder="Playlist name"
-            placeholderTextColor={colors.muted}
-            style={styles.input}
-            value={name}
-            onChangeText={onChangeName}
-          />
-          {error ? <Text style={styles.inlineError}>{error}</Text> : null}
-          <View style={styles.sheetActions}>
-            <TouchableOpacity activeOpacity={0.82} style={styles.outlineButton} onPress={onDelete}>
-              <Ionicons name="trash-outline" color={colors.accent} size={18} />
-              <Text style={styles.outlineText}>Delete</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              activeOpacity={0.86}
-              disabled={saving}
-              style={[styles.primaryButton, saving && styles.disabledButton]}
-              onPress={onSave}
-            >
-              {saving ? (
-                <ActivityIndicator color={colors.background} size="small" />
-              ) : null}
-              <Text style={styles.primaryText}>Save</Text>
-            </TouchableOpacity>
+        <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
+          <View style={[styles.sheet, { paddingBottom: Math.max(24, insets.bottom + 16) }]}>
+            <View style={styles.handle} />
+            <Text style={styles.sheetTitle}>Edit playlist</Text>
+            <TextInput
+              autoCapitalize="words"
+              blurOnSubmit
+              placeholder="Playlist name"
+              placeholderTextColor={colors.muted}
+              returnKeyType="done"
+              style={styles.input}
+              value={name}
+              onChangeText={onChangeName}
+              onSubmitEditing={onSave}
+            />
+            {error ? <Text style={styles.inlineError}>{error}</Text> : null}
+            <View style={styles.sheetActions}>
+              <TouchableOpacity activeOpacity={0.82} style={styles.outlineButton} onPress={onDelete}>
+                <Ionicons name="trash-outline" color={colors.accent} size={18} />
+                <Text style={styles.outlineText}>Delete</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.86}
+                disabled={saving}
+                style={[styles.primaryButton, saving && styles.disabledButton]}
+                onPress={onSave}
+              >
+                {saving ? (
+                  <ActivityIndicator color={colors.background} size="small" />
+                ) : null}
+                <Text style={styles.primaryText}>Save</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </Modal>
   );

@@ -2,13 +2,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
 import {
   FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { MUSIC_GENRES, needsGenreNote } from "../data/genres";
 import { colors, spacing } from "../theme";
@@ -20,6 +25,7 @@ export default function GenreSelector({
   onChangeNote,
   value,
 }) {
+  const insets = useSafeAreaInsets();
   const [visible, setVisible] = useState(false);
   const [query, setQuery] = useState("");
   const filteredGenres = useMemo(() => {
@@ -65,9 +71,14 @@ export default function GenreSelector({
       ) : null}
 
       <Modal animationType="slide" transparent visible={visible} onRequestClose={() => setVisible(false)}>
-        <View style={styles.backdrop}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          enabled={Platform.OS !== "web"}
+          style={styles.backdrop}
+        >
           <TouchableOpacity activeOpacity={1} style={styles.dismissArea} onPress={() => setVisible(false)} />
-          <View style={styles.sheet}>
+          <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
+          <View style={[styles.sheet, { paddingBottom: Math.max(24, insets.bottom + 16) }]}>
             <View style={styles.handle} />
             <View style={styles.header}>
               <View>
@@ -89,6 +100,7 @@ export default function GenreSelector({
                 autoCapitalize="none"
                 placeholder="Search genres"
                 placeholderTextColor={colors.muted}
+                returnKeyType="search"
                 style={styles.searchInput}
                 value={query}
                 onChangeText={setQuery}
@@ -117,7 +129,8 @@ export default function GenreSelector({
               style={styles.list}
             />
           </View>
-        </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
@@ -186,9 +199,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 8,
     borderWidth: 1,
     gap: 14,
-    maxHeight: "82%",
+    maxHeight: "88%",
     padding: spacing.page,
-    paddingBottom: 28,
   },
   handle: {
     alignSelf: "center",
@@ -240,7 +252,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   list: {
-    maxHeight: 390,
+    maxHeight: "60%",
   },
   genreRow: {
     alignItems: "center",

@@ -41,7 +41,7 @@ export default function PlayerScreen({ route, navigation }) {
     toggleShuffle,
   } = usePlayer();
   const { isAuthenticated } = useAuth();
-  const { getSongLikeCount, isSongLiked, toggleSongLike } = useEngagement();
+  const { getSongLikeCount, isSongLiked, isSongLikePending, toggleSongLike } = useEngagement();
   const { height, width } = useWindowDimensions();
   const [previewTime, setPreviewTime] = useState(null);
   const [deepLinkLoading, setDeepLinkLoading] = useState(false);
@@ -190,6 +190,7 @@ export default function PlayerScreen({ route, navigation }) {
   const artistName = currentSong.artist_name || "Teso artist";
   const playCount = currentSong.play_count || 0;
   const liked = isSongLiked(currentSong.id);
+  const likePending = isSongLikePending(currentSong.id);
   const likeCount = getSongLikeCount(currentSong);
   const hasArtistRoute = Boolean(currentSong.artist || currentSong.artist_id);
   const dateLabel = currentSong.release_date || currentSong.created_at;
@@ -299,6 +300,7 @@ export default function PlayerScreen({ route, navigation }) {
           <TrackAction icon="play-forward-outline" label="Forward 10" onPress={() => seekBy(10)} />
           <TrackAction
             active={liked}
+            disabled={likePending}
             icon={liked ? "heart" : "heart-outline"}
             label={liked ? `${formatPlays(likeCount)} likes` : "Favorite"}
             onPress={() => requireAccountAction(() => toggleSongLike(currentSong))}
@@ -360,11 +362,16 @@ function PlayerIconButton({ active = false, icon, label, onPress }) {
   );
 }
 
-function TrackAction({ active = false, icon, label, onPress }) {
+function TrackAction({ active = false, disabled = false, icon, label, onPress }) {
   return (
     <TouchableOpacity
       activeOpacity={0.82}
-      style={[styles.trackAction, active && styles.trackActionActive]}
+      disabled={disabled}
+      style={[
+        styles.trackAction,
+        active && styles.trackActionActive,
+        disabled && styles.trackActionDisabled,
+      ]}
       onPress={onPress}
     >
       <Ionicons name={icon} color={active ? colors.primary : colors.softText} size={20} />
@@ -617,6 +624,9 @@ const styles = StyleSheet.create({
   trackActionActive: {
     backgroundColor: "rgba(32, 230, 243, 0.12)",
     borderColor: "rgba(32, 230, 243, 0.26)",
+  },
+  trackActionDisabled: {
+    opacity: 0.62,
   },
   trackActionText: {
     color: colors.softText,

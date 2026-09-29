@@ -2,20 +2,25 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createPlaylist } from "../api/musicApi";
 import { colors, spacing } from "../theme";
 
 export default function CreatePlaylistModal({ visible, onClose, onCreated }) {
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
@@ -55,67 +60,80 @@ export default function CreatePlaylistModal({ visible, onClose, onCreated }) {
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        enabled={Platform.OS !== "web"}
         style={styles.backdrop}
       >
         <TouchableOpacity activeOpacity={1} style={styles.dismissArea} onPress={onClose} />
-        <View style={styles.sheet}>
-          <View style={styles.handle} />
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.eyebrow}>Create</Text>
-              <Text style={styles.title}>New playlist</Text>
-            </View>
-            <TouchableOpacity
-              accessibilityLabel="Close create playlist"
-              activeOpacity={0.82}
-              style={styles.iconButton}
-              onPress={onClose}
+        <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
+          <View style={[styles.sheet, { paddingBottom: Math.max(24, insets.bottom + 16) }]}>
+            <ScrollView
+              contentContainerStyle={styles.sheetContent}
+              keyboardDismissMode="on-drag"
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
             >
-              <Ionicons name="close" color={colors.softText} size={22} />
-            </TouchableOpacity>
+              <View style={styles.handle} />
+              <View style={styles.header}>
+                <View>
+                  <Text style={styles.eyebrow}>Create</Text>
+                  <Text style={styles.title}>New playlist</Text>
+                </View>
+                <TouchableOpacity
+                  accessibilityLabel="Close create playlist"
+                  activeOpacity={0.82}
+                  style={styles.iconButton}
+                  onPress={onClose}
+                >
+                  <Ionicons name="close" color={colors.softText} size={22} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Playlist name</Text>
+                <TextInput
+                  autoCapitalize="words"
+                  blurOnSubmit
+                  placeholder="My Teso Mix"
+                  placeholderTextColor={colors.muted}
+                  returnKeyType="done"
+                  style={styles.input}
+                  value={name}
+                  onChangeText={setName}
+                  onSubmitEditing={handleCreate}
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Description</Text>
+                <TextInput
+                  multiline
+                  placeholder="Optional"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input, styles.textArea]}
+                  value={description}
+                  onChangeText={setDescription}
+                />
+              </View>
+
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+
+              <TouchableOpacity
+                activeOpacity={0.86}
+                disabled={saving}
+                style={[styles.primaryButton, saving && styles.disabledButton]}
+                onPress={handleCreate}
+              >
+                {saving ? (
+                  <ActivityIndicator color={colors.background} size="small" />
+                ) : (
+                  <Ionicons name="add" color={colors.background} size={20} />
+                )}
+                <Text style={styles.primaryText}>Create Playlist</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Playlist name</Text>
-            <TextInput
-              autoCapitalize="words"
-              placeholder="My Teso Mix"
-              placeholderTextColor={colors.muted}
-              style={styles.input}
-              value={name}
-              onChangeText={setName}
-            />
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Description</Text>
-            <TextInput
-              multiline
-              placeholder="Optional"
-              placeholderTextColor={colors.muted}
-              style={[styles.input, styles.textArea]}
-              value={description}
-              onChangeText={setDescription}
-            />
-          </View>
-
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-
-          <TouchableOpacity
-            activeOpacity={0.86}
-            disabled={saving}
-            style={[styles.primaryButton, saving && styles.disabledButton]}
-            onPress={handleCreate}
-          >
-            {saving ? (
-              <ActivityIndicator color={colors.background} size="small" />
-            ) : (
-              <Ionicons name="add" color={colors.background} size={20} />
-            )}
-            <Text style={styles.primaryText}>Create Playlist</Text>
-          </TouchableOpacity>
-        </View>
+        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -136,9 +154,11 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 8,
     borderTopRightRadius: 8,
     borderWidth: 1,
-    gap: 16,
+    maxHeight: "88%",
     padding: spacing.page,
-    paddingBottom: 28,
+  },
+  sheetContent: {
+    gap: 16,
   },
   handle: {
     alignSelf: "center",

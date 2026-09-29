@@ -50,6 +50,7 @@ const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 const APP_LOGO = require("./assets/images/tesohub-music.png");
 const DESKTOP_WEB_BREAKPOINT = 900;
+const PLATFORM_STATUS_STARTUP_TIMEOUT_MS = 4500;
 const navigationRef = createNavigationContainerRef();
 
 const linking = {
@@ -594,6 +595,12 @@ function AppNavigator() {
 
   useEffect(() => {
     let mounted = true;
+    let settled = false;
+    const startupTimeout = setTimeout(() => {
+      if (mounted && !settled) {
+        setPlatformChecked(true);
+      }
+    }, PLATFORM_STATUS_STARTUP_TIMEOUT_MS);
 
     getPlatformStatus()
       .then((status) => {
@@ -603,11 +610,14 @@ function AppNavigator() {
         if (mounted) setPlatformStatus(null);
       })
       .finally(() => {
+        settled = true;
+        clearTimeout(startupTimeout);
         if (mounted) setPlatformChecked(true);
       });
 
     return () => {
       mounted = false;
+      clearTimeout(startupTimeout);
     };
   }, []);
 

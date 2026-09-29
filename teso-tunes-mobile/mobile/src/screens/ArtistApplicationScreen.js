@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -116,6 +117,7 @@ export default function ArtistApplicationScreen({ navigation }) {
   }
 
   async function submitApplication() {
+    if (submitting) return;
     if (validationMessage) {
       setError(validationMessage);
       return;
@@ -151,8 +153,18 @@ export default function ArtistApplicationScreen({ navigation }) {
   }
 
   return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      enabled={Platform.OS !== "web"}
+      style={styles.keyboardAvoider}
+    >
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.topbar}>
           <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
             <Ionicons name="chevron-back" color={colors.softText} size={22} />
@@ -285,6 +297,7 @@ export default function ArtistApplicationScreen({ navigation }) {
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -303,6 +316,10 @@ function StudioInput({ icon, style, ...props }) {
 
 const styles = StyleSheet.create({
   safe: {
+    backgroundColor: colors.background,
+    flex: 1,
+  },
+  keyboardAvoider: {
     backgroundColor: colors.background,
     flex: 1,
   },

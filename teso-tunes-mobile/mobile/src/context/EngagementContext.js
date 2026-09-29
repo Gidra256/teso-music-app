@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Alert } from "react-native";
 
 import { followArtist, likeSong, unfollowArtist, unlikeSong } from "../api/musicApi";
 
@@ -32,14 +33,26 @@ function updateCountMap(previous, id, nextCount, delta) {
   return { ...previous, [id]: safeNext };
 }
 
+function actionCount(serverCount, optimisticCount, direction) {
+  const safeOptimistic = Math.max(0, Number(optimisticCount || 0));
+  if (!Number.isFinite(serverCount)) return safeOptimistic;
+  const safeServer = Math.max(0, Number(serverCount));
+  return direction > 0
+    ? Math.max(safeServer, safeOptimistic)
+    : Math.min(safeServer, safeOptimistic);
+}
+
 export function EngagementProvider({ children }) {
   const [deviceId, setDeviceId] = useState(null);
   const [likedSongs, setLikedSongs] = useState(new Set());
   const [followedArtists, setFollowedArtists] = useState(new Set());
+  const likedSongsRef = useRef(new Set());
   const followedArtistsRef = useRef(new Set());
+  const pendingSongLikeIdsRef = useRef(new Set());
   const pendingArtistFollowIdsRef = useRef(new Set());
   const [songLikeCounts, setSongLikeCounts] = useState({});
   const [artistFollowerCounts, setArtistFollowerCounts] = useState({});
+  const [pendingSongLikeIds, setPendingSongLikeIds] = useState(new Set());
   const [pendingArtistFollowIds, setPendingArtistFollowIds] = useState(new Set());
 
   useEffect(() => {
@@ -70,6 +83,10 @@ export function EngagementProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    likedSongsRef.current = likedSongs;
+  }, [likedSongs]);
+
+  useEffect(() => {
     followedArtistsRef.current = followedArtists;
   }, [followedArtists]);
 
@@ -95,6 +112,23 @@ export function EngagementProvider({ children }) {
     setPendingArtistFollowIds(nextPending);
   }
 
+  function setSongLikePending(id, pending) {
+    const nextPending = new Set(pendingSongLikeIdsRef.current);
+    if (pending) {
+      nextPending.add(Number(id));
+    } else {
+      nextPending.delete(Number(id));
+    }
+    pendingSongLikeIdsRef.current = nextPending;
+    setPendingSongLikeIds(nextPending);
+  }
+
+  function showEngagementError(message) {
+    try {
+      Alert.alert("TesoHub Music", message);
+    } catch (error) {}
+  }
+
   async function syncFollowedArtistIds(ids = []) {
     await saveFollowedArtists(toIdSet(ids));
   }
@@ -102,27 +136,58 @@ export function EngagementProvider({ children }) {
   async function toggleSongLike(song) {
     if (!song || !deviceId) return;
     const id = Number(song.id);
-    const alreadyLiked = likedSongs.has(id);
-    const nextLikedSongs = new Set(likedSongs);
+    if (pendingSongLikeIdsRef.current.has(id)) return;
 
+    const previousLikedSongs = new Set(likedSongsRef.current);
+    const previousCount = getSongLikeCount(song);
+    const alreadyLiked = previousLikedSongs.has(id);
+    const nextLikedSongs = new Set(previousLikedSongs);
+
+    setSongLikePending(id, true);
     if (alreadyLiked) {
-      const optimisticCount = Math.max(0, getSongLikeCount(song) - 1);
+      const optimisticCount = Math.max(0, previousCount - 1);
       nextLikedSongs.delete(id);
-      saveLikedSongs(nextLikedSongs);
+      await saveLikedSongs(nextLikedSongs);
       setSongLikeCounts((counts) => updateCountMap(counts, id, optimisticCount, 0));
       try {
         const result = await unlikeSong(id, deviceId);
-        setSongLikeCounts((counts) => updateCountMap(counts, id, result.like_count, 0));
-      } catch (error) {}
+        setSongLikeCounts((counts) =>
+          updateCountMap(
+            counts,
+            id,
+            actionCount(result.like_count, optimisticCount, -1),
+            0,
+          ),
+        );
+      } catch (error) {
+        await saveLikedSongs(previousLikedSongs);
+        setSongLikeCounts((counts) => updateCountMap(counts, id, previousCount, 0));
+        showEngagementError("Could not update this like. Please try again.");
+      } finally {
+        setSongLikePending(id, false);
+      }
     } else {
-      const optimisticCount = getSongLikeCount(song) + 1;
+      const optimisticCount = previousCount + 1;
       nextLikedSongs.add(id);
-      saveLikedSongs(nextLikedSongs);
+      await saveLikedSongs(nextLikedSongs);
       setSongLikeCounts((counts) => updateCountMap(counts, id, optimisticCount, 0));
       try {
         const result = await likeSong(id, deviceId);
-        setSongLikeCounts((counts) => updateCountMap(counts, id, result.like_count, 0));
-      } catch (error) {}
+        setSongLikeCounts((counts) =>
+          updateCountMap(
+            counts,
+            id,
+            actionCount(result.like_count, optimisticCount, 1),
+            0,
+          ),
+        );
+      } catch (error) {
+        await saveLikedSongs(previousLikedSongs);
+        setSongLikeCounts((counts) => updateCountMap(counts, id, previousCount, 0));
+        showEngagementError("Could not update this like. Please try again.");
+      } finally {
+        setSongLikePending(id, false);
+      }
     }
   }
 
@@ -157,16 +222,27 @@ export function EngagementProvider({ children }) {
       };
     }
 
+    const previousFollowedArtists = new Set(followedArtistsRef.current);
+    const previousCount = getArtistFollowerCount(artist);
+    const optimisticFollowedArtists = new Set(previousFollowedArtists);
+    optimisticFollowedArtists.add(id);
     setArtistFollowPending(id, true);
     try {
-      const result = await followArtist(id, deviceId);
-      const nextFollowedArtists = new Set(followedArtistsRef.current);
-      nextFollowedArtists.add(id);
-      await saveFollowedArtists(nextFollowedArtists);
+      await saveFollowedArtists(optimisticFollowedArtists);
       setArtistFollowerCounts((counts) =>
-        updateCountMap(counts, id, result.follower_count, 1),
+        updateCountMap(counts, id, previousCount + 1, 0),
       );
-      return result;
+      const result = await followArtist(id, deviceId);
+      const followerCount = actionCount(result.follower_count, previousCount + 1, 1);
+      setArtistFollowerCounts((counts) =>
+        updateCountMap(counts, id, followerCount, 1),
+      );
+      return { ...result, follower_count: followerCount };
+    } catch (error) {
+      await saveFollowedArtists(previousFollowedArtists);
+      setArtistFollowerCounts((counts) => updateCountMap(counts, id, previousCount, 0));
+      showEngagementError("Could not follow this artist. Please try again.");
+      throw error;
     } finally {
       setArtistFollowPending(id, false);
     }
@@ -190,16 +266,31 @@ export function EngagementProvider({ children }) {
       };
     }
 
+    const previousFollowedArtists = new Set(followedArtistsRef.current);
+    const previousCount = getArtistFollowerCount(artist);
+    const optimisticFollowedArtists = new Set(previousFollowedArtists);
+    optimisticFollowedArtists.delete(id);
     setArtistFollowPending(id, true);
     try {
-      const result = await unfollowArtist(id, deviceId);
-      const nextFollowedArtists = new Set(followedArtistsRef.current);
-      nextFollowedArtists.delete(id);
-      await saveFollowedArtists(nextFollowedArtists);
+      await saveFollowedArtists(optimisticFollowedArtists);
       setArtistFollowerCounts((counts) =>
-        updateCountMap(counts, id, result.follower_count, -1),
+        updateCountMap(counts, id, Math.max(0, previousCount - 1), 0),
       );
-      return result;
+      const result = await unfollowArtist(id, deviceId);
+      const followerCount = actionCount(
+        result.follower_count,
+        Math.max(0, previousCount - 1),
+        -1,
+      );
+      setArtistFollowerCounts((counts) =>
+        updateCountMap(counts, id, followerCount, -1),
+      );
+      return { ...result, follower_count: followerCount };
+    } catch (error) {
+      await saveFollowedArtists(previousFollowedArtists);
+      setArtistFollowerCounts((counts) => updateCountMap(counts, id, previousCount, 0));
+      showEngagementError("Could not update this follow. Please try again.");
+      throw error;
     } finally {
       setArtistFollowPending(id, false);
     }
@@ -225,6 +316,7 @@ export function EngagementProvider({ children }) {
       isArtistFollowed: (id) => followedArtists.has(Number(id)),
       isArtistFollowPending: (id) => pendingArtistFollowIds.has(Number(id)),
       isSongLiked: (id) => likedSongs.has(Number(id)),
+      isSongLikePending: (id) => pendingSongLikeIds.has(Number(id)),
       likedSongIds: [...likedSongs],
       syncFollowedArtistIds,
       toggleArtistFollow,
@@ -236,6 +328,7 @@ export function EngagementProvider({ children }) {
       followedArtists,
       likedSongs,
       pendingArtistFollowIds,
+      pendingSongLikeIds,
       songLikeCounts,
       artistFollowerCounts,
     ]
