@@ -18,6 +18,8 @@ const SUPABASE_BUCKETS = {
   audio: process.env.SUPABASE_AUDIO_BUCKET || "music-audio",
   artwork: process.env.SUPABASE_ARTWORK_BUCKET || "artwork",
   avatars: process.env.SUPABASE_AVATAR_BUCKET || "avatars",
+  supportAttachments:
+    process.env.SUPABASE_SUPPORT_ATTACHMENTS_BUCKET || "support-attachments",
 };
 const HAS_SUPABASE_ENV = Boolean(
   process.env.DATABASE_URL || process.env.SUPABASE_URL || SUPABASE_SECRET_KEY,
@@ -129,6 +131,7 @@ app.get("/api/storage/:bucket/*", async (req, res, next) => {
 });
 
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
+const MAX_SUPPORT_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const AUDIO_EXTENSIONS = new Set([
   ".aac",
   ".flac",
@@ -140,6 +143,20 @@ const AUDIO_EXTENSIONS = new Set([
   ".webm",
 ]);
 const IMAGE_EXTENSIONS = new Set([".jpeg", ".jpg", ".png", ".webp"]);
+const SUPPORT_ATTACHMENT_EXTENSIONS = new Set([
+  ".gif",
+  ".jpeg",
+  ".jpg",
+  ".pdf",
+  ".png",
+  ".txt",
+  ".webp",
+]);
+const SUPPORT_ATTACHMENT_MIME_PREFIXES = ["image/"];
+const SUPPORT_ATTACHMENT_MIME_TYPES = new Set([
+  "application/pdf",
+  "text/plain",
+]);
 const LISTENER_ROLES = new Set(["listener", "artist_pending", "artist"]);
 const RELEASE_STATUSES = new Set([
   "draft",
@@ -153,6 +170,33 @@ const SONG_STATUSES = new Set(["published", "hidden", "removed", "under_review"]
 const ARTIST_STATUSES = new Set(["active", "suspended", "removed"]);
 const LISTENER_STATUSES = new Set(["active", "suspended"]);
 const REPORT_STATUSES = new Set(["open", "reviewing", "resolved", "dismissed"]);
+const SUPPORT_TICKET_STATUSES = new Set([
+  "open",
+  "in_progress",
+  "waiting_on_user",
+  "resolved",
+  "closed",
+]);
+const SUPPORT_TICKET_PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
+const LISTENER_SUPPORT_CATEGORIES = [
+  "Account / Login",
+  "Playback",
+  "Playlist / Library",
+  "App Bug",
+  "Downloads",
+  "Report Content",
+  "Other",
+];
+const ARTIST_SUPPORT_CATEGORIES = [
+  "Artist Application",
+  "Upload Problem",
+  "Release Review",
+  "Metadata Correction",
+  "Artist Profile",
+  "Copyright / Ownership",
+  "Analytics",
+  "Other",
+];
 const ADMIN_ROLES = {
   SUPER_ADMIN: "super_admin",
   CONTENT_ADMIN: "content_admin",
@@ -170,7 +214,7 @@ const ADMIN_ROLE_PERMISSIONS = {
     "releases",
   ],
   [ADMIN_ROLES.MODERATOR]: ["reports", "users", "artists", "catalog"],
-  [ADMIN_ROLES.SUPPORT_ADMIN]: ["users"],
+  [ADMIN_ROLES.SUPPORT_ADMIN]: ["users", "support:view", "support:reply", "support:note", "support:update"],
 };
 const GENRE_OPTIONS = [
   "Ateso Traditional",
@@ -228,6 +272,17 @@ const upload = multer({
         return cb(null, true);
       }
       return cb(new Error("Upload a valid image file."));
+    }
+
+    if (file.fieldname === "support_attachment") {
+      if (
+        SUPPORT_ATTACHMENT_EXTENSIONS.has(extension) ||
+        SUPPORT_ATTACHMENT_MIME_TYPES.has(mime) ||
+        SUPPORT_ATTACHMENT_MIME_PREFIXES.some((prefix) => mime.startsWith(prefix))
+      ) {
+        return cb(null, true);
+      }
+      return cb(new Error("Upload a valid support attachment."));
     }
 
     return cb(new Error("Unsupported upload field."));
@@ -1437,6 +1492,181 @@ function numberOrZero(value) {
 
 function cleanText(value) {
   return String(value || "").trim();
+}
+
+function cleanSupportCategory(value, listenerRole = "listener") {
+  const cleanCategory = cleanText(value);
+  const options =
+    listenerRole === "artist" ? ARTIST_SUPPORT_CATEGORIES : LISTENER_SUPPORT_CATEGORIES;
+  return (
+    options.find(
+      (category) => category.toLowerCase() === cleanCategory.toLowerCase(),
+    ) || ""
+  );
+}
+
+function createSupportReference() {
+  const datePart = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  const randomPart = crypto.randomBytes(3).toString("hex").toUpperCase();
+  return `SUP-${datePart}-${randomPart}`;
+}
+
+function supportHelpCenterPayload() {
+  return {
+    contact: {
+      title: "Contact Support",
+      message:
+        "Send a ticket from your account so the TesoHub Music team can see your app profile and reply in one place.",
+    },
+    categories: {
+      artist: ARTIST_SUPPORT_CATEGORIES,
+      listener: LISTENER_SUPPORT_CATEGORIES,
+    },
+    articles: [
+      {
+        id: "become-an-artist",
+        title: "How to become an artist",
+        summary: "Open Profile, choose Become an Artist, and submit your details for review.",
+      },
+      {
+        id: "upload-music",
+        title: "How to upload music",
+        summary:
+          "Approved artists can use Artist Studio to create a release, attach audio and cover art, then submit it for review.",
+      },
+      {
+        id: "release-under-review",
+        title: "Why is my release under review?",
+        summary:
+          "New releases are checked by admins before publication to protect quality, metadata, and ownership.",
+      },
+      {
+        id: "create-playlist",
+        title: "How to create a playlist",
+        summary: "Open Your Library, tap Create, enter a name, and add songs from the playlist screen.",
+      },
+      {
+        id: "follow-artist",
+        title: "How to follow an artist",
+        summary:
+          "Open an artist profile and tap Follow. Followed artists appear in your profile and library.",
+      },
+      {
+        id: "song-unavailable",
+        title: "Why is a song unavailable?",
+        summary:
+          "A song may be hidden during review, removed for policy reasons, or temporarily unavailable from storage.",
+      },
+      {
+        id: "copyright-report",
+        title: "How to report copyright infringement",
+        summary:
+          "Create a ticket with Copyright / Ownership or Report Content and include links or screenshots.",
+      },
+      {
+        id: "delete-account",
+        title: "How to delete my account",
+        summary:
+          "Create an Account / Login ticket and support will help verify and process the request.",
+      },
+      {
+        id: "contact-support",
+        title: "How to contact support",
+        summary:
+          "Use Submit Support Ticket from Help & Support so your conversation stays linked to your account.",
+      },
+    ],
+  };
+}
+
+function supportAttachmentUrl(basePath, attachment, kind, ownerId) {
+  if (!attachment?.path || !ownerId) return "";
+  return `${basePath}/attachments/${encodeURIComponent(kind)}/${encodeURIComponent(ownerId)}/`;
+}
+
+function attachSupportUrls(ticket, basePath) {
+  if (!ticket) return ticket;
+  const ticketPath = `${basePath}/${encodeURIComponent(ticket.id)}`;
+  const nextTicket = {
+    ...ticket,
+    attachment: ticket.attachment
+      ? {
+          ...ticket.attachment,
+          url: supportAttachmentUrl(ticketPath, ticket.attachment, "ticket", ticket.id),
+        }
+      : null,
+  };
+  if (Array.isArray(nextTicket.messages)) {
+    nextTicket.messages = nextTicket.messages.map((message) => ({
+      ...message,
+      attachment: message.attachment
+        ? {
+            ...message.attachment,
+            url: supportAttachmentUrl(ticketPath, message.attachment, "message", message.id),
+          }
+        : null,
+    }));
+  }
+  return nextTicket;
+}
+
+function supportTicketListPayload(tickets, basePath) {
+  return tickets.map((ticket) => attachSupportUrls(ticket, basePath));
+}
+
+function supportFormPayload(req, listener) {
+  const requesterRole = ["artist", "artist_pending"].includes(listener?.role)
+    ? "artist"
+    : "listener";
+  const category = cleanSupportCategory(req.body?.category, requesterRole);
+  const subject = cleanText(req.body?.subject);
+  const message = cleanText(req.body?.message);
+  const submittedPriority = cleanText(req.body?.priority).toLowerCase();
+
+  return {
+    category,
+    message,
+    priority: SUPPORT_TICKET_PRIORITIES.has(submittedPriority)
+      ? submittedPriority
+      : "normal",
+    requesterRole,
+    subject,
+  };
+}
+
+function supportPayloadError(payload) {
+  if (!payload.category) return "Choose a valid support category.";
+  if (payload.subject.length < 3) return "Enter a support subject.";
+  if (payload.message.length < 8) return "Describe the issue in your message.";
+  return "";
+}
+
+function supportAttachmentError(file) {
+  if (!file) return "";
+  if (Number(file.size || 0) > MAX_SUPPORT_ATTACHMENT_BYTES) {
+    return "Support attachments must be 8 MB or smaller.";
+  }
+  return "";
+}
+
+async function uploadSupportAttachmentIfPresent(file, reference) {
+  if (!file) return null;
+  if (!USE_SUPABASE_PERSISTENCE) {
+    throw new Error("Support attachments require Supabase Storage.");
+  }
+  return supabasePersistence.uploadSupportAttachment(file, reference);
+}
+
+async function auditSupportAction(req, action, targetId, details = {}) {
+  if (!USE_SUPABASE_PERSISTENCE) return;
+  await supabasePersistence.recordAdminAuditLog({
+    action,
+    adminRole: req.adminUser?.role || ADMIN_ROLES.SUPER_ADMIN,
+    adminUser: req.adminUser?.username || ADMIN_USERNAME,
+    details,
+    targetId,
+    targetType: "support_ticket",
+  });
 }
 
 function normalizeGenre(value, db = null) {
@@ -2931,6 +3161,128 @@ app.post("/api/artists/:id/unfollow/", async (req, res) => {
   res.json({ followed: false, follower_count: followerCount(db, artist.id) });
 });
 
+app.get("/api/support/help-center/", (req, res) => {
+  res.json(supportHelpCenterPayload());
+});
+
+app.get("/api/support/tickets/", async (req, res) => {
+  if (!USE_SUPABASE_PERSISTENCE) {
+    return res.status(503).json({ detail: "Support requires Supabase persistence." });
+  }
+  const listener = await requireSupabaseListener(req, res);
+  if (!listener) return;
+  const tickets = await supabasePersistence.listSupportTicketsForListener(listener.id);
+  res.json(supportTicketListPayload(tickets, "/api/support/tickets"));
+});
+
+app.post(
+  "/api/support/tickets/",
+  upload.single("support_attachment"),
+  async (req, res) => {
+    if (!USE_SUPABASE_PERSISTENCE) {
+      return res.status(503).json({ detail: "Support requires Supabase persistence." });
+    }
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+
+    const payload = supportFormPayload(req, listener);
+    const validationError =
+      supportPayloadError(payload) || supportAttachmentError(req.file);
+    if (validationError) {
+      return res.status(400).json({ detail: validationError });
+    }
+
+    const reference = createSupportReference();
+    const attachment = await uploadSupportAttachmentIfPresent(req.file, reference);
+    const ticket = await supabasePersistence.createSupportTicket({
+      accountEmail: listener.email || "",
+      accountUsername: listener.name || "",
+      attachment,
+      category: payload.category,
+      listenerId: listener.id,
+      message: payload.message,
+      priority: payload.priority,
+      reference,
+      requesterRole: payload.requesterRole,
+      subject: payload.subject,
+    });
+
+    res.status(201).json(attachSupportUrls(ticket, "/api/support/tickets"));
+  },
+);
+
+app.get("/api/support/tickets/:id/", async (req, res) => {
+  if (!USE_SUPABASE_PERSISTENCE) {
+    return res.status(503).json({ detail: "Support requires Supabase persistence." });
+  }
+  const listener = await requireSupabaseListener(req, res);
+  if (!listener) return;
+  const ticket = await supabasePersistence.getSupportTicketForListener(
+    listener.id,
+    req.params.id,
+  );
+  if (!ticket) return res.status(404).json({ detail: "Support ticket not found." });
+  res.json(attachSupportUrls(ticket, "/api/support/tickets"));
+});
+
+app.post(
+  "/api/support/tickets/:id/replies/",
+  upload.single("support_attachment"),
+  async (req, res) => {
+    if (!USE_SUPABASE_PERSISTENCE) {
+      return res.status(503).json({ detail: "Support requires Supabase persistence." });
+    }
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+    const message = cleanText(req.body?.message);
+    if (message.length < 2) {
+      return res.status(400).json({ detail: "Enter a reply message." });
+    }
+    const attachmentValidation = supportAttachmentError(req.file);
+    if (attachmentValidation) {
+      return res.status(400).json({ detail: attachmentValidation });
+    }
+
+    const attachment = await uploadSupportAttachmentIfPresent(
+      req.file,
+      `ticket-${req.params.id}`,
+    );
+    const result = await supabasePersistence.addSupportTicketReply({
+      attachment,
+      listenerId: listener.id,
+      message,
+      ticketIdentifier: req.params.id,
+    });
+    if (result?.notFound) {
+      return res.status(404).json({ detail: "Support ticket not found." });
+    }
+    if (result?.notOpen) {
+      return res.status(409).json({ detail: "This ticket is resolved or closed." });
+    }
+    res.status(201).json(attachSupportUrls(result.ticket, "/api/support/tickets"));
+  },
+);
+
+app.get("/api/support/tickets/:id/attachments/:kind/:attachmentId/", async (req, res) => {
+  if (!USE_SUPABASE_PERSISTENCE) {
+    return res.status(503).json({ detail: "Support requires Supabase persistence." });
+  }
+  const listener = await requireSupabaseListener(req, res);
+  if (!listener) return;
+  const kind = cleanText(req.params.kind);
+  if (!["message", "ticket"].includes(kind)) {
+    return res.status(404).json({ detail: "Attachment not found." });
+  }
+  const attachment = await supabasePersistence.supportAttachmentForListener({
+    attachmentId: req.params.attachmentId,
+    kind,
+    listenerId: listener.id,
+    ticketIdentifier: req.params.id,
+  });
+  if (!attachment) return res.status(404).json({ detail: "Attachment not found." });
+  await supabasePersistence.streamSupportAttachment(attachment, req, res);
+});
+
 app.post("/api/reports/", async (req, res) => {
   const db = await loadDb();
   const listener = findListenerByToken(db, req);
@@ -3123,6 +3475,153 @@ app.get("/admin-api/dashboard", requireAdmin, async (req, res) => {
   const db = await loadDbWithPublishedReleases();
   res.json(dashboardPayload(db));
 });
+
+app.get(
+  "/admin-api/support/tickets",
+  requireAdminPermission("support:view"),
+  async (req, res) => {
+    if (!USE_SUPABASE_PERSISTENCE) {
+      return res.status(503).json({ detail: "Support requires Supabase persistence." });
+    }
+    const tickets = await supabasePersistence.listSupportTicketsForAdmin({
+      category: cleanText(req.query?.category),
+      search: cleanText(req.query?.search),
+      status: cleanText(req.query?.status),
+    });
+    res.json(supportTicketListPayload(tickets, "/admin-api/support/tickets"));
+  },
+);
+
+app.get(
+  "/admin-api/support/tickets/:id",
+  requireAdminPermission("support:view"),
+  async (req, res) => {
+    if (!USE_SUPABASE_PERSISTENCE) {
+      return res.status(503).json({ detail: "Support requires Supabase persistence." });
+    }
+    const ticket = await supabasePersistence.getSupportTicketForAdmin(req.params.id);
+    if (!ticket) return res.status(404).json({ detail: "Support ticket not found." });
+    res.json(attachSupportUrls(ticket, "/admin-api/support/tickets"));
+  },
+);
+
+app.post(
+  "/admin-api/support/tickets/:id/replies",
+  requireAdminPermission("support:reply"),
+  async (req, res) => {
+    if (!USE_SUPABASE_PERSISTENCE) {
+      return res.status(503).json({ detail: "Support requires Supabase persistence." });
+    }
+    const message = cleanText(req.body?.message);
+    if (message.length < 2) {
+      return res.status(400).json({ detail: "Enter a public reply." });
+    }
+    const result = await supabasePersistence.addSupportAdminReply({
+      adminUsername: req.adminUser.username,
+      message,
+      ticketIdentifier: req.params.id,
+    });
+    if (result?.notFound) {
+      return res.status(404).json({ detail: "Support ticket not found." });
+    }
+    if (result?.closed) {
+      return res.status(409).json({ detail: "Closed tickets cannot be replied to." });
+    }
+    await auditSupportAction(req, "support_public_reply", result.ticket.id, {
+      reference: result.ticket.reference,
+    });
+    res.status(201).json(attachSupportUrls(result.ticket, "/admin-api/support/tickets"));
+  },
+);
+
+app.post(
+  "/admin-api/support/tickets/:id/notes",
+  requireAdminPermission("support:note"),
+  async (req, res) => {
+    if (!USE_SUPABASE_PERSISTENCE) {
+      return res.status(503).json({ detail: "Support requires Supabase persistence." });
+    }
+    const note = cleanText(req.body?.note);
+    if (note.length < 2) {
+      return res.status(400).json({ detail: "Enter an internal note." });
+    }
+    const internalNote = await supabasePersistence.addSupportInternalNote({
+      adminUsername: req.adminUser.username,
+      note,
+      ticketIdentifier: req.params.id,
+    });
+    if (!internalNote) {
+      return res.status(404).json({ detail: "Support ticket not found." });
+    }
+    await auditSupportAction(req, "support_internal_note", internalNote.ticket_id, {});
+    const ticket = await supabasePersistence.getSupportTicketForAdmin(
+      internalNote.ticket_id,
+    );
+    res.status(201).json(attachSupportUrls(ticket, "/admin-api/support/tickets"));
+  },
+);
+
+app.patch(
+  "/admin-api/support/tickets/:id",
+  requireAdminPermission("support:update"),
+  async (req, res) => {
+    if (!USE_SUPABASE_PERSISTENCE) {
+      return res.status(503).json({ detail: "Support requires Supabase persistence." });
+    }
+    const status = Object.prototype.hasOwnProperty.call(req.body || {}, "status")
+      ? cleanText(req.body?.status)
+      : "";
+    const priority = Object.prototype.hasOwnProperty.call(req.body || {}, "priority")
+      ? cleanText(req.body?.priority)
+      : "";
+    const assignedTo = Object.prototype.hasOwnProperty.call(req.body || {}, "assigned_to")
+      ? cleanText(req.body?.assigned_to)
+      : undefined;
+
+    if (status && !SUPPORT_TICKET_STATUSES.has(status)) {
+      return res.status(400).json({ detail: "Choose a valid support status." });
+    }
+    if (priority && !SUPPORT_TICKET_PRIORITIES.has(priority)) {
+      return res.status(400).json({ detail: "Choose a valid support priority." });
+    }
+
+    const ticket = await supabasePersistence.updateSupportTicketForAdmin({
+      assignedTo,
+      changedBy: req.adminUser.username,
+      priority,
+      status,
+      ticketIdentifier: req.params.id,
+    });
+    if (!ticket) return res.status(404).json({ detail: "Support ticket not found." });
+    await auditSupportAction(req, "support_update_ticket", ticket.id, {
+      assigned_to: assignedTo,
+      priority,
+      status,
+    });
+    res.json(attachSupportUrls(ticket, "/admin-api/support/tickets"));
+  },
+);
+
+app.get(
+  "/admin-api/support/tickets/:id/attachments/:kind/:attachmentId",
+  requireAdminPermission("support:view"),
+  async (req, res) => {
+    if (!USE_SUPABASE_PERSISTENCE) {
+      return res.status(503).json({ detail: "Support requires Supabase persistence." });
+    }
+    const kind = cleanText(req.params.kind);
+    if (!["message", "ticket"].includes(kind)) {
+      return res.status(404).json({ detail: "Attachment not found." });
+    }
+    const attachment = await supabasePersistence.supportAttachmentForAdmin({
+      attachmentId: req.params.attachmentId,
+      kind,
+      ticketIdentifier: req.params.id,
+    });
+    if (!attachment) return res.status(404).json({ detail: "Attachment not found." });
+    await supabasePersistence.streamSupportAttachment(attachment, req, res);
+  },
+);
 
 app.get("/admin-api/users", requireAdminPermission("users"), async (req, res) => {
   const db = await loadDb();
@@ -4083,7 +4582,8 @@ app.use((error, req, res, next) => {
     error?.message?.includes("Upload") ||
     error?.message?.includes("Unsupported upload field") ||
     error?.message?.includes("valid audio") ||
-    error?.message?.includes("valid image")
+    error?.message?.includes("valid image") ||
+    error?.message?.includes("valid support attachment")
   ) {
     return res.status(400).json({ detail: error.message });
   }

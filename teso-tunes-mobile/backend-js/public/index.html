@@ -552,6 +552,24 @@
       const songStatuses = ["published", "hidden", "removed", "under_review"];
       const userStatuses = ["active", "suspended"];
       const reportStatuses = ["open", "reviewing", "resolved", "dismissed"];
+      const supportStatuses = ["open", "in_progress", "waiting_on_user", "resolved", "closed"];
+      const supportPriorities = ["low", "normal", "high", "urgent"];
+      const supportCategories = [
+        "Account / Login",
+        "Playback",
+        "Playlist / Library",
+        "App Bug",
+        "Downloads",
+        "Report Content",
+        "Artist Application",
+        "Upload Problem",
+        "Release Review",
+        "Metadata Correction",
+        "Artist Profile",
+        "Copyright / Ownership",
+        "Analytics",
+        "Other",
+      ];
       const views = [
         ["dashboard", "Dashboard", "Control centre overview"],
         ["applications", "Artist Applications", "Review applicant artists"],
@@ -559,6 +577,7 @@
         ["catalog", "Music Catalog", "Manage published and hidden songs"],
         ["artists", "Artists", "Manage artist profiles and status"],
         ["users", "Users", "Support and account status"],
+        ["support", "Support", "Tickets, replies, notes, and assignment"],
         ["reports", "Reports", "Moderation queue"],
         ["discovery", "Home & Discovery", "Curated featured content"],
         ["genres", "Genres", "Master genre list"],
@@ -577,6 +596,8 @@
         applications: [],
         releases: [],
         users: [],
+        supportTickets: [],
+        activeSupportTicket: null,
         reports: [],
         genres: [],
         settings: null,
@@ -594,6 +615,9 @@
           userSearch: "",
           userRole: "",
           userStatus: "",
+          supportCategory: "",
+          supportSearch: "",
+          supportStatus: "",
           reportStatus: "",
         },
       };
@@ -656,18 +680,19 @@
       }
 
       async function api(path, options = {}) {
+        const { suppressForbiddenLogout, ...fetchOptions } = options;
         const headers = {
           ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
           ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
           ...(options.headers || {}),
         };
-        const response = await fetch(path, { ...options, headers });
+        const response = await fetch(path, { ...fetchOptions, headers });
         const text = await response.text();
         const data = text ? JSON.parse(text) : null;
 
         if (!response.ok) {
           const message = data?.detail || `Request failed (${response.status})`;
-          if (response.status === 403 && path !== "/admin-api/login") {
+          if (response.status === 403 && path !== "/admin-api/login" && !suppressForbiddenLogout) {
             localStorage.removeItem("tesoAdminToken");
             state.token = "";
             showLogin();
@@ -679,7 +704,7 @@
 
       async function fetchOptional(key, path) {
         try {
-          state[key] = await api(path);
+          state[key] = await api(path, { suppressForbiddenLogout: true });
         } catch (error) {
           console.warn(path, error.message);
         }
@@ -698,6 +723,7 @@
           fetchOptional("applications", "/admin-api/artist-applications"),
           fetchOptional("releases", "/admin-api/releases"),
           fetchOptional("users", "/admin-api/users"),
+          fetchOptional("supportTickets", "/admin-api/support/tickets"),
           fetchOptional("reports", "/admin-api/reports"),
           fetchOptional("genres", "/admin-api/genres"),
           fetchOptional("settings", "/admin-api/platform-settings"),
@@ -765,6 +791,7 @@
           releases: renderReleases,
           reports: renderReports,
           settings: renderSettings,
+          support: renderSupport,
           users: renderUsers,
         };
         renderers[state.activeView]();
@@ -822,6 +849,7 @@
             ${quickCard("Review Releases", "releases")}
             ${quickCard("Manage Catalog", "catalog")}
             ${quickCard("Manage Users", "users")}
+            ${quickCard("Support Tickets", "support")}
             ${quickCard("Platform Settings", "settings")}
             ${quickCard("Platform Health", "health")}
           </div>
@@ -1152,6 +1180,159 @@
           </article>`;
       }
 
+      function renderSupport() {
+        const query = state.filters.supportSearch.toLowerCase();
+        const rows = state.supportTickets
+          .filter((ticket) => !state.filters.supportStatus || ticket.status === state.filters.supportStatus)
+          .filter((ticket) => !state.filters.supportCategory || ticket.category === state.filters.supportCategory)
+          .filter((ticket) => {
+            if (!query) return true;
+            return [
+              ticket.reference,
+              ticket.subject,
+              ticket.message,
+              ticket.category,
+              ticket.account_email,
+              ticket.account_username,
+              ticket.user?.name,
+              ticket.user?.email,
+            ].join(" ").toLowerCase().includes(query);
+          });
+
+        viewEl.innerHTML = `
+          <div class="grid two split-dashboard">
+            <section class="panel split-panel split-list-panel">
+              <div class="split-list-header">
+                <div class="toolbar">
+                  <h2>Support Queue - ${rows.length}</h2>
+                  <button class="secondary" data-action="refresh-support" type="button">Refresh</button>
+                </div>
+                <div class="actions" style="margin-top: 10px;">
+                  <input data-filter="supportSearch" placeholder="Search tickets, users, subjects" value="${escapeHtml(state.filters.supportSearch)}" />
+                  ${select("supportStatus", state.filters.supportStatus, ["", ...supportStatuses], "All statuses")}
+                  ${select("supportCategory", state.filters.supportCategory, ["", ...supportCategories], "All categories")}
+                </div>
+              </div>
+              <div class="list scroll-region" data-scroll-key="support-list">
+                ${rows.length ? rows.map(supportTicketItem).join("") : '<p class="empty">No support tickets match this filter.</p>'}
+              </div>
+            </section>
+            <section class="panel split-panel split-form-panel">
+              ${renderSupportDetail()}
+            </section>
+          </div>`;
+      }
+
+      function supportTicketItem(ticket) {
+        return `
+          <article class="item">
+            <div class="thumb" style="display:grid;place-items:center;font-weight:950;">?</div>
+            <div>
+              <div class="item-title">${escapeHtml(ticket.subject || "Support ticket")}</div>
+              <div class="meta">
+                ${escapeHtml(ticket.reference)} |
+                ${escapeHtml(ticket.category || "Other")} |
+                ${escapeHtml(ticket.user?.name || ticket.account_username || "User")} #${escapeHtml(ticket.user_id)}
+              </div>
+              <div class="details">
+                ${badge(ticket.status)} ${badge(ticket.priority)}
+                ${ticket.assigned_to ? `<br />Assigned to: ${escapeHtml(ticket.assigned_to)}` : ""}
+                <br />Updated: ${formatDate(ticket.updated_at)} | Messages: ${number(ticket.message_count)}
+                <br />${escapeHtml(ticket.message || "")}
+              </div>
+            </div>
+            <div class="actions">
+              <button data-action="open-support" data-id="${ticket.id}" type="button">Open</button>
+            </div>
+          </article>`;
+      }
+
+      function renderSupportDetail() {
+        const ticket = state.activeSupportTicket;
+        if (!ticket) {
+          return `
+            <h2>Open a ticket</h2>
+            <p class="subtitle" style="margin-top: 8px;">Choose a support ticket from the queue to reply, add notes, assign staff, or update status.</p>`;
+        }
+
+        return `
+          <div class="form">
+            <div>
+              <h2>${escapeHtml(ticket.subject || "Support ticket")}</h2>
+              <p class="subtitle" style="margin-top: 6px;">
+                ${escapeHtml(ticket.reference)} | ${escapeHtml(ticket.category)} | ${badge(ticket.status)} ${badge(ticket.priority)}
+              </p>
+            </div>
+            <div class="details">
+              User: ${escapeHtml(ticket.user?.name || ticket.account_username || "User")} #${escapeHtml(ticket.user_id)}<br />
+              Email: ${escapeHtml(ticket.user?.email || ticket.account_email || "No email")} |
+              Phone: ${escapeHtml(ticket.user?.phone || "No phone")}<br />
+              Role: ${escapeHtml(ticket.user?.role || ticket.requester_role || "listener")}
+              ${ticket.user?.artist_name ? ` | Artist: ${escapeHtml(ticket.user.artist_name)}` : ""}
+            </div>
+            <form id="supportUpdateForm" class="form" data-ticket-id="${ticket.id}">
+              <div class="form-row">
+                <label>Status<select name="status">${supportStatuses.map((status) => `<option value="${status}" ${ticket.status === status ? "selected" : ""}>${escapeHtml(status.replaceAll("_", " "))}</option>`).join("")}</select></label>
+                <label>Priority<select name="priority">${supportPriorities.map((priority) => `<option value="${priority}" ${ticket.priority === priority ? "selected" : ""}>${escapeHtml(priority)}</option>`).join("")}</select></label>
+              </div>
+              <label>Assigned staff<input name="assigned_to" value="${escapeHtml(ticket.assigned_to || "")}" placeholder="Staff username or team" /></label>
+              <button type="submit">Update Ticket</button>
+            </form>
+
+            <section>
+              <h3>Public conversation</h3>
+              <div class="list" style="margin-top: 10px;">
+                ${(ticket.messages || []).map(supportMessageItem).join("") || '<p class="empty">No messages yet.</p>'}
+              </div>
+            </section>
+
+            ${ticket.status === "closed" ? '<p class="details">Closed tickets cannot receive public replies.</p>' : `
+              <form id="supportReplyForm" class="form" data-ticket-id="${ticket.id}">
+                <h3>Public reply</h3>
+                <label>Message<textarea name="message" placeholder="Visible to the user"></textarea></label>
+                <button type="submit">Send Public Reply</button>
+              </form>`}
+
+            <form id="supportNoteForm" class="form" data-ticket-id="${ticket.id}">
+              <h3>Internal note</h3>
+              <label>Note<textarea name="note" placeholder="Only admins/support staff can see this"></textarea></label>
+              <button class="secondary" type="submit">Add Internal Note</button>
+            </form>
+
+            <section>
+              <h3>Internal notes</h3>
+              <div class="list" style="margin-top: 10px;">
+                ${(ticket.internal_notes || []).map(supportNoteItem).join("") || '<p class="empty">No internal notes yet.</p>'}
+              </div>
+            </section>
+          </div>`;
+      }
+
+      function supportMessageItem(message) {
+        return `
+          <article class="item">
+            <div class="thumb" style="display:grid;place-items:center;font-weight:950;">${message.author_type === "admin" ? "S" : "U"}</div>
+            <div>
+              <div class="item-title">${message.author_type === "admin" ? `Support - ${escapeHtml(message.admin_username || "admin")}` : "User reply"}</div>
+              <div class="meta">${formatDate(message.created_at)}</div>
+              <div class="details">${escapeHtml(message.message)}</div>
+              ${message.attachment ? `<div class="actions" style="margin-top: 8px;"><button class="secondary" data-action="download-support-attachment" data-url="${escapeHtml(message.attachment.url)}" data-name="${escapeHtml(message.attachment.name)}" type="button">View attachment</button></div>` : ""}
+            </div>
+          </article>`;
+      }
+
+      function supportNoteItem(note) {
+        return `
+          <article class="item">
+            <div class="thumb" style="display:grid;place-items:center;font-weight:950;">N</div>
+            <div>
+              <div class="item-title">Internal note - ${escapeHtml(note.admin_username || "admin")}</div>
+              <div class="meta">${formatDate(note.created_at)}</div>
+              <div class="details">${escapeHtml(note.note)}</div>
+            </div>
+          </article>`;
+      }
+
       function renderReports() {
         const rows = state.reports.filter((report) =>
           !state.filters.reportStatus || report.status === state.filters.reportStatus,
@@ -1422,6 +1603,87 @@
         setStatus("Settings saved.");
       }
 
+      async function refreshSupportTickets() {
+        state.supportTickets = await api("/admin-api/support/tickets", {
+          suppressForbiddenLogout: true,
+        });
+      }
+
+      async function openSupportTicket(id) {
+        state.activeSupportTicket = await api(`/admin-api/support/tickets/${id}`);
+        await refreshSupportTickets();
+        renderPreservingScroll();
+      }
+
+      async function saveSupportUpdate(event) {
+        event.preventDefault();
+        const form = event.target;
+        const data = Object.fromEntries(new FormData(form).entries());
+        setStatus("Updating support ticket...");
+        state.activeSupportTicket = await api(`/admin-api/support/tickets/${form.dataset.ticketId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            assigned_to: data.assigned_to || "",
+            priority: data.priority,
+            status: data.status,
+          }),
+        });
+        await refreshSupportTickets();
+        renderPreservingScroll();
+        setStatus("Support ticket updated.");
+      }
+
+      async function saveSupportReply(event) {
+        event.preventDefault();
+        const form = event.target;
+        const message = new FormData(form).get("message") || "";
+        if (!String(message).trim()) return setStatus("Enter a public reply.");
+        setStatus("Sending public reply...");
+        state.activeSupportTicket = await api(`/admin-api/support/tickets/${form.dataset.ticketId}/replies`, {
+          method: "POST",
+          body: JSON.stringify({ message }),
+        });
+        form.reset();
+        await refreshSupportTickets();
+        renderPreservingScroll();
+        setStatus("Public reply sent.");
+      }
+
+      async function saveSupportNote(event) {
+        event.preventDefault();
+        const form = event.target;
+        const note = new FormData(form).get("note") || "";
+        if (!String(note).trim()) return setStatus("Enter an internal note.");
+        setStatus("Adding internal note...");
+        state.activeSupportTicket = await api(`/admin-api/support/tickets/${form.dataset.ticketId}/notes`, {
+          method: "POST",
+          body: JSON.stringify({ note }),
+        });
+        form.reset();
+        await refreshSupportTickets();
+        renderPreservingScroll();
+        setStatus("Internal note added.");
+      }
+
+      async function downloadSupportAttachment(url, name) {
+        if (!url) return;
+        const response = await fetch(url, {
+          headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+        });
+        if (!response.ok) throw new Error("Could not open attachment.");
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.download = name || "support-attachment";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+      }
+
       async function runAction(action, id, extra = {}) {
         const pathMap = {
           "approve-application": [`/admin-api/artist-applications/${id}/approve`, {}],
@@ -1472,6 +1734,17 @@
           state.editingGenreId = Number(id);
           state.activeView = "genres";
           return renderPreservingScroll();
+        }
+        if (action === "open-support") {
+          state.activeView = "support";
+          return openSupportTicket(id);
+        }
+        if (action === "refresh-support") {
+          await refreshSupportTickets();
+          return render();
+        }
+        if (action === "download-support-attachment") {
+          return downloadSupportAttachment(button.dataset.url, button.dataset.name);
         }
         if (action === "reject-application" || action === "changes-application") {
           const reason = prompt(action === "reject-application" ? "Why is this application rejected?" : "What should the applicant change?");
@@ -1593,6 +1866,9 @@
           if (event.target.id === "songForm") return await saveSong(event);
           if (event.target.id === "genreForm") return await saveGenre(event);
           if (event.target.id === "settingsForm") return await saveSettings(event);
+          if (event.target.id === "supportUpdateForm") return await saveSupportUpdate(event);
+          if (event.target.id === "supportReplyForm") return await saveSupportReply(event);
+          if (event.target.id === "supportNoteForm") return await saveSupportNote(event);
         } catch (error) {
           event.preventDefault();
           setStatus(error.message);

@@ -442,6 +442,90 @@ export function createSupabasePersistence({
     };
   }
 
+  function supportAttachmentFromRow(row) {
+    const path = row?.attachment_path || "";
+    if (!path) return null;
+    return {
+      bucket: row.attachment_bucket || buckets.supportAttachments || "support-attachments",
+      path,
+      name: row.attachment_name || "attachment",
+      type: row.attachment_type || "application/octet-stream",
+      size: Number(row.attachment_size || 0),
+    };
+  }
+
+  function supportMessageFromRow(row) {
+    return {
+      id: Number(row.id),
+      ticket_id: Number(row.ticket_id),
+      author_type: row.author_type || "user",
+      listener_id: row.listener_id ? Number(row.listener_id) : null,
+      admin_username: row.admin_username || "",
+      message: row.message || "",
+      attachment: supportAttachmentFromRow(row),
+      created_at: toIso(row.created_at),
+    };
+  }
+
+  function supportInternalNoteFromRow(row) {
+    return {
+      id: Number(row.id),
+      ticket_id: Number(row.ticket_id),
+      admin_username: row.admin_username || "",
+      note: row.note || "",
+      created_at: toIso(row.created_at),
+    };
+  }
+
+  function supportAssignmentFromRow(row) {
+    return {
+      id: Number(row.id),
+      ticket_id: Number(row.ticket_id),
+      assigned_to: row.assigned_to || "",
+      assigned_by: row.assigned_by || "",
+      created_at: toIso(row.created_at),
+    };
+  }
+
+  function supportTicketFromRow(
+    row,
+    { assignments = [], includeInternal = false, internalNotes = [], messages = [] } = {},
+  ) {
+    return {
+      id: Number(row.id),
+      reference: row.reference || "",
+      user_id: Number(row.listener_id),
+      listener_id: Number(row.listener_id),
+      account_email: row.account_email || "",
+      account_username: row.account_username || "",
+      requester_role: row.requester_role || "listener",
+      category: row.category || "",
+      subject: row.subject || "",
+      message: row.message || "",
+      status: row.status || "open",
+      priority: row.priority || "normal",
+      assigned_to: row.assigned_to || "",
+      attachment: supportAttachmentFromRow(row),
+      message_count: Number(row.message_count || messages?.length || 0),
+      last_user_reply_at: toIso(row.last_user_reply_at),
+      last_admin_reply_at: toIso(row.last_admin_reply_at),
+      resolved_at: toIso(row.resolved_at),
+      closed_at: toIso(row.closed_at),
+      created_at: toIso(row.created_at),
+      updated_at: toIso(row.updated_at),
+      ...(messages ? { messages } : {}),
+      ...(includeInternal ? { internal_notes: internalNotes, assignments } : {}),
+    };
+  }
+
+  function supportTicketLookupClause(identifier, paramIndex, alias = "ticket") {
+    const numericId = Number(identifier);
+    if (Number.isInteger(numericId) && numericId > 0) {
+      return { clause: `${alias}.id = $${paramIndex}`, value: numericId };
+    }
+    return { clause: `lower(${alias}.reference) = lower($${paramIndex})`, value: cleanText(identifier) };
+  }
+
   async function loadDb() {
     const pool = getPool();
     const [
@@ -1321,6 +1405,559 @@ export function createSupabasePersistence({
     }
   }
 
+  async function listSupportTicketsForListener(listenerId) {
+    const result = await getPool().query(
+      `select
+         ticket.*,
+         (
+           select count(*)::int
+           from tesohub_music.support_messages message
+           where message.ticket_id = ticket.id
+         ) as message_count
+       from tesohub_music.support_tickets ticket
+       where ticket.listener_id = $1
+       order by ticket.updated_at desc, ticket.id desc`,
+      [listenerId],
+    );
+    return result.rows.map((row) => supportTicketFromRow(row, { messages: null }));
+  }
+
+  async function getSupportTicketForListener(listenerId, ticketIdentifier) {
+    const lookup = supportTicketLookupClause(ticketIdentifier, 2);
+    const ticketResult = await getPool().query(
+      `select
+         ticket.*,
+         (
+           select count(*)::int
+           from tesohub_music.support_messages message
+           where message.ticket_id = ticket.id
+         ) as message_count
+       from tesohub_music.support_tickets ticket
+       where ticket.listener_id = $1 and ${lookup.clause}
+       limit 1`,
+      [listenerId, lookup.value],
+    );
+    const ticket = ticketResult.rows[0];
+    if (!ticket) return null;
+
+    const messagesResult = await getPool().query(
+      `select *
+       from tesohub_music.support_messages
+       where ticket_id = $1
+       order by created_at, id`,
+      [ticket.id],
+    );
+    return supportTicketFromRow(ticket, {
+      messages: messagesResult.rows.map(supportMessageFromRow),
+    });
+  }
+
+  async function createSupportTicket({
+    accountEmail = "",
+    accountUsername = "",
+    attachment = null,
+    category = "",
+    listenerId,
+    message = "",
+    priority = "normal",
+    reference,
+    requesterRole = "listener",
+    subject = "",
+  }) {
+    const client = await getPool().connect();
+    try {
+      await client.query("begin");
+      const ticketResult = await client.query(
+        `insert into tesohub_music.support_tickets
+          (reference, listener_id, account_email, account_username, requester_role,
+           category, subject, message, status, priority, attachment_bucket,
+           attachment_path, attachment_name, attachment_type, attachment_size,
+           last_user_reply_at, created_at, updated_at)
+         values
+          ($1,$2,$3,$4,$5,$6,$7,$8,'open',$9,$10,$11,$12,$13,$14,now(),now(),now())
+         returning *`,
+        [
+          reference,
+          listenerId,
+          accountEmail,
+          accountUsername,
+          requesterRole,
+          category,
+          subject,
+          message,
+          priority,
+          attachment?.bucket || "",
+          attachment?.path || "",
+          attachment?.name || "",
+          attachment?.type || "",
+          Number(attachment?.size || 0),
+        ],
+      );
+      const ticket = ticketResult.rows[0];
+      await client.query(
+        `insert into tesohub_music.support_messages
+          (ticket_id, author_type, listener_id, admin_username, message,
+           attachment_bucket, attachment_path, attachment_name, attachment_type,
+           attachment_size, created_at)
+         values ($1,'user',$2,'',$3,$4,$5,$6,$7,$8,now())`,
+        [
+          ticket.id,
+          listenerId,
+          message,
+          attachment?.bucket || "",
+          attachment?.path || "",
+          attachment?.name || "",
+          attachment?.type || "",
+          Number(attachment?.size || 0),
+        ],
+      );
+      await client.query("commit");
+      return getSupportTicketForListener(listenerId, ticket.id);
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async function addSupportTicketReply({
+    attachment = null,
+    listenerId,
+    message = "",
+    ticketIdentifier,
+  }) {
+    const client = await getPool().connect();
+    try {
+      await client.query("begin");
+      const lookup = supportTicketLookupClause(ticketIdentifier, 2);
+      const ticketResult = await client.query(
+        `select *
+         from tesohub_music.support_tickets ticket
+         where ticket.listener_id = $1 and ${lookup.clause}
+         for update`,
+        [listenerId, lookup.value],
+      );
+      const ticket = ticketResult.rows[0];
+      if (!ticket) {
+        await client.query("rollback");
+        return { notFound: true };
+      }
+      if (["resolved", "closed"].includes(ticket.status)) {
+        await client.query("rollback");
+        return { notOpen: true, ticket: supportTicketFromRow(ticket, { messages: [] }) };
+      }
+
+      await client.query(
+        `insert into tesohub_music.support_messages
+          (ticket_id, author_type, listener_id, admin_username, message,
+           attachment_bucket, attachment_path, attachment_name, attachment_type,
+           attachment_size, created_at)
+         values ($1,'user',$2,'',$3,$4,$5,$6,$7,$8,now())`,
+        [
+          ticket.id,
+          listenerId,
+          message,
+          attachment?.bucket || "",
+          attachment?.path || "",
+          attachment?.name || "",
+          attachment?.type || "",
+          Number(attachment?.size || 0),
+        ],
+      );
+      await client.query(
+        `update tesohub_music.support_tickets
+         set status = case when status = 'waiting_on_user' then 'open' else status end,
+             last_user_reply_at = now(),
+             updated_at = now()
+         where id = $1`,
+        [ticket.id],
+      );
+      await client.query("commit");
+      return { ticket: await getSupportTicketForListener(listenerId, ticket.id) };
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async function listSupportTicketsForAdmin({
+    category = "",
+    search = "",
+    status = "",
+  } = {}) {
+    const params = [];
+    const filters = [];
+    if (status) {
+      params.push(status);
+      filters.push(`ticket.status = $${params.length}`);
+    }
+    if (category) {
+      params.push(category);
+      filters.push(`ticket.category = $${params.length}`);
+    }
+    if (search) {
+      params.push(`%${search.toLowerCase()}%`);
+      filters.push(`(
+        lower(ticket.reference) like $${params.length}
+        or lower(ticket.account_email) like $${params.length}
+        or lower(ticket.account_username) like $${params.length}
+        or lower(ticket.subject) like $${params.length}
+        or lower(ticket.message) like $${params.length}
+      )`);
+    }
+
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const result = await getPool().query(
+      `select
+         ticket.*,
+         listener.name as listener_name,
+         listener.email as listener_email,
+         listener.phone as listener_phone,
+         listener.role as listener_role,
+         listener.status as listener_status,
+         listener.artist_id as listener_artist_id,
+         artist.name as artist_name,
+         (
+           select count(*)::int
+           from tesohub_music.support_messages message
+           where message.ticket_id = ticket.id
+         ) as message_count
+       from tesohub_music.support_tickets ticket
+       join tesohub_music.listeners listener on listener.id = ticket.listener_id
+       left join tesohub_music.artists artist on artist.id = listener.artist_id
+       ${where}
+       order by ticket.updated_at desc, ticket.id desc
+       limit 250`,
+      params,
+    );
+    return result.rows.map((row) => ({
+      ...supportTicketFromRow(row, { messages: null }),
+      user: {
+        id: Number(row.listener_id),
+        name: row.listener_name || "",
+        email: row.listener_email || "",
+        phone: row.listener_phone || "",
+        role: row.listener_role || "listener",
+        status: row.listener_status || "active",
+        artist_id: row.listener_artist_id ? Number(row.listener_artist_id) : null,
+        artist_name: row.artist_name || "",
+      },
+    }));
+  }
+
+  async function getSupportTicketForAdmin(ticketIdentifier) {
+    const lookup = supportTicketLookupClause(ticketIdentifier, 1);
+    const ticketResult = await getPool().query(
+      `select
+         ticket.*,
+         listener.name as listener_name,
+         listener.email as listener_email,
+         listener.phone as listener_phone,
+         listener.role as listener_role,
+         listener.status as listener_status,
+         listener.artist_id as listener_artist_id,
+         artist.name as artist_name,
+         (
+           select count(*)::int
+           from tesohub_music.support_messages message
+           where message.ticket_id = ticket.id
+         ) as message_count
+       from tesohub_music.support_tickets ticket
+       join tesohub_music.listeners listener on listener.id = ticket.listener_id
+       left join tesohub_music.artists artist on artist.id = listener.artist_id
+       where ${lookup.clause}
+       limit 1`,
+      [lookup.value],
+    );
+    const ticket = ticketResult.rows[0];
+    if (!ticket) return null;
+
+    const [messagesResult, notesResult, assignmentsResult] = await Promise.all([
+      getPool().query(
+        `select *
+         from tesohub_music.support_messages
+         where ticket_id = $1
+         order by created_at, id`,
+        [ticket.id],
+      ),
+      getPool().query(
+        `select *
+         from tesohub_music.support_internal_notes
+         where ticket_id = $1
+         order by created_at, id`,
+        [ticket.id],
+      ),
+      getPool().query(
+        `select *
+         from tesohub_music.support_assignments
+         where ticket_id = $1
+         order by created_at desc, id desc`,
+        [ticket.id],
+      ),
+    ]);
+
+    return {
+      ...supportTicketFromRow(ticket, {
+        assignments: assignmentsResult.rows.map(supportAssignmentFromRow),
+        includeInternal: true,
+        internalNotes: notesResult.rows.map(supportInternalNoteFromRow),
+        messages: messagesResult.rows.map(supportMessageFromRow),
+      }),
+      user: {
+        id: Number(ticket.listener_id),
+        name: ticket.listener_name || "",
+        email: ticket.listener_email || "",
+        phone: ticket.listener_phone || "",
+        role: ticket.listener_role || "listener",
+        status: ticket.listener_status || "active",
+        artist_id: ticket.listener_artist_id ? Number(ticket.listener_artist_id) : null,
+        artist_name: ticket.artist_name || "",
+      },
+    };
+  }
+
+  async function addSupportAdminReply({
+    adminUsername = "",
+    message = "",
+    ticketIdentifier,
+  }) {
+    const client = await getPool().connect();
+    try {
+      await client.query("begin");
+      const lookup = supportTicketLookupClause(ticketIdentifier, 1);
+      const ticketResult = await client.query(
+        `select *
+         from tesohub_music.support_tickets ticket
+         where ${lookup.clause}
+         for update`,
+        [lookup.value],
+      );
+      const ticket = ticketResult.rows[0];
+      if (!ticket) {
+        await client.query("rollback");
+        return { notFound: true };
+      }
+      if (ticket.status === "closed") {
+        await client.query("rollback");
+        return { closed: true };
+      }
+
+      await client.query(
+        `insert into tesohub_music.support_messages
+          (ticket_id, author_type, listener_id, admin_username, message, created_at)
+         values ($1,'admin',null,$2,$3,now())`,
+        [ticket.id, adminUsername, message],
+      );
+      await client.query(
+        `update tesohub_music.support_tickets
+         set status = case when status in ('open', 'in_progress') then 'waiting_on_user' else status end,
+             last_admin_reply_at = now(),
+             updated_at = now()
+         where id = $1`,
+        [ticket.id],
+      );
+      await client.query("commit");
+      return { ticket: await getSupportTicketForAdmin(ticket.id) };
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async function addSupportInternalNote({
+    adminUsername = "",
+    note = "",
+    ticketIdentifier,
+  }) {
+    const lookup = supportTicketLookupClause(ticketIdentifier, 1);
+    const result = await getPool().query(
+      `with target as (
+         select id
+         from tesohub_music.support_tickets ticket
+         where ${lookup.clause}
+       ),
+       inserted as (
+         insert into tesohub_music.support_internal_notes
+          (ticket_id, admin_username, note, created_at)
+         select id, $2, $3, now()
+         from target
+         returning *
+       ),
+       touched as (
+         update tesohub_music.support_tickets
+         set updated_at = now()
+         where id in (select ticket_id from inserted)
+       )
+       select * from inserted`,
+      [lookup.value, adminUsername, note],
+    );
+    return result.rows[0] ? supportInternalNoteFromRow(result.rows[0]) : null;
+  }
+
+  async function updateSupportTicketForAdmin({
+    assignedTo,
+    changedBy = "",
+    priority,
+    status,
+    ticketIdentifier,
+  }) {
+    const client = await getPool().connect();
+    try {
+      await client.query("begin");
+      const lookup = supportTicketLookupClause(ticketIdentifier, 1);
+      const existingResult = await client.query(
+        `select *
+         from tesohub_music.support_tickets ticket
+         where ${lookup.clause}
+         for update`,
+        [lookup.value],
+      );
+      const existing = existingResult.rows[0];
+      if (!existing) {
+        await client.query("rollback");
+        return null;
+      }
+
+      const nextStatus = status || existing.status;
+      const nextPriority = priority || existing.priority;
+      const nextAssignedTo =
+        assignedTo === undefined ? existing.assigned_to || "" : assignedTo || "";
+
+      const result = await client.query(
+        `update tesohub_music.support_tickets
+         set status = $2,
+             priority = $3,
+             assigned_to = $4,
+             resolved_at = case when $2 = 'resolved' and resolved_at is null then now() when $2 <> 'resolved' then null else resolved_at end,
+             closed_at = case when $2 = 'closed' and closed_at is null then now() when $2 <> 'closed' then null else closed_at end,
+             updated_at = now()
+         where id = $1
+         returning *`,
+        [existing.id, nextStatus, nextPriority, nextAssignedTo],
+      );
+
+      if (nextAssignedTo !== (existing.assigned_to || "")) {
+        await client.query(
+          `insert into tesohub_music.support_assignments
+            (ticket_id, assigned_to, assigned_by, created_at)
+           values ($1,$2,$3,now())`,
+          [existing.id, nextAssignedTo, changedBy],
+        );
+      }
+
+      await client.query("commit");
+      return getSupportTicketForAdmin(result.rows[0].id);
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async function supportAttachmentForListener({
+    attachmentId,
+    kind,
+    listenerId,
+    ticketIdentifier,
+  }) {
+    const lookup = supportTicketLookupClause(ticketIdentifier, 2);
+    const params = [listenerId, lookup.value, Number(attachmentId)];
+    const result = await getPool().query(
+      kind === "message"
+        ? `select
+             message.attachment_bucket,
+             message.attachment_path,
+             message.attachment_name,
+             message.attachment_type,
+             message.attachment_size
+           from tesohub_music.support_messages message
+           join tesohub_music.support_tickets ticket on ticket.id = message.ticket_id
+           where ticket.listener_id = $1
+             and ${lookup.clause}
+             and message.id = $3
+             and nullif(message.attachment_path, '') is not null
+           limit 1`
+        : `select
+             ticket.attachment_bucket,
+             ticket.attachment_path,
+             ticket.attachment_name,
+             ticket.attachment_type,
+             ticket.attachment_size
+           from tesohub_music.support_tickets ticket
+           where ticket.listener_id = $1
+             and ${lookup.clause}
+             and ticket.id = $3
+             and nullif(ticket.attachment_path, '') is not null
+           limit 1`,
+      params,
+    );
+    return supportAttachmentFromRow(result.rows[0]);
+  }
+
+  async function supportAttachmentForAdmin({ attachmentId, kind, ticketIdentifier }) {
+    const lookup = supportTicketLookupClause(ticketIdentifier, 1);
+    const params = [lookup.value, Number(attachmentId)];
+    const result = await getPool().query(
+      kind === "message"
+        ? `select
+             message.attachment_bucket,
+             message.attachment_path,
+             message.attachment_name,
+             message.attachment_type,
+             message.attachment_size
+           from tesohub_music.support_messages message
+           join tesohub_music.support_tickets ticket on ticket.id = message.ticket_id
+           where ${lookup.clause}
+             and message.id = $2
+             and nullif(message.attachment_path, '') is not null
+           limit 1`
+        : `select
+             ticket.attachment_bucket,
+             ticket.attachment_path,
+             ticket.attachment_name,
+             ticket.attachment_type,
+             ticket.attachment_size
+           from tesohub_music.support_tickets ticket
+           where ${lookup.clause}
+             and ticket.id = $2
+             and nullif(ticket.attachment_path, '') is not null
+           limit 1`,
+      params,
+    );
+    return supportAttachmentFromRow(result.rows[0]);
+  }
+
+  async function recordAdminAuditLog({
+    action = "admin_action",
+    adminRole = "super_admin",
+    adminUser = "",
+    details = {},
+    reason = "",
+    targetId = null,
+    targetType = "system",
+  } = {}) {
+    await getPool().query(
+      `insert into tesohub_music.admin_audit_logs
+        (admin_user, admin_role, action, target_type, target_id, details, reason, created_at)
+       values ($1,$2,$3,$4,$5,$6,$7,now())`,
+      [
+        adminUser,
+        adminRole,
+        action,
+        targetType,
+        numberOrNull(targetId),
+        details && typeof details === "object" ? details : {},
+        reason,
+      ],
+    );
+  }
+
   async function upsertListener(client, listener) {
     await client.query(
       `insert into tesohub_music.listeners
@@ -1851,15 +2488,48 @@ export function createSupabasePersistence({
     return storageUrlFor(bucket, objectPath);
   }
 
-  async function streamObject(req, res) {
+  async function uploadSupportAttachment(file, reference = "support") {
     assertConfigured();
-    const bucket = cleanText(req.params.bucket);
-    const objectPath = req.params[0] || "";
-    if (!Object.values(buckets).includes(bucket) || !objectPath) {
-      res.status(404).json({ detail: "Media not found." });
-      return;
+    if (!file) return null;
+    const bucket = buckets.supportAttachments || "support-attachments";
+    const safeReference =
+      cleanText(reference)
+        .replace(/[^a-z0-9-]+/gi, "-")
+        .replace(/^-|-$/g, "")
+        .toLowerCase() || "support";
+    const objectPath = `support/${safeReference}/${safeUploadName(file)}`;
+    const encodedPath = encodeObjectPath(objectPath);
+    const body = file.buffer || (file.path ? await fs.readFile(file.path) : null);
+    if (!body) throw new Error("Upload file buffer is missing.");
+
+    const response = await recordStorageOperation(() =>
+      fetch(`${supabaseUrl}/storage/v1/object/${bucket}/${encodedPath}`, {
+        method: "POST",
+        headers: {
+          apikey: secretKey,
+          authorization: `Bearer ${secretKey}`,
+          "content-type": file.mimetype || "application/octet-stream",
+          "x-upsert": "false",
+        },
+        body,
+      }),
+    );
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Supabase support upload failed (${response.status}): ${text || response.statusText}`);
     }
 
+    return {
+      bucket,
+      path: objectPath,
+      name: file.originalname || "attachment",
+      type: file.mimetype || "application/octet-stream",
+      size: Number(file.size || body.length || 0),
+    };
+  }
+
+  async function streamStorageObject({ bucket, objectPath, req, res }) {
     const headers = {
       apikey: secretKey,
       authorization: `Bearer ${secretKey}`,
@@ -1904,17 +2574,48 @@ export function createSupabasePersistence({
     Readable.fromWeb(response.body).pipe(res);
   }
 
+  async function streamObject(req, res) {
+    assertConfigured();
+    const bucket = cleanText(req.params.bucket);
+    const objectPath = req.params[0] || "";
+    const publicMediaBuckets = [buckets.audio, buckets.artwork, buckets.avatars].filter(Boolean);
+    if (!publicMediaBuckets.includes(bucket) || !objectPath) {
+      res.status(404).json({ detail: "Media not found." });
+      return;
+    }
+
+    await streamStorageObject({ bucket, objectPath, req, res });
+  }
+
+  async function streamSupportAttachment(attachment, req, res) {
+    assertConfigured();
+    const bucket = attachment?.bucket || "";
+    const objectPath = attachment?.path || "";
+    if (bucket !== (buckets.supportAttachments || "support-attachments") || !objectPath) {
+      res.status(404).json({ detail: "Attachment not found." });
+      return;
+    }
+    res.set("content-disposition", `inline; filename="${String(attachment.name || "attachment").replace(/"/g, "")}"`);
+    await streamStorageObject({ bucket, objectPath, req, res });
+  }
+
   return {
     assertConfigured,
     addSongToPlaylist,
+    addSupportAdminReply,
+    addSupportInternalNote,
+    addSupportTicketReply,
     createAuthSession,
     createListenerAccount,
     createPlaylist,
+    createSupportTicket,
     deletePlaylist,
     followArtist,
     getPlaylist,
     getPublicArtist,
     getPublicSong,
+    getSupportTicketForAdmin,
+    getSupportTicketForListener,
     likeSong,
     listenerByIdentifier,
     listenerByTokenHash,
@@ -1922,15 +2623,23 @@ export function createSupabasePersistence({
     listPlaylists,
     listPublicArtists,
     listPublicSongs,
+    listSupportTicketsForAdmin,
+    listSupportTicketsForListener,
     loadDb,
     loginExists,
     platformSettings,
+    recordAdminAuditLog,
     removeSongFromPlaylist,
     saveDb,
     streamObject,
+    streamSupportAttachment,
+    supportAttachmentForAdmin,
+    supportAttachmentForListener,
     unfollowArtist,
     unlikeSong,
     updatePlaylist,
+    updateSupportTicketForAdmin,
     uploadFile,
+    uploadSupportAttachment,
   };
 }
