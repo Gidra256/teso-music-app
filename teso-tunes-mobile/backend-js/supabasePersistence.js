@@ -1470,6 +1470,7 @@ export function createSupabasePersistence({
     subject = "",
   }) {
     const client = await getPool().connect();
+    let createdTicketId = null;
     try {
       await client.query("begin");
       const ticketResult = await client.query(
@@ -1517,13 +1518,14 @@ export function createSupabasePersistence({
         ],
       );
       await client.query("commit");
-      return getSupportTicketForListener(listenerId, ticket.id);
+      createdTicketId = ticket.id;
     } catch (error) {
       await client.query("rollback");
       throw error;
     } finally {
       client.release();
     }
+    return getSupportTicketForListener(listenerId, createdTicketId);
   }
 
   async function addSupportTicketReply({
@@ -1533,6 +1535,7 @@ export function createSupabasePersistence({
     ticketIdentifier,
   }) {
     const client = await getPool().connect();
+    let updatedTicketId = null;
     try {
       await client.query("begin");
       const lookup = supportTicketLookupClause(ticketIdentifier, 2);
@@ -1579,13 +1582,14 @@ export function createSupabasePersistence({
         [ticket.id],
       );
       await client.query("commit");
-      return { ticket: await getSupportTicketForListener(listenerId, ticket.id) };
+      updatedTicketId = ticket.id;
     } catch (error) {
       await client.query("rollback");
       throw error;
     } finally {
       client.release();
     }
+    return { ticket: await getSupportTicketForListener(listenerId, updatedTicketId) };
   }
 
   async function listSupportTicketsForAdmin({
@@ -1730,6 +1734,7 @@ export function createSupabasePersistence({
     ticketIdentifier,
   }) {
     const client = await getPool().connect();
+    let updatedTicketId = null;
     try {
       await client.query("begin");
       const lookup = supportTicketLookupClause(ticketIdentifier, 1);
@@ -1765,13 +1770,14 @@ export function createSupabasePersistence({
         [ticket.id],
       );
       await client.query("commit");
-      return { ticket: await getSupportTicketForAdmin(ticket.id) };
+      updatedTicketId = ticket.id;
     } catch (error) {
       await client.query("rollback");
       throw error;
     } finally {
       client.release();
     }
+    return { ticket: await getSupportTicketForAdmin(updatedTicketId) };
   }
 
   async function addSupportInternalNote({
@@ -1812,6 +1818,7 @@ export function createSupabasePersistence({
     ticketIdentifier,
   }) {
     const client = await getPool().connect();
+    let updatedTicketId = null;
     try {
       await client.query("begin");
       const lookup = supportTicketLookupClause(ticketIdentifier, 1);
@@ -1856,13 +1863,14 @@ export function createSupabasePersistence({
       }
 
       await client.query("commit");
-      return getSupportTicketForAdmin(result.rows[0].id);
+      updatedTicketId = result.rows[0].id;
     } catch (error) {
       await client.query("rollback");
       throw error;
     } finally {
       client.release();
     }
+    return getSupportTicketForAdmin(updatedTicketId);
   }
 
   async function supportAttachmentForListener({
