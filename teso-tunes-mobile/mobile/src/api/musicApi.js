@@ -372,6 +372,18 @@ export async function getSong(id) {
   }
 }
 
+export async function getShareableSong(id) {
+  if (!/^[1-9]\d*$/.test(String(id)) || !Number.isSafeInteger(Number(id))) {
+    throw new Error("This song is unavailable.");
+  }
+  // Shared pages and share actions must not revive unpublished songs from cache.
+  const song = await fetchJson(`/songs/${encodeURIComponent(String(id))}/`);
+  if (String(song?.id) !== String(id) || song?.status !== "published") {
+    throw new Error("This song is unavailable.");
+  }
+  return song;
+}
+
 export async function getFeaturedArtists() {
   return fetchJsonWithRealCache(
     "/featured-artists/",

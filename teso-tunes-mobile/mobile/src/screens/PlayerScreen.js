@@ -15,13 +15,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { getSong, getSongs } from "../api/musicApi";
 import AddToPlaylistModal from "../components/AddToPlaylistModal";
 import SeekBar from "../components/SeekBar";
+import SongShareModal from "../components/SongShareModal";
 import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
 import { artworkSource } from "../utils/artwork";
 import { formatPlays, formatTime } from "../utils/format";
-import { shareSongLink, trackShareEvent } from "../utils/shareLinks";
+import { trackShareEvent } from "../utils/shareLinks";
 
 export default function PlayerScreen({ route, navigation }) {
   const {
@@ -47,6 +48,7 @@ export default function PlayerScreen({ route, navigation }) {
   const [deepLinkLoading, setDeepLinkLoading] = useState(false);
   const [deepLinkError, setDeepLinkError] = useState("");
   const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
+  const [shareVisible, setShareVisible] = useState(false);
 
   const deepLinkedSongId = route?.params?.id;
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
@@ -115,14 +117,6 @@ export default function PlayerScreen({ route, navigation }) {
       mounted = false;
     };
   }, [deepLinkedSongId, currentSong?.id, playSong]);
-
-  async function shareSong() {
-    if (!currentSong) return;
-
-    try {
-      await shareSongLink(currentSong);
-    } catch (error) {}
-  }
 
   function requireAccountAction(action) {
     if (!isAuthenticated) {
@@ -305,7 +299,7 @@ export default function PlayerScreen({ route, navigation }) {
             label={liked ? `${formatPlays(likeCount)} likes` : "Favorite"}
             onPress={() => requireAccountAction(() => toggleSongLike(currentSong))}
           />
-          <TrackAction icon="share-social-outline" label="Share" onPress={shareSong} />
+          <TrackAction icon="share-social-outline" label="Share" onPress={() => setShareVisible(true)} />
           {hasArtistRoute ? (
             <TrackAction icon="person-circle-outline" label="View Artist" onPress={openArtist} />
           ) : (
@@ -345,6 +339,7 @@ export default function PlayerScreen({ route, navigation }) {
         song={currentSong}
         onClose={() => setPlaylistModalVisible(false)}
       />
+      <SongShareModal visible={shareVisible} song={currentSong} onClose={() => setShareVisible(false)} />
     </SafeAreaView>
   );
 }

@@ -19,6 +19,7 @@ import {
   getArtistStudioReleases,
 } from "../api/musicApi";
 import MiniPlayer from "../components/MiniPlayer";
+import SongShareModal from "../components/SongShareModal";
 import { colors, spacing } from "../theme";
 import { formatFollowers, formatPlays } from "../utils/format";
 
@@ -242,6 +243,8 @@ function StatTile({ icon, label, value }) {
 }
 
 function ReleaseCard({ release }) {
+  const [shareVisible, setShareVisible] = useState(false);
+  const canShare = release.status === "published" && release.public_song?.status === "published";
   return (
     <View style={styles.releaseCard}>
       {release.cover_image ? (
@@ -270,11 +273,16 @@ function ReleaseCard({ release }) {
           <Text style={styles.reasonText}>{release.rejection_reason}</Text>
         ) : null}
       </View>
+      {canShare ? <TouchableOpacity accessibilityLabel={`Share ${release.title}`} style={styles.shareButton} onPress={() => setShareVisible(true)}>
+        <Ionicons name="share-social-outline" color={colors.primary} size={22} />
+      </TouchableOpacity> : null}
+      <SongShareModal visible={shareVisible && canShare} song={release.public_song} onClose={() => setShareVisible(false)} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  shareButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   safe: {
     backgroundColor: colors.background,
     flex: 1,

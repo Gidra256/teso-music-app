@@ -36,6 +36,7 @@ import ArtistsScreen from "./src/screens/ArtistsScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import SearchScreen from "./src/screens/SearchScreen";
 import SongsScreen from "./src/screens/SongsScreen";
+import SongScreen from "./src/screens/SongScreen";
 import PlayerScreen from "./src/screens/PlayerScreen";
 import PlaylistDetailScreen from "./src/screens/PlaylistDetailScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
@@ -44,7 +45,7 @@ import SupportHomeScreen from "./src/screens/SupportHomeScreen";
 import SupportTicketDetailScreen from "./src/screens/SupportTicketDetailScreen";
 import SupportTicketFormScreen from "./src/screens/SupportTicketFormScreen";
 import SupportTicketsScreen from "./src/screens/SupportTicketsScreen";
-import { SHARE_BASE_URL } from "./src/config/api";
+import { MUSIC_WEB_BASE_URL, SHARE_BASE_URL } from "./src/config/api";
 import { getPlatformStatus } from "./src/api/musicApi";
 import YourLibraryScreen from "./src/screens/YourLibraryScreen";
 import { colors } from "./src/theme";
@@ -58,7 +59,7 @@ const PLATFORM_STATUS_STARTUP_TIMEOUT_MS = 4500;
 const navigationRef = createNavigationContainerRef();
 
 const linking = {
-  prefixes: [Linking.createURL("/"), "tesohubmusic://", SHARE_BASE_URL],
+  prefixes: [Linking.createURL("/"), "tesohubmusic://", SHARE_BASE_URL, MUSIC_WEB_BASE_URL],
   config: {
     screens: {
       TesoTabs: {
@@ -76,7 +77,8 @@ const linking = {
       ArtistApplication: "artist-application",
       ArtistStudio: "artist-studio",
       ReleaseUpload: "artist-studio/upload",
-      Player: "song/:id",
+      Song: "song/:id",
+      Player: "player",
       Release: "release/:id",
       ArtistDetail: "artist/:id",
       PlaylistDetail: "playlist/:id",
@@ -614,6 +616,7 @@ function RootStack({ isAuthenticated }) {
           />
         </>
       )}
+      <Stack.Screen name="Song" component={SongScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }
