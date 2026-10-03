@@ -327,6 +327,8 @@ export default function ProfileScreen({ navigation, route }) {
           />
         ) : null}
 
+        <SupportSettingsPanel onPress={() => navigation.navigate("Support")} />
+
         {authLoading ? (
           <ActivityIndicator color={colors.primary} style={styles.loader} />
         ) : !isAuthenticated ? (
@@ -578,6 +580,26 @@ function PlaybackSettings({ enabled, onValueChange }) {
         onValueChange={onValueChange}
       />
     </View>
+  );
+}
+
+function SupportSettingsPanel({ onPress }) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.84}
+      accessibilityLabel="Open Help and Support"
+      style={styles.settingsPanel}
+      onPress={onPress}
+    >
+      <View style={styles.settingIcon}>
+        <Ionicons name="help-buoy" color={colors.primary} size={22} />
+      </View>
+      <View style={styles.settingCopy}>
+        <Text style={styles.settingTitle}>Help & Support</Text>
+        <Text style={styles.settingStatus}>Tickets, replies, and help articles</Text>
+      </View>
+      <Ionicons name="chevron-forward" color={colors.muted} size={20} />
+    </TouchableOpacity>
   );
 }
 

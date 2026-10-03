@@ -40,6 +40,10 @@ import PlayerScreen from "./src/screens/PlayerScreen";
 import PlaylistDetailScreen from "./src/screens/PlaylistDetailScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import ReleaseUploadScreen from "./src/screens/ReleaseUploadScreen";
+import SupportHomeScreen from "./src/screens/SupportHomeScreen";
+import SupportTicketDetailScreen from "./src/screens/SupportTicketDetailScreen";
+import SupportTicketFormScreen from "./src/screens/SupportTicketFormScreen";
+import SupportTicketsScreen from "./src/screens/SupportTicketsScreen";
 import { SHARE_BASE_URL } from "./src/config/api";
 import { getPlatformStatus } from "./src/api/musicApi";
 import YourLibraryScreen from "./src/screens/YourLibraryScreen";
@@ -76,6 +80,10 @@ const linking = {
       Release: "release/:id",
       ArtistDetail: "artist/:id",
       PlaylistDetail: "playlist/:id",
+      Support: "support",
+      SupportTicketDetail: "support/tickets/:id",
+      SupportTicketForm: "support/new",
+      SupportTickets: "support/tickets",
     },
   },
 };
@@ -511,6 +519,26 @@ function RootStack({ isAuthenticated }) {
             options={{ headerShown: false }}
           />
           <Stack.Screen
+            name="Support"
+            component={SupportHomeScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="SupportTicketForm"
+            component={SupportTicketFormScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="SupportTickets"
+            component={SupportTicketsScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="SupportTicketDetail"
+            component={SupportTicketDetailScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
             name="ArtistApplication"
             component={ArtistApplicationScreen}
             options={{ headerShown: false }}
@@ -542,6 +570,11 @@ function RootStack({ isAuthenticated }) {
             name="Profile"
             component={ProfileScreen}
             initialParams={{ loginRequired: true }}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Support"
+            component={SupportHomeScreen}
             options={{ headerShown: false }}
           />
           <Stack.Screen

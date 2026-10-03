@@ -238,6 +238,32 @@ export async function updateArtistStudioProfile(formData) {
   });
 }
 
+export async function getSupportHelpCenter() {
+  return fetchJson("/support/help-center/");
+}
+
+export async function getSupportTickets() {
+  return fetchJson("/support/tickets/");
+}
+
+export async function createSupportTicket(formData) {
+  return fetchJson("/support/tickets/", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function getSupportTicket(id) {
+  return fetchJson(`/support/tickets/${id}/`);
+}
+
+export async function replySupportTicket(id, formData) {
+  return fetchJson(`/support/tickets/${id}/replies/`, {
+    method: "POST",
+    body: formData,
+  });
+}
+
 export async function getPlaylists() {
   return fetchJson("/playlists/");
 }
