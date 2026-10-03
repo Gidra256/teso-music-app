@@ -160,11 +160,16 @@ export function createSupabasePersistence({
   function getPool() {
     assertConfigured();
     if (!pool) {
+      const usesSupabasePooler = /supabase\.com|supabase\.co/i.test(databaseUrl);
       const poolConfig = {
         connectionString: databaseUrl,
+        connectionTimeoutMillis: Number(process.env.SUPABASE_POOL_CONNECT_TIMEOUT_MS || 10000),
+        idleTimeoutMillis: Number(process.env.SUPABASE_POOL_IDLE_TIMEOUT_MS || 30000),
         max: Number(process.env.SUPABASE_POOL_SIZE || 1),
+        query_timeout: Number(process.env.SUPABASE_QUERY_TIMEOUT_MS || 30000),
+        statement_timeout: Number(process.env.SUPABASE_STATEMENT_TIMEOUT_MS || 30000),
       };
-      if (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === "false") {
+      if (usesSupabasePooler || process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === "false") {
         poolConfig.ssl = { rejectUnauthorized: false };
       }
       pool = new Pool(poolConfig);
