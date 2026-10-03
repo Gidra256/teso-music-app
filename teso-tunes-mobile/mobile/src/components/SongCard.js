@@ -50,7 +50,7 @@ export default function SongCard({ song, compact = false, queue = [] }) {
   if (compact) {
     return (
       <TouchableOpacity style={[styles.tile, { width: compactTileSize }]} onPress={handlePress}>
-        <Image source={artworkSource(song.cover_image)} style={styles.tileCover} />
+        <Image source={artworkSource(song.cover_image)} style={[styles.tileCover, { width: compactTileSize, height: compactTileSize }]} />
         <Text style={styles.tileTitle} numberOfLines={2}>{song.title}</Text>
         <Text style={styles.tileMeta} numberOfLines={2}>{song.artist_name}</Text>
         <TouchableOpacity

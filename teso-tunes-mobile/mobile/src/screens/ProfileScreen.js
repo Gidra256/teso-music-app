@@ -24,7 +24,7 @@ import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
 
-export default function ProfileScreen({ navigation, route }) {
+export default function ProfileScreen({ navigation }) {
   const {
     isAuthenticated,
     listener,
@@ -37,7 +37,6 @@ export default function ProfileScreen({ navigation, route }) {
   } = useAuth();
   const { deviceId } = useEngagement();
   const { backgroundPlaybackEnabled, setBackgroundPlaybackEnabled } = usePlayer();
-  const loginRequired = Boolean(route?.params?.loginRequired);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [authMode, setAuthMode] = useState("register");
@@ -115,7 +114,6 @@ export default function ProfileScreen({ navigation, route }) {
     (profileForm.name.trim() !== listener.name ||
       profileForm.email.trim() !== (listener.email || "") ||
       profileForm.phone.trim() !== (listener.phone || ""));
-  const canLeaveProfile = isAuthenticated || !loginRequired;
 
   function updateAuthField(field, value) {
     setAuthForm((current) => ({ ...current, [field]: value }));
@@ -185,9 +183,7 @@ export default function ProfileScreen({ navigation, route }) {
   }
 
   function goBackOrHome() {
-    if (!canLeaveProfile) return;
-
-    if (!loginRequired && navigation?.canGoBack?.()) {
+    if (navigation?.canGoBack?.()) {
       navigation.goBack();
       return;
     }
@@ -216,22 +212,18 @@ export default function ProfileScreen({ navigation, route }) {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.pageTopBar}>
-          {canLeaveProfile ? (
             <TouchableOpacity
               activeOpacity={0.82}
-              accessibilityLabel={loginRequired ? "Go home" : "Back"}
+              accessibilityLabel="Back"
               style={styles.backButton}
               onPress={goBackOrHome}
             >
               <Ionicons
-                name={loginRequired ? "home" : "chevron-back"}
+                name="chevron-back"
                 color={colors.softText}
                 size={22}
               />
             </TouchableOpacity>
-          ) : (
-            <View style={styles.topBarSpacer} />
-          )}
           <Text style={styles.pageTitle}>Profile</Text>
           <View style={styles.topBarSpacer} />
         </View>
@@ -241,9 +233,9 @@ export default function ProfileScreen({ navigation, route }) {
             <Text style={styles.avatarText}>{initials}</Text>
           </View>
           <View style={styles.identity}>
-            <Text style={styles.kicker}>{loginRequired ? "Account required" : "Profile"}</Text>
+            <Text style={styles.kicker}>{isAuthenticated ? "Profile" : "Your music, saved"}</Text>
             <Text style={styles.name} numberOfLines={1}>
-              {loginRequired ? "Login to listen" : profileName}
+              {isAuthenticated ? profileName : "Make it yours"}
             </Text>
             <View style={styles.deviceRow}>
               <Ionicons
@@ -252,7 +244,7 @@ export default function ProfileScreen({ navigation, route }) {
                 size={14}
               />
               <Text style={styles.deviceText}>
-                {loginRequired ? "Create an account or login first" : listenerCode}
+                {isAuthenticated ? listenerCode : "Sign in or create an account"}
               </Text>
             </View>
           </View>
@@ -267,6 +259,16 @@ export default function ProfileScreen({ navigation, route }) {
             </TouchableOpacity>
           )}
         </LinearGradient>
+
+        {!isAuthenticated ? (
+          <View style={styles.authInvitation}>
+            <Text style={styles.invitationText}>Sign in or create an account to save likes, follow artists and keep your playlists across devices. You can listen to public songs without an account.</Text>
+            <TouchableOpacity accessibilityRole="button" style={styles.keepListening} onPress={goBackOrHome}>
+              <Ionicons name="play-outline" color={colors.primary} size={20} />
+              <Text style={styles.keepListeningText}>Keep listening</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {isAuthenticated ? (
           <>
@@ -654,6 +656,10 @@ function ProfileInput({ icon, ...props }) {
 }
 
 const styles = StyleSheet.create({
+  authInvitation: { gap: 8, marginBottom: 16 },
+  invitationText: { color: colors.softText, fontSize: 15, lineHeight: 23 },
+  keepListening: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10 },
+  keepListeningText: { color: colors.primary, fontSize: 16, fontWeight: "800" },
   safe: {
     backgroundColor: colors.background,
     flex: 1,

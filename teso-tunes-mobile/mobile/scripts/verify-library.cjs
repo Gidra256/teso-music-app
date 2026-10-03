@@ -204,6 +204,9 @@ async function verify(browser, width, height) {
     await label("Logout").click();
     await loggedOut;
     await label("Create account").waitFor();
+    assert.equal(await text("Welcome to TesoHub Music").count(), 0);
+    await text("Keep listening").click();
+    await text("All").waitFor();
     assert.equal(await page.evaluate(() => localStorage.getItem("teso_tunes_auth_token")), null);
     assert.deepEqual(errors, [], "No uncaught browser errors");
     console.log(`PASS ${width}x${height} ${url}: Profile cleanup/edit/support/artist access/logout, account hydration, likes/unlikes/rollback, follows/unfollows/Undo/counts, playlist create/reload, Library sections, removals survive reload`);

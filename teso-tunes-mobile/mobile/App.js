@@ -26,6 +26,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 
 import AppErrorBoundary from "./src/components/AppErrorBoundary";
 import CreatePlaylistModal from "./src/components/CreatePlaylistModal";
+import FirstTimeOnboarding from "./src/components/FirstTimeOnboarding";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { EngagementProvider } from "./src/context/EngagementContext";
 import { PlayerProvider } from "./src/context/PlayerContext";
@@ -482,6 +483,7 @@ function RootStack({ isAuthenticated }) {
   return (
     <Stack.Navigator
       key={isAuthenticated ? "signed-in" : "signed-out"}
+      initialRouteName="TesoTabs"
       screenOptions={{
         headerStyle: { backgroundColor: colors.background },
         headerTintColor: colors.text,
@@ -571,7 +573,6 @@ function RootStack({ isAuthenticated }) {
           <Stack.Screen
             name="Profile"
             component={ProfileScreen}
-            initialParams={{ loginRequired: true }}
             options={{ headerShown: false }}
           />
           <Stack.Screen
@@ -627,6 +628,7 @@ function AppNavigator() {
   const [platformStatus, setPlatformStatus] = useState(null);
   const [platformChecked, setPlatformChecked] = useState(false);
   const [desktopCreateVisible, setDesktopCreateVisible] = useState(false);
+  const [activeRoute, setActiveRoute] = useState(null);
   const isDesktopWeb = Platform.OS === "web" && width >= DESKTOP_WEB_BREAKPOINT;
 
   useEffect(() => {
@@ -688,7 +690,12 @@ function AppNavigator() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef} linking={linking}>
+    <NavigationContainer
+      ref={navigationRef}
+      linking={linking}
+      onReady={() => setActiveRoute(navigationRef.getCurrentRoute()?.name)}
+      onStateChange={() => setActiveRoute(navigationRef.getCurrentRoute()?.name)}
+    >
       <AutoUpdateGate />
       <WebPwaRuntime />
       <StatusBar style="light" />
@@ -717,6 +724,7 @@ function AppNavigator() {
         }}
       />
       <WebOfflineBanner />
+      <FirstTimeOnboarding routeName={activeRoute} onStartListening={() => navigateTab("Home")} />
     </NavigationContainer>
   );
 }
