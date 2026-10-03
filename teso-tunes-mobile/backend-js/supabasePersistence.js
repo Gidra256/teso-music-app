@@ -4,6 +4,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 
 import pg from "pg";
+import { discoverySql } from "./discovery.js";
 
 import {
   recordDbAcquire,
@@ -668,7 +669,7 @@ export function createSupabasePersistence({
     };
   }
 
-  async function listPublicArtists({ category = "", search = "" } = {}) {
+  async function listPublicArtists({ category = "", search = "", ...options } = {}) {
     await publishDueReleases();
     const params = [];
     const filters = ["artist.status <> 'removed'"];
@@ -681,6 +682,8 @@ export function createSupabasePersistence({
       filters.push(`lower(artist.name) like $${params.length}`);
     }
 
+    const discovery = discoverySql(options, params, "artist");
+    filters.push(...discovery.filters);
     const result = await getPool().query(
       `select
          artist.*,
@@ -704,7 +707,7 @@ export function createSupabasePersistence({
          group by artist_id
        ) songs on songs.artist_id = artist.id
        where ${filters.join(" and ")}
-       order by lower(artist.name), artist.name`,
+       order by lower(artist.name), artist.name ${discovery.limit}`,
       params,
     );
     return result.rows.map(publicArtistFromRow);
@@ -743,7 +746,7 @@ export function createSupabasePersistence({
     return artist;
   }
 
-  async function listPublicSongs({ artistId = null, category = "", search = "" } = {}) {
+  async function listPublicSongs({ artistId = null, category = "", search = "", ...options } = {}) {
     await publishDueReleases();
     const params = [];
     const filters = [
@@ -765,6 +768,8 @@ export function createSupabasePersistence({
       );
     }
 
+    const discovery = discoverySql(options, params);
+    filters.push(...discovery.filters);
     const result = await getPool().query(
       `select
          song.*,
@@ -779,7 +784,8 @@ export function createSupabasePersistence({
          group by song_id
        ) likes on likes.song_id = song.id
        where ${filters.join(" and ")}
-       order by song.is_featured desc, song.play_count desc, lower(song.title), song.title`,
+       order by ${discovery.order || "song.is_featured desc, song.play_count desc, lower(song.title), song.title"}
+       ${discovery.limit}`,
       params,
     );
     return result.rows.map(publicSongFromRow);
@@ -806,6 +812,13 @@ export function createSupabasePersistence({
       [songId],
     );
     return result.rows[0] ? publicSongFromRow(result.rows[0]) : null;
+  }
+
+  async function listPublicGenres() {
+    const result = await getPool().query(
+      `select name from tesohub_music.genres where active = true order by position, name`,
+    );
+    return result.rows.map(row => row.name);
   }
 
   async function platformSettings() {
@@ -2635,6 +2648,7 @@ export function createSupabasePersistence({
     listenerProfile,
     listPlaylists,
     listPublicArtists,
+    listPublicGenres,
     listPublicSongs,
     listSupportTicketsForAdmin,
     listSupportTicketsForListener,

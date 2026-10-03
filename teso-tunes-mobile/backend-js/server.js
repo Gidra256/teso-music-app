@@ -9,6 +9,7 @@ import express from "express";
 import multer from "multer";
 
 import { perfMetricsMiddleware } from "./perfMetrics.js";
+import { discoveryOptions, selectDiscovery } from "./discovery.js";
 import { createSupabasePersistence } from "./supabasePersistence.js";
 import { isShareableSong, renderPublicSongPage } from "./songSharing.js";
 
@@ -2457,10 +2458,11 @@ app.put(
 );
 
 app.get("/api/artists/", async (req, res) => {
+  const discovery = discoveryOptions(req.query);
   const category = String(req.query.category || "").toLowerCase();
   const search = String(req.query.search || "").toLowerCase();
   if (USE_SUPABASE_PERSISTENCE) {
-    const artists = await supabasePersistence.listPublicArtists({ category, search });
+    const artists = await supabasePersistence.listPublicArtists({ category, search, ...discovery });
     return res.json(artists.map((artist) => directArtistResponse(req, artist)));
   }
 
@@ -2471,7 +2473,7 @@ app.get("/api/artists/", async (req, res) => {
     const searchMatches = !search || artist.name.toLowerCase().includes(search);
     return categoryMatches && searchMatches;
   });
-  res.json(artists.map((artist) => serializeArtist(db, req, artist)));
+  res.json(selectDiscovery(artists, discovery, "artist").map((artist) => serializeArtist(db, req, artist)));
 });
 
 app.get("/api/artists/:id/", async (req, res) => {
@@ -2494,10 +2496,11 @@ app.get("/api/artists/:id/", async (req, res) => {
 });
 
 app.get("/api/songs/", async (req, res) => {
+  const discovery = discoveryOptions(req.query);
   const category = String(req.query.category || "").toLowerCase();
   const search = String(req.query.search || "").toLowerCase();
   if (USE_SUPABASE_PERSISTENCE) {
-    const songs = await supabasePersistence.listPublicSongs({ category, search });
+    const songs = await supabasePersistence.listPublicSongs({ category, search, ...discovery });
     return res.json(songs.map((song) => directSongResponse(req, song)));
   }
 
@@ -2514,7 +2517,7 @@ app.get("/api/songs/", async (req, res) => {
       artist?.name?.toLowerCase().includes(search);
     return categoryMatches && searchMatches;
   });
-  res.json(songs.map((song) => serializeSong(db, req, song)));
+  res.json(selectDiscovery(songs, discovery).map((song) => serializeSong(db, req, song)));
 });
 app.get("/api/hub/search-documents/", async (req, res) => {
   const db = await loadDbWithPublishedReleases();
@@ -2606,6 +2609,7 @@ app.get("/api/featured-songs/", async (req, res) => {
 });
 
 app.get("/api/genres/", async (req, res) => {
+  if (USE_SUPABASE_PERSISTENCE) return res.json(await supabasePersistence.listPublicGenres());
   const db = await loadDb();
   res.json(genreOptionsFor(db));
 });
