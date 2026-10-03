@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Platform } from "react-native";
 
 import {
@@ -28,7 +28,8 @@ function parseSavedListener(value) {
 }
 
 export function AuthProvider({ children }) {
-  const { deviceId } = useEngagement();
+  const { deviceId, getEngagementRevision, syncAccountEngagement } = useEngagement();
+  const accountRequestRef = useRef(0);
   const [token, setToken] = useState("");
   const [listener, setListener] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -59,6 +60,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   async function saveSession(nextToken, nextListener) {
+    accountRequestRef.current += 1;
+    await syncAccountEngagement(nextListener, getEngagementRevision());
     setToken(nextToken);
     setListener(nextListener);
     setAuthToken(nextToken);
@@ -69,6 +72,7 @@ export function AuthProvider({ children }) {
   }
 
   async function clearSession() {
+    accountRequestRef.current += 1;
     setToken("");
     setListener(null);
     setAuthToken("");
@@ -78,15 +82,19 @@ export function AuthProvider({ children }) {
     ]);
   }
 
-  async function refreshAccount(existingToken = token) {
+  const refreshAccount = useCallback(async (existingToken = token) => {
+    const requestId = ++accountRequestRef.current;
+    const engagementRevision = getEngagementRevision();
     if (existingToken) {
       setAuthToken(existingToken);
     }
     const result = await getListenerAccount();
+    if (requestId !== accountRequestRef.current) return result.listener;
+    await syncAccountEngagement(result.listener, engagementRevision);
     setListener(result.listener);
     await AsyncStorage.setItem(AUTH_LISTENER_KEY, JSON.stringify(result.listener));
     return result.listener;
-  }
+  }, [token, getEngagementRevision, syncAccountEngagement]);
 
   async function registerAccount(payload) {
     setAuthError("");
@@ -139,7 +147,7 @@ export function AuthProvider({ children }) {
       token,
       updateAccount,
     }),
-    [authError, listener, loading, token, deviceId]
+    [authError, listener, loading, token, deviceId, refreshAccount]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

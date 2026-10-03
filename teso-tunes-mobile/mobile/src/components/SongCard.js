@@ -54,6 +54,7 @@ export default function SongCard({ song, compact = false, queue = [] }) {
         <Text style={styles.tileTitle} numberOfLines={2}>{song.title}</Text>
         <Text style={styles.tileMeta} numberOfLines={2}>{song.artist_name}</Text>
         <TouchableOpacity
+          accessibilityLabel={`${liked ? "Unlike" : "Like"} ${song.title}`}
           disabled={likePending}
           style={[styles.tileLikeButton, likePending && styles.pendingLikeButton]}
           onPress={(event) => {
@@ -80,6 +81,7 @@ export default function SongCard({ song, compact = false, queue = [] }) {
           <Text style={styles.title} numberOfLines={1}>{song.title}</Text>
           <Text style={styles.meta} numberOfLines={1}>{song.artist_name}</Text>
           <TouchableOpacity
+            accessibilityLabel={`${liked ? "Unlike" : "Like"} ${song.title}`}
             disabled={likePending}
             style={[styles.likeButton, likePending && styles.pendingLikeButton]}
             onPress={(event) => {

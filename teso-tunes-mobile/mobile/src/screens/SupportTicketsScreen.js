@@ -15,10 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { BACKEND_CONNECTION_ERROR, getSupportTickets } from "../api/musicApi";
 import MiniPlayer from "../components/MiniPlayer";
 import { colors, spacing } from "../theme";
-
-function statusLabel(status) {
-  return String(status || "open").replaceAll("_", " ");
-}
+import { statusLabel, supportCopy, supportReferenceLabel } from "../utils/supportLabels";
 
 function statusTone(status) {
   if (["resolved", "closed"].includes(status)) return styles.badgeOk;
@@ -75,7 +72,7 @@ export default function SupportTicketsScreen({ navigation }) {
           <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
             <Ionicons name="chevron-back" color={colors.softText} size={22} />
           </TouchableOpacity>
-          <Text style={styles.title}>My Tickets</Text>
+          <Text style={styles.title}>My Support Requests</Text>
           <TouchableOpacity
             activeOpacity={0.84}
             style={styles.iconButton}
@@ -89,7 +86,7 @@ export default function SupportTicketsScreen({ navigation }) {
           <ActivityIndicator color={colors.primary} style={styles.loader} />
         ) : error ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.errorText}>{error}</Text>
+            <Text style={styles.errorText}>{supportCopy(error)}</Text>
             <TouchableOpacity activeOpacity={0.84} style={styles.primaryButton} onPress={loadTickets}>
               <Text style={styles.primaryText}>Retry</Text>
             </TouchableOpacity>
@@ -97,15 +94,15 @@ export default function SupportTicketsScreen({ navigation }) {
         ) : tickets.length === 0 ? (
           <View style={styles.stateBlock}>
             <Ionicons name="file-tray-outline" color={colors.accent} size={38} />
-            <Text style={styles.emptyTitle}>No tickets yet</Text>
-            <Text style={styles.emptyText}>Create a ticket when you need help from support.</Text>
+            <Text style={styles.emptyTitle}>No support requests yet</Text>
+            <Text style={styles.emptyText}>Send a support request when you need help.</Text>
             <TouchableOpacity
               activeOpacity={0.84}
               style={styles.primaryButton}
               onPress={() => navigation.navigate("SupportTicketForm")}
             >
               <Ionicons name="create" color={colors.background} size={18} />
-              <Text style={styles.primaryText}>Submit Ticket</Text>
+              <Text style={styles.primaryText}>Submit a Support Request</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -130,7 +127,7 @@ export default function SupportTicketsScreen({ navigation }) {
                     </Text>
                   </View>
                   <Text style={styles.meta} numberOfLines={1}>
-                    {ticket.reference} - {ticket.category}
+                    {supportReferenceLabel(ticket.reference)} - {ticket.category}
                   </Text>
                   <Text style={styles.preview} numberOfLines={2}>
                     {ticket.message}
@@ -176,6 +173,8 @@ const styles = StyleSheet.create({
     width: 42,
   },
   title: {
+    flex: 1,
+    textAlign: "center",
     color: colors.text,
     fontSize: 20,
     fontWeight: "950",
@@ -261,7 +260,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     paddingHorizontal: 7,
     paddingVertical: 4,
-    textTransform: "uppercase",
   },
   badgeActive: {
     backgroundColor: "rgba(32, 230, 243, 0.14)",

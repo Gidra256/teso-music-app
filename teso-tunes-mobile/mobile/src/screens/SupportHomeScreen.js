@@ -16,6 +16,7 @@ import { BACKEND_CONNECTION_ERROR, getSupportHelpCenter } from "../api/musicApi"
 import MiniPlayer from "../components/MiniPlayer";
 import { useAuth } from "../context/AuthContext";
 import { colors, spacing } from "../theme";
+import { supportCopy } from "../utils/supportLabels";
 
 export default function SupportHomeScreen({ navigation }) {
   const { isAuthenticated, listener } = useAuth();
@@ -86,9 +87,9 @@ export default function SupportHomeScreen({ navigation }) {
             <Ionicons name="help-buoy" color={colors.primary} size={27} />
           </View>
           <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>We are here to help</Text>
+            <Text style={styles.heroTitle}>Get Help</Text>
             <Text style={styles.heroText}>
-              Send support requests from your account and track replies in the app.
+              Need help with your account, music, uploads, or another issue? Send us a support request and our team will assist you.
             </Text>
           </View>
         </View>
@@ -96,13 +97,13 @@ export default function SupportHomeScreen({ navigation }) {
         <View style={styles.actionGrid}>
           <SupportTile
             icon="create"
-            title="Submit Ticket"
+            title="Submit a Support Request"
             text="Account, playback, uploads, content reports"
             onPress={() => openProtected("SupportTicketForm")}
           />
           <SupportTile
             icon="file-tray-full"
-            title="My Tickets"
+            title="My Support Requests"
             text="View status and support replies"
             onPress={() => openProtected("SupportTickets")}
           />
@@ -118,7 +119,7 @@ export default function SupportHomeScreen({ navigation }) {
           <ActivityIndicator color={colors.primary} style={styles.loader} />
         ) : error ? (
           <View style={styles.stateBlock}>
-            <Text style={styles.errorText}>{error}</Text>
+            <Text style={styles.errorText}>{supportCopy(error)}</Text>
             <TouchableOpacity activeOpacity={0.84} style={styles.primaryButton} onPress={loadHelp}>
               <Text style={styles.primaryText}>Retry</Text>
             </TouchableOpacity>
@@ -133,8 +134,8 @@ export default function SupportHomeScreen({ navigation }) {
                     <Ionicons name="reader" color={colors.accent} size={18} />
                   </View>
                   <View style={styles.articleCopy}>
-                    <Text style={styles.articleTitle}>{article.title}</Text>
-                    <Text style={styles.articleText}>{article.summary}</Text>
+                    <Text style={styles.articleTitle}>{supportCopy(article.title)}</Text>
+                    <Text style={styles.articleText}>{supportCopy(article.summary)}</Text>
                   </View>
                 </View>
               ))}

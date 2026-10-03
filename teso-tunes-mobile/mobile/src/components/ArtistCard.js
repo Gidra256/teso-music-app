@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Image, Platform, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
@@ -88,6 +88,7 @@ const styles = StyleSheet.create({
   },
   photo: {
     aspectRatio: 1,
+    height: Platform.OS === "web" ? "auto" : undefined,
     backgroundColor: colors.elevated,
     borderRadius: 5,
     width: "100%",

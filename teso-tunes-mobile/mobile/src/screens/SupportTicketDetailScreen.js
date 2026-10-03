@@ -26,16 +26,13 @@ import {
 } from "../api/musicApi";
 import MiniPlayer from "../components/MiniPlayer";
 import { colors, spacing } from "../theme";
+import { statusLabel, supportCopy, supportReferenceLabel } from "../utils/supportLabels";
 import {
   appendPickedFile,
   fileFromPickedAsset,
   isSupportAttachmentTooLarge,
   pickedAssetName,
 } from "../utils/supportUpload";
-
-function statusLabel(status) {
-  return String(status || "open").replaceAll("_", " ");
-}
 
 function formatDate(value) {
   if (!value) return "";
@@ -170,7 +167,7 @@ export default function SupportTicketDetailScreen({ navigation, route }) {
               <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
                 <Ionicons name="chevron-back" color={colors.softText} size={22} />
               </TouchableOpacity>
-              <Text style={styles.title}>Support Ticket</Text>
+              <Text style={styles.title}>Support Request</Text>
               <View style={styles.iconSpacer} />
             </View>
 
@@ -178,7 +175,7 @@ export default function SupportTicketDetailScreen({ navigation, route }) {
               <ActivityIndicator color={colors.primary} style={styles.loader} />
             ) : error && !ticket ? (
               <View style={styles.stateBlock}>
-                <Text style={styles.errorText}>{error}</Text>
+                <Text style={styles.errorText}>{supportCopy(error)}</Text>
                 <TouchableOpacity style={styles.primaryButton} onPress={loadTicket}>
                   <Text style={styles.primaryText}>Retry</Text>
                 </TouchableOpacity>
@@ -187,7 +184,7 @@ export default function SupportTicketDetailScreen({ navigation, route }) {
               <>
                 <View style={styles.summary}>
                   <View style={styles.summaryTop}>
-                    <Text style={styles.reference}>{ticket.reference}</Text>
+                    <Text style={styles.reference}>{supportReferenceLabel(ticket.reference)}</Text>
                     <Text style={styles.badge}>{statusLabel(ticket.status)}</Text>
                   </View>
                   <Text style={styles.subject}>{ticket.subject}</Text>
@@ -202,7 +199,7 @@ export default function SupportTicketDetailScreen({ navigation, route }) {
                   ))}
                 </View>
 
-                {error ? <Text style={styles.errorText}>{error}</Text> : null}
+                {error ? <Text style={styles.errorText}>{supportCopy(error)}</Text> : null}
 
                 {canReply ? (
                   <View style={styles.replyPanel}>
@@ -258,7 +255,7 @@ export default function SupportTicketDetailScreen({ navigation, route }) {
                 ) : (
                   <View style={styles.closedBlock}>
                     <Ionicons name="checkmark-circle" color={colors.success} size={22} />
-                    <Text style={styles.closedText}>This ticket is {statusLabel(ticket.status)}.</Text>
+                    <Text style={styles.closedText}>This support request is {statusLabel(ticket.status).toLowerCase()}.</Text>
                   </View>
                 )}
               </>
@@ -326,6 +323,8 @@ const styles = StyleSheet.create({
     width: 42,
   },
   title: {
+    flex: 1,
+    textAlign: "center",
     color: colors.text,
     fontSize: 20,
     fontWeight: "950",
@@ -347,6 +346,8 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   summaryTop: {
+    flexWrap: "wrap",
+    gap: 8,
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
@@ -365,7 +366,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     paddingHorizontal: 8,
     paddingVertical: 4,
-    textTransform: "uppercase",
   },
   subject: {
     color: colors.text,
@@ -530,6 +530,7 @@ const styles = StyleSheet.create({
     padding: 13,
   },
   closedText: {
+    flex: 1,
     color: colors.softText,
     fontSize: 13,
     fontWeight: "800",

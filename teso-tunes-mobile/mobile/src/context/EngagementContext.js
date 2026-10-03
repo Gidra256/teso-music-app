@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
 
 import { followArtist, likeSong, unfollowArtist, unlikeSong } from "../api/musicApi";
@@ -50,6 +50,8 @@ export function EngagementProvider({ children }) {
   const followedArtistsRef = useRef(new Set());
   const pendingSongLikeIdsRef = useRef(new Set());
   const pendingArtistFollowIdsRef = useRef(new Set());
+  const engagementRevisionRef = useRef(0);
+  const accountSyncedRef = useRef(false);
   const [songLikeCounts, setSongLikeCounts] = useState({});
   const [artistFollowerCounts, setArtistFollowerCounts] = useState({});
   const [pendingSongLikeIds, setPendingSongLikeIds] = useState(new Set());
@@ -70,38 +72,34 @@ export function EngagementProvider({ children }) {
         ]);
 
         setDeviceId(savedDeviceId);
-        setLikedSongs(toIdSet(parseSavedIds(savedLikes)));
-        setFollowedArtists(toIdSet(parseSavedIds(savedFollows)));
+        if (!accountSyncedRef.current) {
+          likedSongsRef.current = toIdSet(parseSavedIds(savedLikes));
+          followedArtistsRef.current = toIdSet(parseSavedIds(savedFollows));
+          setLikedSongs(likedSongsRef.current);
+          setFollowedArtists(followedArtistsRef.current);
+        }
       } catch (error) {
         setDeviceId(makeDeviceId());
-        setLikedSongs(new Set());
-        setFollowedArtists(new Set());
       }
     }
 
     loadEngagement();
   }, []);
 
-  useEffect(() => {
-    likedSongsRef.current = likedSongs;
-  }, [likedSongs]);
-
-  useEffect(() => {
-    followedArtistsRef.current = followedArtists;
-  }, [followedArtists]);
-
   async function saveLikedSongs(nextSet) {
+    likedSongsRef.current = nextSet;
     setLikedSongs(nextSet);
-    await AsyncStorage.setItem(LIKED_SONGS_KEY, JSON.stringify([...nextSet]));
+    await AsyncStorage.setItem(LIKED_SONGS_KEY, JSON.stringify([...nextSet])).catch(() => {});
   }
 
   async function saveFollowedArtists(nextSet) {
     followedArtistsRef.current = nextSet;
     setFollowedArtists(nextSet);
-    await AsyncStorage.setItem(FOLLOWED_ARTISTS_KEY, JSON.stringify([...nextSet]));
+    await AsyncStorage.setItem(FOLLOWED_ARTISTS_KEY, JSON.stringify([...nextSet])).catch(() => {});
   }
 
   function setArtistFollowPending(id, pending) {
+    engagementRevisionRef.current += 1;
     const nextPending = new Set(pendingArtistFollowIdsRef.current);
     if (pending) {
       nextPending.add(Number(id));
@@ -113,6 +111,7 @@ export function EngagementProvider({ children }) {
   }
 
   function setSongLikePending(id, pending) {
+    engagementRevisionRef.current += 1;
     const nextPending = new Set(pendingSongLikeIdsRef.current);
     if (pending) {
       nextPending.add(Number(id));
@@ -129,8 +128,31 @@ export function EngagementProvider({ children }) {
     } catch (error) {}
   }
 
-  async function syncFollowedArtistIds(ids = []) {
-    await saveFollowedArtists(toIdSet(ids));
+  const getEngagementRevision = useCallback(() => engagementRevisionRef.current, []);
+
+  const syncAccountEngagement = useCallback(async (account, revision) => {
+    // An account response started before a tap must not undo that newer action.
+    if (revision !== engagementRevisionRef.current ||
+        pendingSongLikeIdsRef.current.size || pendingArtistFollowIdsRef.current.size) return;
+    accountSyncedRef.current = true;
+    await Promise.all([
+      saveLikedSongs(toIdSet(account?.liked_song_ids)),
+      saveFollowedArtists(toIdSet(account?.followed_artist_ids)),
+    ]);
+  }, []);
+
+  async function restoreSongLike(id, liked) {
+    const next = new Set(likedSongsRef.current);
+    if (liked) next.add(id);
+    else next.delete(id);
+    await saveLikedSongs(next);
+  }
+
+  async function restoreArtistFollow(id, followed) {
+    const next = new Set(followedArtistsRef.current);
+    if (followed) next.add(id);
+    else next.delete(id);
+    await saveFollowedArtists(next);
   }
 
   async function toggleSongLike(song) {
@@ -160,7 +182,7 @@ export function EngagementProvider({ children }) {
           ),
         );
       } catch (error) {
-        await saveLikedSongs(previousLikedSongs);
+        await restoreSongLike(id, alreadyLiked);
         setSongLikeCounts((counts) => updateCountMap(counts, id, previousCount, 0));
         showEngagementError("Could not update this like. Please try again.");
       } finally {
@@ -182,7 +204,7 @@ export function EngagementProvider({ children }) {
           ),
         );
       } catch (error) {
-        await saveLikedSongs(previousLikedSongs);
+        await restoreSongLike(id, alreadyLiked);
         setSongLikeCounts((counts) => updateCountMap(counts, id, previousCount, 0));
         showEngagementError("Could not update this like. Please try again.");
       } finally {
@@ -239,7 +261,7 @@ export function EngagementProvider({ children }) {
       );
       return { ...result, follower_count: followerCount };
     } catch (error) {
-      await saveFollowedArtists(previousFollowedArtists);
+      await restoreArtistFollow(id, false);
       setArtistFollowerCounts((counts) => updateCountMap(counts, id, previousCount, 0));
       showEngagementError("Could not follow this artist. Please try again.");
       throw error;
@@ -287,7 +309,7 @@ export function EngagementProvider({ children }) {
       );
       return { ...result, follower_count: followerCount };
     } catch (error) {
-      await saveFollowedArtists(previousFollowedArtists);
+      await restoreArtistFollow(id, true);
       setArtistFollowerCounts((counts) => updateCountMap(counts, id, previousCount, 0));
       showEngagementError("Could not update this follow. Please try again.");
       throw error;
@@ -318,7 +340,8 @@ export function EngagementProvider({ children }) {
       isSongLiked: (id) => likedSongs.has(Number(id)),
       isSongLikePending: (id) => pendingSongLikeIds.has(Number(id)),
       likedSongIds: [...likedSongs],
-      syncFollowedArtistIds,
+      getEngagementRevision,
+      syncAccountEngagement,
       toggleArtistFollow,
       toggleSongLike,
       unfollowArtistAction,

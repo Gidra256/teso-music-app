@@ -17,10 +17,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { BACKEND_CONNECTION_ERROR, getArtists, getSongs } from "../api/musicApi";
-import ArtistCard from "../components/ArtistCard";
+import { BACKEND_CONNECTION_ERROR } from "../api/musicApi";
 import MiniPlayer from "../components/MiniPlayer";
-import SongCard from "../components/SongCard";
 import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
@@ -37,12 +35,9 @@ export default function ProfileScreen({ navigation, route }) {
     registerAccount,
     updateAccount,
   } = useAuth();
-  const { deviceId, followedArtistIds, likedSongIds } = useEngagement();
+  const { deviceId } = useEngagement();
   const { backgroundPlaybackEnabled, setBackgroundPlaybackEnabled } = usePlayer();
   const loginRequired = Boolean(route?.params?.loginRequired);
-  const [songs, setSongs] = useState([]);
-  const [artists, setArtists] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [authMode, setAuthMode] = useState("register");
@@ -65,34 +60,22 @@ export default function ProfileScreen({ navigation, route }) {
       try {
         if (refresh) {
           setRefreshing(true);
-        } else {
-          setLoading(true);
         }
         setError("");
 
         if (!isAuthenticated) {
-          setSongs([]);
-          setArtists([]);
           return;
         }
 
-        const requests = [getSongs(), getArtists(), refreshAccount()];
-        const [nextSongs, nextArtists] = await Promise.all(requests);
-        setSongs(nextSongs);
-        setArtists(nextArtists);
+        await refreshAccount();
       } catch (loadError) {
         setError(loadError?.detail || loadError?.message || BACKEND_CONNECTION_ERROR);
       } finally {
-        setLoading(false);
         setRefreshing(false);
       }
     },
-    [isAuthenticated]
+    [isAuthenticated, refreshAccount]
   );
-
-  useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
 
   useFocusEffect(
     useCallback(() => {
@@ -110,37 +93,6 @@ export default function ProfileScreen({ navigation, route }) {
       phone: listener.phone || "",
     });
   }, [listener]);
-
-  const accountLikedIds = useMemo(
-    () => new Set([...(listener?.liked_song_ids || []), ...likedSongIds]),
-    [listener, likedSongIds]
-  );
-  const accountFollowedIds = useMemo(
-    () => new Set([...(listener?.followed_artist_ids || []), ...followedArtistIds]),
-    [listener, followedArtistIds]
-  );
-
-  const likedSongs = useMemo(
-    () => songs.filter((song) => accountLikedIds.has(Number(song.id))),
-    [songs, accountLikedIds]
-  );
-
-  const followedArtists = useMemo(
-    () => artists.filter((artist) => accountFollowedIds.has(Number(artist.id))),
-    [artists, accountFollowedIds]
-  );
-
-  const topGenre = useMemo(() => {
-    const counts = likedSongs.reduce((items, song) => {
-      const genre = song.genre || "Teso music";
-      items[genre] = (items[genre] || 0) + 1;
-      return items;
-    }, {});
-    const [genre] =
-      Object.entries(counts).sort((first, second) => second[1] - first[1])[0] ||
-      [];
-    return genre || "Teso music";
-  }, [likedSongs]);
 
   const profileName = listener?.name || "Teso Listener";
   const initials = useMemo(() => {
@@ -243,10 +195,6 @@ export default function ProfileScreen({ navigation, route }) {
     navigation.navigate("TesoTabs", { screen: "Home" });
   }
 
-  function openTab(screen) {
-    navigation.navigate("TesoTabs", { screen });
-  }
-
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -321,10 +269,13 @@ export default function ProfileScreen({ navigation, route }) {
         </LinearGradient>
 
         {isAuthenticated ? (
-          <PlaybackSettings
-            enabled={backgroundPlaybackEnabled}
-            onValueChange={setBackgroundPlaybackEnabled}
-          />
+          <>
+            <Text style={styles.sectionTitle}>Settings</Text>
+            <PlaybackSettings
+              enabled={backgroundPlaybackEnabled}
+              onValueChange={setBackgroundPlaybackEnabled}
+            />
+          </>
         ) : null}
 
         <SupportSettingsPanel onPress={() => navigation.navigate("Support")} />
@@ -344,6 +295,7 @@ export default function ProfileScreen({ navigation, route }) {
         ) : (
           <>
             <View style={styles.accountPanel}>
+              <Text style={styles.settingTitle}>Edit Profile</Text>
               <ProfileInput
                 icon="person"
                 placeholder="Profile name"
@@ -404,72 +356,7 @@ export default function ProfileScreen({ navigation, route }) {
               role={listener?.role || "listener"}
             />
 
-            <View style={styles.statsRow}>
-              <StatTile label="Liked" value={String(likedSongs.length)} icon="heart" />
-              <StatTile
-                label="Following"
-                value={String(followedArtists.length)}
-                icon="people"
-              />
-              <StatTile label="Taste" value={topGenre} icon="radio" />
-            </View>
-
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-            {loading ? (
-              <ActivityIndicator color={colors.primary} style={styles.loader} />
-            ) : (
-              <>
-                <SectionHeader
-                  title="Liked songs"
-                  actionIcon="musical-notes"
-                  onPress={() => openTab("Songs")}
-                />
-                {likedSongs.length > 0 ? (
-                  <View style={styles.songList}>
-                    {likedSongs.map((song) => (
-                      <SongCard key={song.id} song={song} queue={likedSongs} />
-                    ))}
-                  </View>
-                ) : (
-                  <EmptyState
-                    icon="heart-outline"
-                    title="No liked songs yet"
-                    actionIcon="musical-notes"
-                    onPress={() => openTab("Songs")}
-                  />
-                )}
-
-                <SectionHeader
-                  title="Following artists"
-                  actionIcon="people"
-                  onPress={() => openTab("Artists")}
-                />
-                {followedArtists.length > 0 ? (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.artistRail}>
-                      {followedArtists.map((artist) => (
-                        <ArtistCard
-                          key={artist.id}
-                          artist={artist}
-                          compact
-                          onPress={() =>
-                            navigation.navigate("ArtistDetail", { id: artist.id })
-                          }
-                        />
-                      ))}
-                    </View>
-                  </ScrollView>
-                ) : (
-                  <EmptyState
-                    icon="person-add-outline"
-                    title="No followed artists yet"
-                    actionIcon="people"
-                    onPress={() => openTab("Artists")}
-                  />
-                )}
-              </>
-            )}
           </>
         )}
       </ScrollView>
@@ -596,7 +483,7 @@ function SupportSettingsPanel({ onPress }) {
       </View>
       <View style={styles.settingCopy}>
         <Text style={styles.settingTitle}>Help & Support</Text>
-        <Text style={styles.settingStatus}>Tickets, replies, and help articles</Text>
+        <Text style={styles.settingStatus}>Support requests, replies, and help articles</Text>
       </View>
       <Ionicons name="chevron-forward" color={colors.muted} size={20} />
     </TouchableOpacity>
@@ -762,49 +649,6 @@ function ProfileInput({ icon, ...props }) {
         style={styles.input}
         {...props}
       />
-    </View>
-  );
-}
-
-function StatTile({ icon, label, value }) {
-  return (
-    <View style={styles.statTile}>
-      <Ionicons name={icon} color={colors.primary} size={18} />
-      <Text style={styles.statValue} numberOfLines={1}>
-        {value}
-      </Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
-function SectionHeader({ actionIcon, onPress, title }) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <TouchableOpacity
-        accessibilityLabel={title}
-        style={styles.smallIconButton}
-        onPress={onPress}
-      >
-        <Ionicons name={actionIcon} color={colors.accent} size={18} />
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-function EmptyState({ actionIcon, icon, onPress, title }) {
-  return (
-    <View style={styles.empty}>
-      <Ionicons name={icon} color={colors.primary} size={28} />
-      <Text style={styles.emptyTitle}>{title}</Text>
-      <TouchableOpacity
-        accessibilityLabel={title}
-        style={styles.emptyButton}
-        onPress={onPress}
-      >
-        <Ionicons name={actionIcon} color={colors.text} size={18} />
-      </TouchableOpacity>
     </View>
   );
 }
@@ -1068,81 +912,10 @@ const styles = StyleSheet.create({
   disabledText: {
     color: colors.muted,
   },
-  statsRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  statTile: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
-    flex: 1,
-    gap: 5,
-    minHeight: 86,
-    padding: 11,
-  },
-  statValue: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: "900",
-  },
-  statLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  sectionHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 2,
-  },
   sectionTitle: {
     color: colors.text,
     fontSize: 20,
     fontWeight: "900",
-  },
-  smallIconButton: {
-    alignItems: "center",
-    backgroundColor: colors.elevated,
-    borderRadius: 8,
-    height: 36,
-    justifyContent: "center",
-    width: 36,
-  },
-  songList: {
-    gap: 12,
-  },
-  artistRail: {
-    flexDirection: "row",
-    gap: 12,
-    paddingRight: 2,
-  },
-  empty: {
-    alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 10,
-    justifyContent: "center",
-    minHeight: 136,
-    padding: 18,
-  },
-  emptyTitle: {
-    color: colors.softText,
-    fontSize: 14,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  emptyButton: {
-    alignItems: "center",
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    height: 38,
-    justifyContent: "center",
-    width: 46,
   },
   loader: {
     marginTop: 30,

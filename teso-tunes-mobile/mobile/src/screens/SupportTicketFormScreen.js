@@ -24,6 +24,7 @@ import {
 } from "../api/musicApi";
 import { useAuth } from "../context/AuthContext";
 import { colors, spacing } from "../theme";
+import { supportCopy } from "../utils/supportLabels";
 import {
   appendPickedFile,
   fileFromPickedAsset,
@@ -38,7 +39,7 @@ function errorMessage(error) {
     error?.detail ||
     error?.cause?.message ||
     error?.message ||
-    "Could not create support ticket."
+    "Could not submit your support request."
   );
 }
 
@@ -177,7 +178,7 @@ export default function SupportTicketFormScreen({ navigation, route }) {
               <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
                 <Ionicons name="chevron-back" color={colors.softText} size={22} />
               </TouchableOpacity>
-              <Text style={styles.title}>Submit Ticket</Text>
+              <Text style={styles.title}>Submit a Support Request</Text>
               <View style={styles.iconSpacer} />
             </View>
 
@@ -272,7 +273,7 @@ export default function SupportTicketFormScreen({ navigation, route }) {
                     </View>
                   ) : null}
 
-                  {error ? <Text style={styles.errorText}>{error}</Text> : null}
+                  {error ? <Text style={styles.errorText}>{supportCopy(error)}</Text> : null}
 
                   <TouchableOpacity
                     activeOpacity={0.88}
@@ -285,7 +286,7 @@ export default function SupportTicketFormScreen({ navigation, route }) {
                     ) : (
                       <>
                         <Ionicons name="send" color={colors.background} size={18} />
-                        <Text style={styles.primaryText}>Create Ticket</Text>
+                        <Text style={styles.primaryText}>Submit a Support Request</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -345,6 +346,8 @@ const styles = StyleSheet.create({
     width: 42,
   },
   title: {
+    flex: 1,
+    textAlign: "center",
     color: colors.text,
     fontSize: 20,
     fontWeight: "950",
@@ -491,6 +494,8 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   primaryText: {
+    flexShrink: 1,
+    textAlign: "center",
     color: colors.background,
     fontSize: 14,
     fontWeight: "950",

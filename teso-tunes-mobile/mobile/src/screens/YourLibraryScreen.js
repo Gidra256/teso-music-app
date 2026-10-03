@@ -3,7 +3,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -28,7 +28,7 @@ import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
 
-const FILTERS = ["Playlists", "Liked", "Downloads", "Artists"];
+const FILTERS = ["Playlists", "Liked Songs", "Downloads", "Following Artists", "Recently Played"];
 
 function idSet(...groups) {
   return new Set(
@@ -40,7 +40,7 @@ function idSet(...groups) {
 }
 
 export default function YourLibraryScreen({ navigation, route }) {
-  const { isAuthenticated, listener, refreshAccount } = useAuth();
+  const { isAuthenticated, refreshAccount } = useAuth();
   const { followedArtistIds, likedSongIds } = useEngagement();
   const { recentlyPlayed } = usePlayer();
   const [activeFilter, setActiveFilter] = useState("Playlists");
@@ -59,11 +59,8 @@ export default function YourLibraryScreen({ navigation, route }) {
         getSongs(),
         getArtists(),
         isAuthenticated ? getPlaylists() : Promise.resolve([]),
+        isAuthenticated ? refreshAccount() : Promise.resolve(null),
       ]);
-
-      if (isAuthenticated) {
-        refreshAccount().catch(() => {});
-      }
 
       setSongs(Array.isArray(songItems) ? songItems : []);
       setArtists(Array.isArray(artistItems) ? artistItems : []);
@@ -73,7 +70,7 @@ export default function YourLibraryScreen({ navigation, route }) {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, route?.params?.refreshKey]);
+  }, [isAuthenticated, refreshAccount, route?.params?.refreshKey]);
 
   useFocusEffect(
     useCallback(() => {
@@ -82,13 +79,13 @@ export default function YourLibraryScreen({ navigation, route }) {
   );
 
   const likedIds = useMemo(
-    () => idSet(likedSongIds, listener?.liked_song_ids),
-    [likedSongIds, listener?.liked_song_ids]
+    () => idSet(likedSongIds),
+    [likedSongIds]
   );
 
   const followedIds = useMemo(
-    () => idSet(followedArtistIds, listener?.followed_artist_ids),
-    [followedArtistIds, listener?.followed_artist_ids]
+    () => idSet(followedArtistIds),
+    [followedArtistIds]
   );
 
   const likedSongs = useMemo(
@@ -130,7 +127,11 @@ export default function YourLibraryScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={loading} tintColor={colors.primary} onRefresh={loadLibrary} />}
+      >
         <View style={styles.header}>
           <ProfileAvatarButton />
           <Text style={styles.title}>Your Library</Text>
@@ -155,6 +156,8 @@ export default function YourLibraryScreen({ navigation, route }) {
               <TouchableOpacity
                 key={filter}
                 activeOpacity={0.84}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
                 style={[styles.chip, active && styles.activeChip]}
                 onPress={() => setActiveFilter(filter)}
               >
@@ -163,20 +166,6 @@ export default function YourLibraryScreen({ navigation, route }) {
             );
           })}
         </ScrollView>
-
-        {recentlyPlayed.length > 0 ? (
-          <View style={styles.section}>
-            <SectionHeader title="Recently played" />
-            <FlatList
-              horizontal
-              data={recentlyPlayed}
-              keyExtractor={(item) => String(item.id)}
-              renderItem={({ item }) => <SongCard song={item} compact queue={recentlyPlayed} />}
-              showsHorizontalScrollIndicator={false}
-              ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
-            />
-          </View>
-        ) : null}
 
         {loading ? (
           <ActivityIndicator color={colors.primary} style={styles.loader} />
@@ -189,6 +178,7 @@ export default function YourLibraryScreen({ navigation, route }) {
           </View>
         ) : (
           <View style={styles.section}>
+            <SectionHeader title={activeFilter} />
             {activeFilter === "Playlists" ? (
               <PlaylistList
                 isAuthenticated={isAuthenticated}
@@ -199,7 +189,7 @@ export default function YourLibraryScreen({ navigation, route }) {
               />
             ) : null}
 
-            {activeFilter === "Liked" ? (
+            {activeFilter === "Liked Songs" ? (
               <SongList
                 emptyText="Liked songs will appear here."
                 songs={likedSongs}
@@ -214,10 +204,17 @@ export default function YourLibraryScreen({ navigation, route }) {
               </View>
             ) : null}
 
-            {activeFilter === "Artists" ? (
+            {activeFilter === "Following Artists" ? (
               <ArtistList
                 artists={followedArtists}
                 onOpen={(artist) => navigateStack("ArtistDetail", { id: artist.id })}
+              />
+            ) : null}
+            {activeFilter === "Recently Played" ? (
+              <SongList
+                emptyText="Songs you play will appear here."
+                emptyIcon="time-outline"
+                songs={recentlyPlayed}
               />
             ) : null}
           </View>
@@ -291,11 +288,11 @@ function PlaylistList({ isAuthenticated, playlists, onCreate, onOpen, onSignIn }
   );
 }
 
-function SongList({ songs, emptyText }) {
+function SongList({ songs, emptyText, emptyIcon = "heart-outline" }) {
   if (songs.length === 0) {
     return (
       <View style={styles.emptyBlock}>
-        <Ionicons name="heart-outline" color={colors.accent} size={34} />
+        <Ionicons name={emptyIcon} color={colors.accent} size={34} />
         <Text style={styles.emptyTitle}>Nothing here yet</Text>
         <Text style={styles.emptyText}>{emptyText}</Text>
       </View>

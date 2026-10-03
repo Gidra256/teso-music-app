@@ -20,7 +20,6 @@ export default function ArtistDetailScreen({ route }) {
     getArtistFollowerCount,
     isArtistFollowed,
     isArtistFollowPending,
-    syncFollowedArtistIds,
     unfollowArtistAction,
   } = useEngagement();
   const { isAuthenticated, refreshAccount } = useAuth();
@@ -41,13 +40,10 @@ export default function ArtistDetailScreen({ route }) {
       getArtist(artistId),
       isAuthenticated ? refreshAccount().catch(() => null) : Promise.resolve(null),
     ])
-      .then(([item, account]) => {
+      .then(([item]) => {
         if (!mounted) return;
         setError("");
         setArtist(item);
-        if (account?.followed_artist_ids) {
-          syncFollowedArtistIds(account.followed_artist_ids).catch(() => {});
-        }
       })
       .catch((loadError) => {
         if (!mounted) return;
