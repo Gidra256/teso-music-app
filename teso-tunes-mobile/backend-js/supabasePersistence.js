@@ -441,7 +441,7 @@ export function createSupabasePersistence({
       artwork: row.artwork_path
         ? storageUrlFor(buckets.artwork, row.artwork_path)
         : row.legacy_artwork || "",
-      song_count: Number(row.song_count || songs.length || 0),
+      song_count: Number(row.song_count ?? songs?.length ?? 0),
       created_at: toIso(row.created_at),
       updated_at: toIso(row.updated_at),
       ...(songs ? { songs } : {}),
