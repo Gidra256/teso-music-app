@@ -604,6 +604,7 @@
         flags: {},
         health: null,
         audit: [],
+        loads: {},
         editingArtistId: null,
         editingSongId: null,
         editingGenreId: null,
@@ -688,7 +689,14 @@
         };
         const response = await fetch(path, { ...fetchOptions, headers });
         const text = await response.text();
-        const data = text ? JSON.parse(text) : null;
+        let data;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch (error) {
+          const responseError = new Error(`Could not read the server response (${response.status}). Please retry.`);
+          responseError.status = response.status;
+          throw responseError;
+        }
 
         if (!response.ok) {
           const message = data?.detail || `Request failed (${response.status})`;
@@ -697,45 +705,150 @@
             state.token = "";
             showLogin();
           }
-          throw new Error(message);
+          const error = new Error(message);
+          error.status = response.status;
+          throw error;
         }
         return data;
       }
 
-      async function fetchOptional(key, path) {
-        try {
-          state[key] = await api(path, { suppressForbiddenLogout: true });
-        } catch (error) {
-          console.warn(path, error.message);
-        }
+      const dataSources = {
+        admin: "/admin-api/me",
+        dashboard: "/admin-api/dashboard",
+        artists: "/admin-api/artists",
+        songs: "/admin-api/songs",
+        applications: "/admin-api/artist-applications",
+        releases: "/admin-api/releases",
+        users: "/admin-api/users",
+        supportTickets: "/admin-api/support/tickets",
+        reports: "/admin-api/reports",
+        genres: "/admin-api/genres",
+        settings: "/admin-api/platform-settings",
+        flags: "/admin-api/feature-flags",
+        health: "/admin-api/platform-health",
+        audit: "/admin-api/audit-log",
+      };
+      const viewSources = {
+        dashboard: ["dashboard", "health"],
+        applications: ["applications"],
+        releases: ["releases"],
+        catalog: ["songs", "artists", "genres"],
+        artists: ["artists", "genres"],
+        users: ["users"],
+        support: ["supportTickets"],
+        reports: ["reports"],
+        discovery: ["artists", "songs"],
+        genres: ["genres"],
+        settings: ["settings", "flags"],
+        health: ["health"],
+        audit: ["audit"],
+      };
+      const arraySources = new Set([
+        "artists", "songs", "applications", "releases", "users",
+        "supportTickets", "reports", "genres", "audit",
+      ]);
+      const pendingLoads = new Map();
+      let readQueue = Promise.resolve();
+
+      function loadResource(key, { force = false } = {}) {
+        const requestedToken = state.token;
+        const pendingKey = `${requestedToken}:${key}`;
+        if (pendingLoads.has(pendingKey)) return pendingLoads.get(pendingKey);
+        if (!force && state.loads[key]?.status === "ready") return Promise.resolve();
+        state.loads[key] = { status: "loading" };
+        // Serialize reads across views, including rapid navigation and retries.
+        const job = readQueue.then(async () => {
+          if (!requestedToken || requestedToken !== state.token) {
+            pendingLoads.delete(pendingKey);
+            return;
+          }
+          try {
+            const data = await api(dataSources[key], {
+              suppressForbiddenLogout: true,
+              signal: AbortSignal.timeout(45000),
+            });
+            if (requestedToken !== state.token) return;
+            if (arraySources.has(key) ? !Array.isArray(data) : !data || typeof data !== "object" || Array.isArray(data)) {
+              throw new Error("The server returned unexpected data. Please retry.");
+            }
+            if (key === "admin" && !data.admin) {
+              throw new Error("Could not verify your admin session. Please retry.");
+            }
+            state[key] = key === "admin" ? data.admin : data;
+            state.loads[key] = { status: "ready" };
+            if (key === "admin") {
+              adminRoleEl.textContent = `${state.admin.username} - ${state.admin.role.replaceAll("_", " ")}`;
+            }
+          } catch (error) {
+            if (requestedToken !== state.token) return;
+            if (key === "admin" && [401, 403].includes(error.status)) {
+              localStorage.removeItem("tesoAdminToken");
+              state.token = "";
+              loginStatusEl.textContent = "Your session has expired. Please sign in again.";
+              showLogin();
+              return;
+            }
+            state.loads[key] = {
+              status: "error",
+              message: error.status === 403 ? "Your account does not have access to this section." : error.message,
+            };
+          } finally {
+            pendingLoads.delete(pendingKey);
+            if (requestedToken === state.token && (key === "admin" || viewSources[state.activeView].includes(key))) {
+              renderPreservingScroll();
+            }
+          }
+        });
+        pendingLoads.set(pendingKey, job);
+        readQueue = job.catch(() => {});
+        return job;
+      }
+
+      async function loadView(view, { force = false } = {}) {
+        if (!state.token) return;
+        const keys = ["admin", ...viewSources[view]];
+        const jobs = keys.map((key) => loadResource(key, { force: force && key !== "admin" }));
+        renderPreservingScroll();
+        await Promise.all(jobs);
       }
 
       async function loadData() {
         if (!state.token) return;
-        rememberScrollPositions();
-        setStatus("Loading admin data...");
-        showAdmin();
-        await Promise.all([
-          fetchOptional("admin", "/admin-api/me"),
-          fetchOptional("dashboard", "/admin-api/dashboard"),
-          fetchOptional("artists", "/admin-api/artists"),
-          fetchOptional("songs", "/admin-api/songs"),
-          fetchOptional("applications", "/admin-api/artist-applications"),
-          fetchOptional("releases", "/admin-api/releases"),
-          fetchOptional("users", "/admin-api/users"),
-          fetchOptional("supportTickets", "/admin-api/support/tickets"),
-          fetchOptional("reports", "/admin-api/reports"),
-          fetchOptional("genres", "/admin-api/genres"),
-          fetchOptional("settings", "/admin-api/platform-settings"),
-          fetchOptional("flags", "/admin-api/feature-flags"),
-          fetchOptional("health", "/admin-api/platform-health"),
-          fetchOptional("audit", "/admin-api/audit-log"),
-        ]);
-        if (state.admin?.admin) state.admin = state.admin.admin;
-        adminRoleEl.textContent = `${state.admin?.username || "admin"} - ${(state.admin?.role || "super_admin").replaceAll("_", " ")}`;
+        // Mutations and explicit refreshes invalidate data in other views too.
+        for (const [key, load] of Object.entries(state.loads)) {
+          if (load.status !== "loading") state.loads[key] = { status: "idle" };
+        }
+        const identity = loadResource("admin", { force: true });
+        renderPreservingScroll();
+        await identity;
+        if (state.token && state.loads.admin?.status === "ready") {
+          await loadView(state.activeView, { force: true });
+        }
+      }
+
+      function renderLoadState() {
+        const keys = ["admin", ...viewSources[state.activeView]];
+        const failed = keys.filter((key) => state.loads[key]?.status === "error");
+        const loading = keys.some((key) => ["idle", "loading"].includes(state.loads[key]?.status || "idle"));
+        const busy = keys.some((key) => state.loads[key]?.status === "loading");
+        if (failed.length) {
+          setStatus("Could not load this section.");
+          viewEl.innerHTML = `<section class="panel" role="alert">
+            <h2>Could not load ${escapeHtml(viewTitleEl.textContent)}</h2>
+            <p class="details">${failed.map((key) => escapeHtml(state.loads[key].message)).join("<br />")}</p>
+            <button data-action="retry-data" type="button" ${busy ? "disabled" : ""}>Retry</button>
+          </section>`;
+          return true;
+        }
+        if (loading) {
+          setStatus("Loading admin data...");
+          viewEl.innerHTML = `<section class="panel" role="status" aria-live="polite">
+            <p class="details">Loading ${escapeHtml(viewTitleEl.textContent)}...</p>
+          </section>`;
+          return true;
+        }
         setStatus("");
-        render();
-        restoreScrollPositions();
+        return false;
       }
 
       function renderNav() {
@@ -762,7 +875,7 @@
         state.editingArtistId = null;
         state.editingSongId = null;
         state.editingGenreId = null;
-        render();
+        loadView(view).catch((error) => setStatus(error.message));
       }
 
       function render() {
@@ -778,6 +891,7 @@
         const current = views.find(([key]) => key === state.activeView) || views[0];
         viewTitleEl.textContent = current[1];
         viewSubtitleEl.textContent = current[2];
+        if (renderLoadState()) return;
 
         const renderers = {
           applications: renderApplications,
@@ -1604,9 +1718,9 @@
       }
 
       async function refreshSupportTickets() {
-        state.supportTickets = await api("/admin-api/support/tickets", {
-          suppressForbiddenLogout: true,
-        });
+        const loading = loadResource("supportTickets", { force: true });
+        renderPreservingScroll();
+        await loading;
       }
 
       async function openSupportTicket(id) {
@@ -1708,6 +1822,11 @@
 
       async function handleAction(action, button) {
         const id = button.dataset.id;
+        if (action === "retry-data") {
+          return state.loads.admin?.status === "ready"
+            ? loadView(state.activeView, { force: true })
+            : loadData();
+        }
         if (action === "cancel-artist") {
           state.editingArtistId = null;
           return renderPreservingScroll();
@@ -1791,12 +1910,10 @@
           return loadData();
         }
         if (action === "refresh-health") {
-          state.health = await api("/admin-api/platform-health");
-          return render();
+          return loadView("health", { force: true });
         }
         if (action === "refresh-audit") {
-          state.audit = await api("/admin-api/audit-log");
-          return render();
+          return loadView("audit", { force: true });
         }
         if (action === "approve-application" && !confirm("Approve this artist application?")) return;
         if (action === "approve-release" && !confirm("Approve this release after listening?")) return;
@@ -1886,12 +2003,7 @@
       });
 
       if (state.token) {
-        loadData().catch((error) => {
-          state.token = "";
-          localStorage.removeItem("tesoAdminToken");
-          showLogin();
-          loginStatusEl.textContent = error.message;
-        });
+        loadData().catch((error) => setStatus(error.message));
       } else {
         render();
       }

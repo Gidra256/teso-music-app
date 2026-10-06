@@ -534,6 +534,8 @@ export function createSupabasePersistence({
 
   async function loadDb() {
     const pool = getPool();
+    // Keep one outstanding read per snapshot. Concurrent requests otherwise
+    // enqueue fifteen reads each and can exceed the acquisition timeout.
     const [
       listeners,
       artists,
@@ -550,23 +552,23 @@ export function createSupabasePersistence({
       platformSettings,
       featureFlags,
       adminAuditLogs,
-    ] = await Promise.all([
-      queryRows(pool, "listeners"),
-      queryRows(pool, "artists"),
-      queryRows(pool, "genres", "position, name"),
-      queryRows(pool, "artist_applications"),
-      queryRows(pool, "songs"),
-      queryRows(pool, "releases"),
-      queryRows(pool, "auth_tokens", "created_at"),
-      queryRows(pool, "song_likes"),
-      queryRows(pool, "artist_follows"),
-      queryRows(pool, "playlists"),
-      queryRows(pool, "playlist_songs", "playlist_id, position, id"),
-      queryRows(pool, "reports"),
-      queryRows(pool, "platform_settings"),
-      queryRows(pool, "feature_flags", "key"),
-      queryRows(pool, "admin_audit_logs", "id"),
-    ]);
+    ] = [
+      await queryRows(pool, "listeners"),
+      await queryRows(pool, "artists"),
+      await queryRows(pool, "genres", "position, name"),
+      await queryRows(pool, "artist_applications"),
+      await queryRows(pool, "songs"),
+      await queryRows(pool, "releases"),
+      await queryRows(pool, "auth_tokens", "created_at"),
+      await queryRows(pool, "song_likes"),
+      await queryRows(pool, "artist_follows"),
+      await queryRows(pool, "playlists"),
+      await queryRows(pool, "playlist_songs", "playlist_id, position, id"),
+      await queryRows(pool, "reports"),
+      await queryRows(pool, "platform_settings"),
+      await queryRows(pool, "feature_flags", "key"),
+      await queryRows(pool, "admin_audit_logs", "id"),
+    ];
 
     const settingsRow = platformSettings[0] || {};
     const featureFlagMap = Object.fromEntries(
