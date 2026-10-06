@@ -8,10 +8,10 @@ import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
-import { artworkSource } from "../utils/artwork";
+import { artworkSource, TESOHUB_ARTWORK_PLACEHOLDER } from "../utils/artwork";
 import { formatPlays } from "../utils/format";
 
-export default function SongCard({ song, compact = false, queue = [] }) {
+export default function SongCard({ song, compact = false, queue = [], onPress }) {
   const navigation = useNavigation();
   const { width } = useWindowDimensions();
   const { isAuthenticated } = useAuth();
@@ -26,7 +26,7 @@ export default function SongCard({ song, compact = false, queue = [] }) {
     168,
     Math.max(146, Math.round((width - spacing.page * 2 - 18) / 2.2))
   );
-  const handlePress = () => (active ? togglePlay() : playSong(song, queue));
+  const handlePress = onPress || (() => (active ? togglePlay() : playSong(song, queue)));
 
   function openProfile() {
     const parentNavigation = navigation.getParent?.();
@@ -50,7 +50,7 @@ export default function SongCard({ song, compact = false, queue = [] }) {
   if (compact) {
     return (
       <TouchableOpacity style={[styles.tile, { width: compactTileSize }]} onPress={handlePress}>
-        <Image source={artworkSource(song.cover_image)} style={[styles.tileCover, { width: compactTileSize, height: compactTileSize }]} />
+        <Image defaultSource={TESOHUB_ARTWORK_PLACEHOLDER} source={artworkSource(song.cover_image)} style={[styles.tileCover, { width: compactTileSize, height: compactTileSize }]} />
         <Text style={styles.tileTitle} numberOfLines={2}>{song.title}</Text>
         <Text style={styles.tileMeta} numberOfLines={2}>{song.artist_name}</Text>
         <TouchableOpacity
@@ -76,7 +76,7 @@ export default function SongCard({ song, compact = false, queue = [] }) {
   return (
     <>
       <TouchableOpacity style={styles.card} onPress={handlePress}>
-        <Image source={artworkSource(song.cover_image)} style={styles.cover} />
+        <Image defaultSource={TESOHUB_ARTWORK_PLACEHOLDER} source={artworkSource(song.cover_image)} style={styles.cover} />
         <View style={styles.body}>
           <Text style={styles.title} numberOfLines={1}>{song.title}</Text>
           <Text style={styles.meta} numberOfLines={1}>{song.artist_name}</Text>
@@ -206,13 +206,13 @@ const styles = StyleSheet.create({
   },
   tileMeta: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 17,
   },
   tileLikeButton: {
     alignItems: "center",
     flexDirection: "row",
     gap: 5,
-    minHeight: 24,
+    minHeight: 44,
   },
 });

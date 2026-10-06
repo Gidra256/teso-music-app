@@ -16,8 +16,8 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 const key = "tesohub_music_onboarding_v1";
-const song = { id: 37, status: "published", title: "Onboarding Test Song", artist: 11, artist_name: "Onboarding Artist", cover_image: "", audio_file: "https://audio.example.test/test.wav", duration: 120 };
-const artist = { id: 11, name: song.artist_name, follower_count: 10, songs: [song] };
+const song = { id: 37, status: "published", is_featured: true, title: "Onboarding Test Song", artist: 11, artist_name: "Onboarding Artist", cover_image: "", audio_file: "https://audio.example.test/test.wav", duration: 120 };
+const artist = { id: 11, is_featured: false, name: song.artist_name, follower_count: 10, songs: [song] };
 
 async function fixture(browser, width, height, seed = {}) {
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: "block" });

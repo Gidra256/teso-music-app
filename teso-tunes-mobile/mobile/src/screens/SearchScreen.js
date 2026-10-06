@@ -10,12 +10,13 @@ import SearchBar from "../components/SearchBar";
 import SongCard from "../components/SongCard";
 import { colors, spacing } from "../theme";
 
-export default function SearchScreen({ navigation }) {
+export default function SearchScreen({ navigation, route }) {
   const [query, setQuery] = useState("");
   const [songs, setSongs] = useState([]);
   const [artists, setArtists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const genre = route?.params?.genre || "";
 
   const loadSongs = useCallback(() => {
     setLoading(true);
@@ -36,6 +37,7 @@ export default function SearchScreen({ navigation }) {
   }, [loadSongs]);
 
   const songResults = useMemo(() => {
+    if (genre) return songs.filter(song => (song.genre || "").toLowerCase() === genre.toLowerCase());
     if (!query.trim()) return songs.slice(0, 12);
     return songs.filter((song) => {
       const needle = query.toLowerCase();
@@ -45,9 +47,10 @@ export default function SearchScreen({ navigation }) {
         (song.genre || "").toLowerCase().includes(needle)
       );
     });
-  }, [songs, query]);
+  }, [songs, query, genre]);
 
   const artistResults = useMemo(() => {
+    if (genre) return [];
     if (!query.trim()) return artists.slice(0, 8);
     return artists.filter((artist) => {
       const needle = query.toLowerCase();
@@ -57,7 +60,7 @@ export default function SearchScreen({ navigation }) {
         (artist.location || "").toLowerCase().includes(needle)
       );
     });
-  }, [artists, query]);
+  }, [artists, query, genre]);
 
   const hasResults = songResults.length > 0 || artistResults.length > 0;
 
@@ -72,14 +75,15 @@ export default function SearchScreen({ navigation }) {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView testID="search-screen" style={styles.safe}>
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <ProfileAvatarButton />
           <Text style={styles.title}>Search</Text>
           <View style={styles.titleSpacer} />
         </View>
-        <SearchBar value={query} onChangeText={setQuery} placeholder="Find songs, artists, genres" />
+        <SearchBar value={genre || query} onChangeText={value => { navigation.setParams({ genre: undefined }); setQuery(value); }} placeholder="Find songs, artists, genres" />
+        {genre ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear genre filter" onPress={() => navigation.setParams({ genre: undefined })} style={styles.clearGenre}><Text style={styles.genreLabel}>Clear genre: {genre}</Text></TouchableOpacity> : null}
       </View>
       {loading ? (
         <ActivityIndicator color={colors.primary} style={styles.loader} />
@@ -128,6 +132,8 @@ export default function SearchScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  clearGenre: { minHeight: 44, justifyContent: "center" },
+  genreLabel: { color: colors.softText, fontSize: 14 },
   safe: {
     backgroundColor: colors.background,
     flex: 1,

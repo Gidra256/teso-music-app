@@ -404,6 +404,27 @@ export async function getGenres() {
   return fetchJson("/genres/");
 }
 
+const discoveryRequests = new Map();
+
+export function getDiscoveryItems(kind, { discovery = "more", limit = 16, ids } = {}) {
+  const query = new URLSearchParams({ discovery, limit: String(limit) });
+  if (ids !== undefined) query.set("ids", ids.join(","));
+  const path = kind === "genres" ? "/genres/" : `/${kind}/?${query}`;
+  const key = `${authToken}:${path}`;
+  if (discoveryRequests.has(key)) return discoveryRequests.get(key);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  // Bounded public lists stay fresh; never revive a hidden song from a saved cache.
+  const request = fetchJson(path, { signal: controller.signal })
+    .then(items => {
+      if (!Array.isArray(items)) throw new Error("Music could not be loaded. Please retry.");
+      return items;
+    })
+    .finally(() => { clearTimeout(timeout); discoveryRequests.delete(key); });
+  discoveryRequests.set(key, request);
+  return request;
+}
+
 export async function getPlatformStatus() {
   return fetchJson("/platform-status/");
 }

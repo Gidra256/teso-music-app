@@ -5,7 +5,7 @@ import { ActivityIndicator, Image, Platform, StyleSheet, Text, TouchableOpacity,
 import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { colors, spacing } from "../theme";
-import { artworkSource } from "../utils/artwork";
+import { artworkSource, TESOHUB_ARTWORK_PLACEHOLDER } from "../utils/artwork";
 import { formatFollowers } from "../utils/format";
 
 export default function ArtistCard({ artist, onPress, compact = false }) {
@@ -47,10 +47,10 @@ export default function ArtistCard({ artist, onPress, compact = false }) {
 
   return (
     <TouchableOpacity
-      style={[styles.card, compact && styles.compact, compact && { width: compactTileSize }]}
+      style={[styles.card, compact ? styles.compact : styles.flexCard, compact && { width: compactTileSize }]}
       onPress={onPress}
     >
-      <Image source={artworkSource(artist.photo)} style={styles.photo} />
+      <Image defaultSource={TESOHUB_ARTWORK_PLACEHOLDER} source={artworkSource(artist.photo)} style={[styles.photo, compact && { width: compactTileSize, height: compactTileSize }]} />
       <View style={styles.copy}>
         <Text style={styles.name} numberOfLines={1}>{artist.name}</Text>
         <Text style={styles.meta} numberOfLines={1}>{formatFollowers(followerCount)}</Text>
@@ -80,12 +80,10 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: "transparent",
     borderRadius: 8,
-    flex: 1,
     overflow: "hidden",
   },
-  compact: {
-    flex: 0,
-  },
+  flexCard: { flex: 1 },
+  compact: { flexGrow: 0, flexShrink: 0 },
   photo: {
     aspectRatio: 1,
     height: Platform.OS === "web" ? "auto" : undefined,
@@ -104,7 +102,7 @@ const styles = StyleSheet.create({
   },
   meta: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 13,
   },
   followButton: {
     alignItems: "center",
@@ -115,7 +113,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 5,
     marginTop: 2,
-    minHeight: 30,
+    minHeight: 44,
     paddingHorizontal: 10,
   },
   followedButton: {
@@ -124,7 +122,7 @@ const styles = StyleSheet.create({
   },
   followText: {
     color: colors.softText,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "900",
   },
   followedText: {
