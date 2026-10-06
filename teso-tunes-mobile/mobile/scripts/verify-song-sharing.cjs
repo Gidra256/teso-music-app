@@ -92,10 +92,10 @@ async function verify(browser, width, height) {
     await page.waitForURL("**/artist/11");
     await text("10 followers").waitFor();
     await label("Open song menu").click();
-    await label("Share song").click();
+    await label("Share").click();
     await label("Copy song link").waitFor();
     await label("Close sharing").click();
-    await label("Close add to playlist").click();
+    assert.equal(await label("Close add to playlist").count(), 0, "Sharing no longer opens a nested playlist sheet");
     unavailable = true;
     await page.goto(`${base}/song/37`);
     await text("Song unavailable").waitFor();

@@ -180,7 +180,8 @@ async function verify(browser, width, height, signedIn = false) {
     console.log(`PASS ${width}x${height} ${signedIn ? 'listener' : 'guest'}: shell, direct/refresh/back, filters/scroll, menu/share/auth, real audio, mini/nav/last-row layout`);
   } catch (error) {
     await page.screenshot({ path: path.join(artifacts, `FAIL-${width}.png`) }).catch(() => {});
-    console.error({ width, signedIn, errors, url: page.url(), scroll: await list().evaluate(el => ({ top: el.scrollTop, height: el.scrollHeight, viewport: el.clientHeight })).catch(() => null) });
+    console.error({ width, signedIn, errors, url: page.url(), scroll: await list().evaluate(el => ({ top: el.scrollTop, height: el.scrollHeight, viewport: el.clientHeight,
+      rows: [...el.querySelectorAll('*')].filter(e => /^Browse Song \d+$/.test(e.textContent)).map(e => ({ text: e.textContent, top: e.getBoundingClientRect().top, bottom: e.getBoundingClientRect().bottom })) })).catch(() => null) });
     throw error;
   } finally { await context.close(); }
 }

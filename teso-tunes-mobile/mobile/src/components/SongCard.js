@@ -3,7 +3,7 @@ import { useNavigation } from "@react-navigation/native";
 import { useState } from "react";
 import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
-import AddToPlaylistModal from "./AddToPlaylistModal";
+import SongActionsModal from "./SongActionsModal";
 import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
@@ -17,8 +17,8 @@ export default function SongCard({ song, compact = false, queue = [], onPress, o
   const { isAuthenticated } = useAuth();
   const { currentSong, isPlaying, playSong, togglePlay } = usePlayer();
   const { getSongLikeCount, isSongLiked, isSongLikePending, toggleSongLike } = useEngagement();
-  const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
-  const active = currentSong?.id === song.id;
+  const [actionsVisible, setActionsVisible] = useState(false);
+  const active = String(currentSong?.id) === String(song.id);
   const liked = isSongLiked(song.id);
   const likePending = isSongLikePending(song.id);
   const likeCount = getSongLikeCount(song);
@@ -104,7 +104,7 @@ export default function SongCard({ song, compact = false, queue = [], onPress, o
           onPress={(event) => {
             event.stopPropagation?.();
             if (onMenuPress) onMenuPress(song);
-            else setPlaylistModalVisible(true);
+            else setActionsVisible(true);
           }}
         >
           <Ionicons name="ellipsis-horizontal" color={colors.softText} size={20} />
@@ -113,10 +113,10 @@ export default function SongCard({ song, compact = false, queue = [], onPress, o
           <Ionicons name={active && isPlaying ? "pause" : "play"} color={colors.text} size={18} />
         </View>
       </TouchableOpacity>
-      <AddToPlaylistModal
-        visible={playlistModalVisible}
-        song={song}
-        onClose={() => setPlaylistModalVisible(false)}
+      <SongActionsModal
+        song={actionsVisible ? song : null}
+        queue={queue}
+        onClose={() => setActionsVisible(false)}
       />
     </>
   );

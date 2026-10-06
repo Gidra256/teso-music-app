@@ -24,7 +24,6 @@ import {
 } from "../api/musicApi";
 import { useAuth } from "../context/AuthContext";
 import { colors, spacing } from "../theme";
-import SongShareModal from "./SongShareModal";
 
 export default function AddToPlaylistModal({ visible, song, onClose }) {
   const navigation = useNavigation();
@@ -39,7 +38,6 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
   const [newName, setNewName] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [shareVisible, setShareVisible] = useState(false);
 
   useEffect(() => {
     if (!visible) {
@@ -48,7 +46,6 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
       setMessage("");
       setError("");
       if (!addingRef.current) setAddingId(null);
-      setShareVisible(false);
       return;
     }
 
@@ -167,11 +164,6 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity accessibilityLabel="Share song" style={styles.newPlaylistRow} onPress={() => setShareVisible(true)}>
-            <Ionicons name="share-social-outline" color={colors.primary} size={22} />
-            <Text style={styles.newPlaylistText}>Share song</Text>
-          </TouchableOpacity>
-          <SongShareModal visible={visible && shareVisible} song={song} onClose={() => setShareVisible(false)} />
           {!isAuthenticated ? (
             <View style={styles.centerState}>
               <Ionicons name="person-circle" color={colors.accent} size={36} />

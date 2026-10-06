@@ -5,6 +5,8 @@ import { AppState } from "react-native";
 
 import { incrementSongPlay } from "../api/musicApi";
 import { createProgressStore } from "../utils/playerProgress";
+import { createPlaybackQueue, songKey } from "../utils/playbackQueue";
+import { PlaybackQueueContext } from "./PlaybackQueueContext";
 import { PlayerProgressContext, usePlayerActions } from "./PlayerProgressContext";
 export { usePlayerProgress } from "./PlayerProgressContext";
 
@@ -43,9 +45,7 @@ export function PlayerProvider({ children }) {
   const historyWriteRef = useRef(Promise.resolve());
   const historyRevisionRef = useRef(0);
   const recordedPlayerRef = useRef(null);
-  const queueRef = useRef([]);
-  const repeatRef = useRef(false);
-  const shuffleRef = useRef(false);
+  const queueStore = useRef(createPlaybackQueue()).current;
   const finishHandledRef = useRef(false);
   const lastCountedSongIdRef = useRef(null);
   const currentTimeRef = useRef(0);
@@ -58,7 +58,7 @@ export function PlayerProvider({ children }) {
   const [isBuffering, setIsBuffering] = useState(false);
   const [playbackError, setPlaybackError] = useState("");
   const [didFinish, setDidFinish] = useState(false);
-  const [isRepeatOn, setIsRepeatOn] = useState(false);
+  const [repeatMode, setRepeatMode] = useState("off");
   const [isShuffleOn, setIsShuffleOn] = useState(false);
   const [recentlyPlayed, setRecentlyPlayed] = useState([]);
   const [backgroundPlaybackEnabled, setBackgroundPlaybackEnabledState] = useState(true);
@@ -226,7 +226,7 @@ export function PlayerProvider({ children }) {
 
   function handleSongFinished() {
     const player = soundRef.current;
-    if (repeatRef.current && player?.seekTo) {
+    if (queueStore.getSnapshot().repeatMode === "one" && player?.seekTo) {
       const command = commandRef.current;
       seekTo(0).then(() => {
         if (player !== soundRef.current || command !== commandRef.current) return;
@@ -240,12 +240,13 @@ export function PlayerProvider({ children }) {
       return;
     }
 
-    if (shuffleRef.current && queueRef.current.length > 1) {
-      const nextSongs = queueRef.current.filter((song) => song?.id !== currentSongRef.current?.id);
-      const nextSong = nextSongs[Math.floor(Math.random() * nextSongs.length)];
-      if (nextSong) {
-        playSong(nextSong, queueRef.current);
-      }
+    const next = queueStore.advance(1, true);
+    if (next) playEntry(next);
+    else {
+      pendingCommandRef.current = null;
+      desiredPlayingRef.current = false;
+      setIsPlaying(false);
+      setIsBuffering(false);
     }
   }
 
@@ -356,42 +357,17 @@ export function PlayerProvider({ children }) {
     } catch (error) {}
   }
 
-  function findCurrentQueueIndex() {
-    const currentId = currentSongRef.current?.id;
-    return queueRef.current.findIndex((song) => song?.id === currentId);
-  }
+  function playEntry(entry) { if (entry) return playSong(entry.song, [], entry.id); }
+  function playQueueEntry(id) { return playEntry(queueStore.select(id)); }
+  function playNextSong() { return playEntry(queueStore.advance(1)); }
+  function playPreviousSong() { return playEntry(queueStore.advance(-1)); }
+  function playNext(song) { return queueStore.enqueue(song, true); }
+  function addToQueue(song) { return queueStore.enqueue(song); }
 
-  function playQueueSongAt(index) {
-    const queue = queueRef.current;
-    if (!Array.isArray(queue) || queue.length === 0) return;
-
-    const safeIndex = (index + queue.length) % queue.length;
-    const nextSong = queue[safeIndex];
-    if (nextSong) {
-      playSong(nextSong, queue);
-    }
-  }
-
-  function playNextSong() {
-    if (shuffleRef.current && queueRef.current.length > 1) {
-      const alternatives = queueRef.current.filter(song => Number(song.id) !== Number(currentSongRef.current?.id));
-      if (alternatives.length) playSong(alternatives[Math.floor(Math.random() * alternatives.length)], queueRef.current);
-      return;
-    }
-    const index = findCurrentQueueIndex();
-    if (index < 0) return;
-    playQueueSongAt(index + 1);
-  }
-
-  function playPreviousSong() {
-    const index = findCurrentQueueIndex();
-    if (index < 0) return;
-    playQueueSongAt(index - 1);
-  }
-
-  async function playSong(song, queue = []) {
+  async function playSong(song, queue = [], entryId = null) {
     if (!song) return;
-    if (Number(song.id) === Number(currentSongRef.current?.id) && (preparingRef.current || (desiredPlayingRef.current && soundRef.current && failedPlayerRef.current !== soundRef.current))) return;
+    if (!entryId && songKey(song) === songKey(currentSongRef.current) && (preparingRef.current || (desiredPlayingRef.current && soundRef.current && failedPlayerRef.current !== soundRef.current))) return;
+    if (!entryId) queueStore.start(song, queue);
     const sourceVersion = ++sourceVersionRef.current;
     commandRef.current += 1;
     unloadCurrentSound();
@@ -401,11 +377,6 @@ export function PlayerProvider({ children }) {
     setCurrentSong(song);
     currentSongRef.current = song;
     finishHandledRef.current = false;
-    if (Array.isArray(queue) && queue.length > 0) {
-      queueRef.current = queue;
-    } else if (!queueRef.current.some(item => Number(item.id) === Number(song.id))) {
-      queueRef.current = [song];
-    }
     setIsPlaying(true);
     setIsBuffering(true);
     setPlaybackError("");
@@ -529,7 +500,7 @@ export function PlayerProvider({ children }) {
     if (!playing) setIsBuffering(false);
     const player = soundRef.current;
     if (!player) {
-      if (playing && !preparingRef.current) playSong(currentSongRef.current, queueRef.current);
+      if (playing && !preparingRef.current) retryPlayback();
       return;
     }
     try {
@@ -554,20 +525,14 @@ export function PlayerProvider({ children }) {
     }
   }
 
-  function retryPlayback() { return playSong(currentSongRef.current, queueRef.current); }
+  function retryPlayback() { return playEntry(queueStore.getSnapshot().currentEntry); }
 
   function toggleRepeat() {
-    setIsRepeatOn((value) => {
-      repeatRef.current = !value;
-      return !value;
-    });
+    setRepeatMode(queueStore.toggleRepeat());
   }
 
   function toggleShuffle() {
-    setIsShuffleOn((value) => {
-      shuffleRef.current = !value;
-      return !value;
-    });
+    setIsShuffleOn(queueStore.toggleShuffle());
   }
 
   async function setBackgroundPlaybackEnabled(enabled) {
@@ -591,7 +556,7 @@ export function PlayerProvider({ children }) {
     }
   }
 
-  const actions = usePlayerActions({ playNextSong, playPreviousSong, playSong, seekBy, seekTo, setBackgroundPlaybackEnabled, togglePlay, toggleRepeat, toggleShuffle, retryPlayback });
+  const actions = usePlayerActions({ playNextSong, playPreviousSong, playSong, playQueueEntry, playNext, addToQueue, seekBy, seekTo, setBackgroundPlaybackEnabled, togglePlay, toggleRepeat, toggleShuffle, retryPlayback });
   const value = useMemo(
     () => ({
       backgroundPlaybackEnabled,
@@ -600,7 +565,8 @@ export function PlayerProvider({ children }) {
       playbackError,
       didFinish,
       isPlaying,
-      isRepeatOn,
+      isRepeatOn: repeatMode !== "off",
+      repeatMode,
       isShuffleOn,
       ...actions,
       recentlyPlayed,
@@ -612,13 +578,13 @@ export function PlayerProvider({ children }) {
       playbackError,
       didFinish,
       isPlaying,
-      isRepeatOn,
+      repeatMode,
       isShuffleOn,
       recentlyPlayed,
     ]
   );
 
-  return <PlayerContext.Provider value={value}><PlayerProgressContext.Provider value={progressStore}>{children}</PlayerProgressContext.Provider></PlayerContext.Provider>;
+  return <PlayerContext.Provider value={value}><PlaybackQueueContext.Provider value={queueStore}><PlayerProgressContext.Provider value={progressStore}>{children}</PlayerProgressContext.Provider></PlaybackQueueContext.Provider></PlayerContext.Provider>;
 }
 
 export function usePlayer() {

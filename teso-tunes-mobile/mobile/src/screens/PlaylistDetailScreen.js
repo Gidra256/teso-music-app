@@ -29,6 +29,7 @@ import {
   updatePlaylist,
 } from "../api/musicApi";
 import MiniPlayer from "../components/MiniPlayer";
+import SongActionsModal from "../components/SongActionsModal";
 import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
 import { artworkSource } from "../utils/artwork";
@@ -47,6 +48,7 @@ export default function PlaylistDetailScreen({ navigation, route }) {
   const [newName, setNewName] = useState("");
   const [addingSongId, setAddingSongId] = useState(null);
   const [removingSongId, setRemovingSongId] = useState(null);
+  const [menuSong, setMenuSong] = useState(null);
 
   const playlistSongs = Array.isArray(playlist?.songs) ? playlist.songs : [];
 
@@ -282,6 +284,7 @@ export default function PlaylistDetailScreen({ navigation, route }) {
                     removing={Number(removingSongId) === Number(song.id)}
                     song={song}
                     onPlay={() => playSong(song, playlistSongs)}
+                    onMenu={() => setMenuSong(song)}
                     onRemove={() => handleRemove(song)}
                   />
                 ))}
@@ -309,11 +312,12 @@ export default function PlaylistDetailScreen({ navigation, route }) {
         onClose={() => setSongPickerVisible(false)}
       />
       <MiniPlayer />
+      <SongActionsModal song={menuSong} queue={playlistSongs} onClose={() => setMenuSong(null)} />
     </SafeAreaView>
   );
 }
 
-function PlaylistSongRow({ disabled, onPlay, onRemove, removing, song }) {
+function PlaylistSongRow({ disabled, onPlay, onMenu, onRemove, removing, song }) {
   return (
     <TouchableOpacity activeOpacity={0.84} style={styles.songRow} onPress={onPlay}>
       <Image source={artworkSource(song.cover_image)} style={styles.songCover} />
@@ -321,6 +325,10 @@ function PlaylistSongRow({ disabled, onPlay, onRemove, removing, song }) {
         <Text style={styles.songTitle} numberOfLines={1}>{song.title}</Text>
         <Text style={styles.songMeta} numberOfLines={1}>{song.artist_name}</Text>
       </View>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open song menu" style={styles.removeButton}
+        onPress={event => { event.stopPropagation?.(); onMenu(); }}>
+        <Ionicons name="ellipsis-horizontal" color={colors.softText} size={22} />
+      </TouchableOpacity>
       <TouchableOpacity
         activeOpacity={0.82}
         accessibilityLabel="Remove song from playlist"

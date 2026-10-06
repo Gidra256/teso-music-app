@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -10,15 +10,25 @@ import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
 import AddToPlaylistModal from "./AddToPlaylistModal";
 import SongShareModal from "./SongShareModal";
+import UpNextModal from "./UpNextModal";
 
 export default function SongActionsModal({ song, queue, onClose }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { isAuthenticated } = useAuth();
   const { isSongLiked, isSongLikePending, toggleSongLike } = useEngagement();
-  const { currentSong, isPlaying, playSong, togglePlay } = usePlayer();
+  const { currentSong, isPlaying, playSong, togglePlay, playNext, addToQueue } = usePlayer();
+  const [feedback, setFeedback] = useState("");
+  const commandRef = useRef(0);
+  useEffect(() => { setFeedback(""); }, [song]);
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = setTimeout(() => setFeedback(""), 2500);
+    return () => clearTimeout(timer);
+  }, [feedback]);
   const [playlistSong, setPlaylistSong] = useState(null);
   const [sharedSong, setSharedSong] = useState(null);
+  const [upNextVisible, setUpNextVisible] = useState(false);
   const liked = song ? isSongLiked(song.id) : false;
   const pending = song ? isSongLikePending(song.id) : false;
   const active = song && String(currentSong?.id) === String(song.id);
@@ -47,9 +57,17 @@ export default function SongActionsModal({ song, queue, onClose }) {
             </View>
             <ScrollView keyboardShouldPersistTaps="handled">
               <Action icon={active && isPlaying ? "pause" : "play"} label={active && isPlaying ? "Pause" : "Play"} onPress={() => {
+                if (Date.now() - commandRef.current < 350) return;
+                commandRef.current = Date.now();
                 if (active) togglePlay();
                 else playSong(song, queue);
                 onClose();
+              }} />
+              <Action icon="return-up-forward-outline" label="Play Next" onPress={() => {
+                if (playNext(song)) setFeedback("Playing next.");
+              }} />
+              <Action icon="list-outline" label="Add to Queue" onPress={() => {
+                if (addToQueue(song)) setFeedback("Added to queue.");
               }} />
               <Action icon={liked ? "heart" : "heart-outline"} label={liked ? "Unlike" : "Like"} disabled={pending}
                 onPress={() => accountAction(() => toggleSongLike(song))} />
@@ -63,11 +81,19 @@ export default function SongActionsModal({ song, queue, onClose }) {
                 navigation.navigate("ArtistDetail", { id: artistId });
               }} /> : null}
             </ScrollView>
+            <View style={styles.feedbackRow}>
+              <Text accessibilityLiveRegion="polite" style={styles.feedback}>{feedback}</Text>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open Up Next" title="Open Up Next" style={styles.close}
+                onPress={() => { setUpNextVisible(true); onClose(); }}>
+                <Ionicons name="list" size={22} color={colors.accent} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
       <AddToPlaylistModal visible={Boolean(playlistSong)} song={playlistSong} onClose={() => setPlaylistSong(null)} />
       <SongShareModal visible={Boolean(sharedSong)} song={sharedSong} onClose={() => setSharedSong(null)} />
+      <UpNextModal visible={upNextVisible} onClose={() => setUpNextVisible(false)} />
     </>
   );
 }
@@ -92,4 +118,6 @@ const styles = StyleSheet.create({
   action: { flexDirection: "row", alignItems: "center", gap: 14, minHeight: 48, paddingVertical: 12 },
   label: { color: colors.text, fontSize: 16, flexShrink: 1 },
   disabled: { opacity: 0.5 },
+  feedbackRow: { flexDirection: "row", alignItems: "center", minHeight: 48 },
+  feedback: { flex: 1, color: colors.accent, fontSize: 14 },
 });

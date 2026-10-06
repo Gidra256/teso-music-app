@@ -56,13 +56,16 @@ function harness(baseline = false) {
     return module.exports;
   }
   const api = load(path.join(sourceRoot, 'context/PlayerContext.js'));
-  let state, progress, mainRenders = 0, progressRenders = 0, tree;
+  const queueApi = !baseline ? load(path.join(sourceRoot, 'context/PlaybackQueueContext.js')) : null;
+  let state, progress, queue, mainRenders = 0, progressRenders = 0, queueRenders = 0, tree;
   function Main() { state = api.usePlayer(); mainRenders++; return null; }
   function Progress() { progress = api.usePlayerProgress ? api.usePlayerProgress() : api.usePlayer(); progressRenders++; return null; }
+  function Queue() { queue = queueApi.usePlaybackQueue(); queueRenders++; return null; }
   return {
     load, apiMock, players, storage, plays, get state() { return state; }, get progress() { return progress; },
-    get renders() { return { main: mainRenders, progress: progressRenders }; },
-    async mount() { await act(async () => { tree = renderer.create(React.createElement(api.PlayerProvider, null, React.createElement(Main), React.createElement(Progress))); await flush(); }); },
+    get queue() { return queue; },
+    get renders() { return { main: mainRenders, progress: progressRenders, queue: queueRenders }; },
+    async mount() { await act(async () => { tree = renderer.create(React.createElement(api.PlayerProvider, null, React.createElement(Main), React.createElement(Progress), queueApi ? React.createElement(Queue) : null)); await flush(); }); },
     async unmount() { await act(async () => tree.unmount()); },
     deferSession(promise) { deferSession = promise; },
   };
@@ -76,13 +79,14 @@ async function performance(baseline) {
     await act(async () => p.emit({ currentTime: 0.1 }));
     const start = h.renders;
     for (let i = 1; i <= 20; i++) await act(async () => p.emit({ currentTime: i }));
-    return { main: h.renders.main - start.main, progress: h.renders.progress - start.progress };
+    return { main: h.renders.main - start.main, progress: h.renders.progress - start.progress, queue: h.renders.queue - start.queue };
   } finally { await h.unmount(); }
 }
 
 (async () => {
   const before = await performance(true), after = await performance(false);
   assert.equal(after.main, 0); assert.equal(after.progress, 20); assert.ok(before.main >= 20);
+  assert.equal(after.queue, 0, 'Queue consumers do not render for progress ticks');
   console.log('PASS 20 measured audio updates, React consumer renders:', { before, after });
   const h = harness(); await h.mount();
   try {
@@ -107,10 +111,7 @@ async function performance(baseline) {
     assert.equal(h.state.isPlaying, false);
     await act(async () => h.state.seekTo(-20)); assert.equal(h.progress.currentTime, 0);
     await act(async () => h.state.seekTo(999)); assert.equal(h.progress.currentTime, 100);
-    await act(async () => p.emit({ didJustFinish: true, playing: false, currentTime: 100 }));
-    await act(async () => { await flush(); await h.state.togglePlay(); });
-    assert.equal(p.currentStatus.currentTime, 0); assert.equal(h.state.isPlaying, true);
-    await act(async () => { h.state.playNextSong(); await flush(); });
+    await act(async () => { p.emit({ didJustFinish: true, playing: false, currentTime: 100 }); await new Promise(resolve => setTimeout(resolve, 10)); });
     assert.equal(h.state.currentSong.id, 2); assert.ok(p.removed); p = h.players.at(-1);
     await act(async () => p.emit({ currentTime: 2 }));
     assert.equal(h.state.recentlyPlayed[0].id, 2);
@@ -119,7 +120,8 @@ async function performance(baseline) {
     assert.notEqual(h.state.currentSong.id, 2);
     await act(async () => h.state.toggleShuffle());
     p = h.players.at(-1);
-    await act(async () => h.state.toggleRepeat());
+    await act(async () => { h.state.toggleRepeat(); h.state.toggleRepeat(); });
+    assert.equal(h.state.repeatMode, 'one');
     await act(async () => { p.emit({ currentTime: 100, didJustFinish: true, playing: false }); await new Promise(resolve => setTimeout(resolve, 10)); });
     assert.equal(p.currentStatus.currentTime, 0); assert.equal(p.currentStatus.playing, true);
     await act(async () => {
@@ -134,6 +136,38 @@ async function performance(baseline) {
     assert.equal(h.players.filter(player => !player.removed).length, 1);
     console.log('PASS native adapter: rapid pause/play, history, stale status, coalesced seek, bounds, replay, queue, shuffle, repeat, failure/retry, single player');
   } finally { await h.unmount(); }
+  const queueHarness = harness(); await queueHarness.mount();
+  try {
+    const h = queueHarness;
+    await act(async () => h.state.playSong(song('1'), [song(1), song(2), song(3)]));
+    const original = h.players.at(-1), firstEntry = h.queue.currentEntry.id;
+    await act(async () => { h.state.playNext(song(1)); h.state.playNext(song(1)); h.state.addToQueue(song(4)); });
+    assert.deepEqual(h.queue.upcoming.map(e => e.song.id), [1, 2, 3, 4]);
+    assert.equal(h.players.at(-1), original, 'Editing queue does not restart current audio');
+    const duplicate = h.queue.upcoming[0];
+    await act(async () => { h.state.playQueueEntry(duplicate.id); await flush(); });
+    assert.notEqual(h.queue.currentEntry.id, firstEntry);
+    assert.equal(h.queue.currentEntry.id, duplicate.id);
+    assert.ok(original.removed, 'Duplicate entry starts a new instance of the same song');
+    await act(async () => { h.state.playNextSong(); h.state.playNextSong(); await flush(); });
+    assert.equal(h.state.currentSong.id, 2, 'Rapid Next advances only once');
+    const target = h.queue.upcoming.at(-1);
+    await act(async () => h.queue.removeEntry(h.queue.upcoming[0].id));
+    await act(async () => h.state.playQueueEntry(target.id));
+    let player = h.players.at(-1);
+    await act(async () => { player.emit({ currentTime: 100, playing: false, didJustFinish: true }); await new Promise(r => setTimeout(r, 10)); });
+    assert.equal(h.state.currentSong.id, 4); assert.equal(h.state.isPlaying, false);
+    await act(async () => h.state.togglePlay()); assert.equal(player.currentStatus.currentTime, 0);
+    await act(async () => h.state.toggleRepeat()); assert.equal(h.state.repeatMode, 'all');
+    await act(async () => { player.emit({ currentTime: 100, playing: false, didJustFinish: true }); await new Promise(r => setTimeout(r, 10)); });
+    assert.equal(h.queue.currentEntry.id, firstEntry);
+    await act(async () => h.state.playSong(song(9), [song(9)]));
+    await act(async () => { h.state.toggleRepeat(); h.state.toggleRepeat(); });
+    player = h.players.at(-1);
+    await act(async () => { player.emit({ currentTime: 100, playing: false, didJustFinish: true }); await new Promise(r => setTimeout(r, 10)); });
+    assert.equal(h.players.at(-1), player); assert.equal(h.state.isPlaying, false);
+    console.log('PASS native queue: normalized IDs, duplicate entries, double-tap guard, no edit restart, select/remove, stop/replay at end, Repeat All and single-item queue');
+  } finally { await queueHarness.unmount(); }
   const slow = harness();
   let ready;
   slow.deferSession(new Promise(resolve => { ready = resolve; }));

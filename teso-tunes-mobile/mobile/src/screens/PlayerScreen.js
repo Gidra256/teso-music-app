@@ -12,13 +12,15 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getSong, getSongs } from "../api/musicApi";
-import AddToPlaylistModal from "../components/AddToPlaylistModal";
+import { getSong } from "../api/musicApi";
+import SongActionsModal from "../components/SongActionsModal";
+import UpNextModal from "../components/UpNextModal";
 import PlayerTimeline from "../components/PlayerTimeline";
 import SongShareModal from "../components/SongShareModal";
 import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
+import { useCurrentQueueEntryId } from "../context/PlaybackQueueContext";
 import { colors, spacing } from "../theme";
 import { artworkSource } from "../utils/artwork";
 import { formatPlays } from "../utils/format";
@@ -26,7 +28,7 @@ import { trackShareEvent } from "../utils/shareLinks";
 
 export default function PlayerScreen({ route, navigation }) {
   const {
-    currentSong,
+    currentSong: selectedSong,
     isBuffering,
     playbackError,
     retryPlayback,
@@ -35,6 +37,7 @@ export default function PlayerScreen({ route, navigation }) {
     playPreviousSong,
     playSong,
     isRepeatOn,
+    repeatMode,
     isShuffleOn,
     seekBy,
     seekTo,
@@ -43,15 +46,39 @@ export default function PlayerScreen({ route, navigation }) {
     toggleShuffle,
   } = usePlayer();
   const { isAuthenticated } = useAuth();
+  const currentEntryId = useCurrentQueueEntryId();
   const { getSongLikeCount, isSongLiked, isSongLikePending, toggleSongLike } = useEngagement();
   const { height, width } = useWindowDimensions();
   const [deepLinkLoading, setDeepLinkLoading] = useState(false);
   const [deepLinkError, setDeepLinkError] = useState("");
-  const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
+  const [actionSong, setActionSong] = useState(null);
+  const [queueVisible, setQueueVisible] = useState(false);
+  const [publicDetails, setPublicDetails] = useState(null);
+  const [detailsState, setDetailsState] = useState("");
+  const [detailsAttempt, setDetailsAttempt] = useState(0);
   const [shareVisible, setShareVisible] = useState(false);
+  const currentSong = selectedSong && String(publicDetails?.id) === String(selectedSong.id)
+    ? { ...selectedSong, ...publicDetails } : selectedSong;
 
   const deepLinkedSongId = route?.params?.id;
   const coverSize = Math.min(width - spacing.page * 2, height * 0.4, 350);
+
+  useEffect(() => {
+    setPublicDetails(null);
+    if (!selectedSong || typeof selectedSong.lyrics === "string") { setDetailsState(""); return; }
+    let active = true;
+    setDetailsState("loading");
+    getSong(selectedSong.id).then(song => {
+      if (!active) return;
+      if (!song || String(song.id) !== String(selectedSong.id) || (song.status && song.status !== "published")) {
+        setDetailsState("error");
+        return;
+      }
+      setPublicDetails(song);
+      setDetailsState("ready");
+    }).catch(() => { if (active) setDetailsState("error"); });
+    return () => { active = false; };
+  }, [selectedSong?.id, selectedSong?.lyrics, detailsAttempt]);
 
   useEffect(() => {
     const songId = deepLinkedSongId;
@@ -63,16 +90,12 @@ export default function PlayerScreen({ route, navigation }) {
     setDeepLinkLoading(true);
     setDeepLinkError("");
 
-    Promise.all([
-      getSong(songId),
-      getSongs().catch(() => []),
-    ])
-      .then(([song, songs]) => {
+    getSong(songId)
+      .then((song) => {
         if (!mounted) return;
 
         if (song) {
-          const queue = Array.isArray(songs) && songs.length > 0 ? songs : [song];
-          playSong(song, queue);
+          playSong(song, [song]);
           trackShareEvent("deep_link_opened", { song_id: song.id });
         } else {
           setDeepLinkError("This song is no longer available.");
@@ -147,8 +170,13 @@ export default function PlayerScreen({ route, navigation }) {
             {deepLinkLoading ? (
               <Text style={styles.loadingText}>Loading linked song...</Text>
             ) : null}
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open Up Next" style={styles.trackAction} onPress={() => setQueueVisible(true)}>
+              <Ionicons name="list" color={colors.accent} size={20} />
+              <Text style={styles.trackActionText}>Up Next</Text>
+            </TouchableOpacity>
           </View>
         </LinearGradient>
+        <UpNextModal visible={queueVisible} onClose={() => setQueueVisible(false)} />
       </SafeAreaView>
     );
   }
@@ -180,15 +208,17 @@ export default function PlayerScreen({ route, navigation }) {
         <View style={styles.topBar}>
           <TouchableOpacity
             activeOpacity={0.82}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
             style={styles.roundIconButton}
             onPress={goBackOrSongs}
           >
             <Ionicons name="arrow-back" color={colors.softText} size={21} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Now Playing</Text>
-          <TouchableOpacity activeOpacity={0.82} style={styles.playlistButton} onPress={openSongs}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open Up Next" activeOpacity={0.82} style={styles.playlistButton} onPress={() => setQueueVisible(true)}>
             <Ionicons name="list" color={colors.accent} size={17} />
-            <Text style={styles.playlistButtonText}>Playlist</Text>
+            <Text style={styles.playlistButtonText}>Up Next</Text>
           </TouchableOpacity>
         </View>
 
@@ -218,7 +248,7 @@ export default function PlayerScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
 
-        <PlayerTimeline key={currentSong.id} onSeek={seekTo} />
+        <PlayerTimeline key={currentEntryId || currentSong.id} onSeek={seekTo} />
         {playbackError ? (
           <View style={styles.playbackNotice} accessibilityLiveRegion="polite">
             <Text style={styles.loadingText}>{playbackError}</Text>
@@ -254,7 +284,8 @@ export default function PlayerScreen({ route, navigation }) {
           <PlayerIconButton
             active={isRepeatOn}
             icon="repeat"
-            label="Repeat"
+            label={`Repeat ${repeatMode === "one" ? "One" : repeatMode === "all" ? "All" : "Off"}`}
+            badge={repeatMode === "one" ? "1" : repeatMode === "all" ? "All" : null}
             onPress={toggleRepeat}
           />
         </View>
@@ -278,7 +309,7 @@ export default function PlayerScreen({ route, navigation }) {
           <TrackAction
             icon="ellipsis-horizontal-circle-outline"
             label="More"
-            onPress={() => setPlaylistModalVisible(true)}
+            onPress={() => setActionSong(currentSong)}
           />
         </View>
 
@@ -289,7 +320,6 @@ export default function PlayerScreen({ route, navigation }) {
           </View>
           <InfoRow label="Artist" value={artistName} />
           <InfoRow label="Genre" value={currentSong.genre} />
-          <InfoRow label="District" value={currentSong.artist_location || currentSong.location} />
           <InfoRow label="Plays" value={`${formatPlays(playCount)} plays`} />
           <InfoRow label="Released" value={dateLabel} />
         </View>
@@ -300,29 +330,36 @@ export default function PlayerScreen({ route, navigation }) {
             <Text style={styles.sectionTitle}>Lyrics</Text>
           </View>
           <Text style={styles.lyricsText}>
-            {currentSong.lyrics?.trim() || "Lyrics have not been added yet."}
+            {currentSong.lyrics?.trim() || (detailsState === "loading" ? "Loading lyrics..." : detailsState === "error" ? "Could not load lyrics right now." : "Lyrics have not been added yet.")}
           </Text>
+          {detailsState === "error" ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="Retry track details" style={styles.trackAction} onPress={() => setDetailsAttempt(value => value + 1)}>
+            <Ionicons name="refresh" color={colors.accent} size={18} /><Text style={styles.trackActionText}>Retry</Text>
+          </TouchableOpacity> : null}
         </View>
       </ScrollView>
-      <AddToPlaylistModal
-        visible={playlistModalVisible}
-        song={currentSong}
-        onClose={() => setPlaylistModalVisible(false)}
+      <SongActionsModal
+        song={actionSong}
+        onClose={() => setActionSong(null)}
       />
+      <UpNextModal visible={queueVisible} onClose={() => setQueueVisible(false)} />
       <SongShareModal visible={shareVisible} song={currentSong} onClose={() => setShareVisible(false)} />
     </SafeAreaView>
   );
 }
 
-function PlayerIconButton({ active = false, icon, label, onPress }) {
+function PlayerIconButton({ active = false, icon, label, onPress, badge }) {
   return (
     <TouchableOpacity
       activeOpacity={0.82}
       accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      title={label}
       style={[styles.controlButton, active && styles.controlButtonActive]}
       onPress={onPress}
     >
       <Ionicons name={icon} color={active ? colors.accent : colors.softText} size={23} />
+      {badge ? <Text style={styles.repeatBadge}>{badge}</Text> : null}
     </TouchableOpacity>
   );
 }
@@ -549,6 +586,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(244, 39, 200, 0.14)",
     borderColor: "rgba(244, 39, 200, 0.26)",
   },
+  repeatBadge: { position: "absolute", bottom: 1, color: colors.accent, fontSize: 9, fontWeight: "800" },
   playButton: {
     alignItems: "center",
     backgroundColor: colors.primary,
