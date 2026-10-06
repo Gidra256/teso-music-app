@@ -86,7 +86,10 @@ export default function HomeScreen({ navigation }) {
   const failures = Object.keys(sources).filter(key => sources[key].error);
   const hasMusic = Object.values(sections).some(items => items.length) || artists.length || followed.length;
 
-  const openStack = useCallback((name, params) => (navigation.getParent?.() || navigation).navigate(name, params), [navigation]);
+  const openStack = useCallback((name, params) => {
+    if (name === "Songs") return navigation.navigate("Songs", params);
+    (navigation.getParent?.() || navigation).navigate(name, params);
+  }, [navigation]);
   const openArtist = useCallback(artist => openStack("ArtistDetail", { id: artist.id }), [openStack]);
   function reload(failedOnly = false) {
     Object.entries(SOURCES).forEach(([key, [kind, options]]) => {

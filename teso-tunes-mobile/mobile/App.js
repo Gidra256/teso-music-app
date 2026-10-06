@@ -67,14 +67,15 @@ const linking = {
     screens: {
       TesoTabs: {
         path: "",
+        initialRouteName: "Home",
         screens: {
           Home: "",
           Search: "search",
           Library: "library",
           Create: "create",
+          Songs: "songs",
         },
       },
-      Songs: "songs",
       Artists: "artists",
       Profile: "profile",
       EditProfile: "profile/edit",
@@ -171,6 +172,7 @@ function MainTabs() {
   return (
     <>
       <Tab.Navigator
+        backBehavior="history"
         screenOptions={({ route }) => ({
           headerShown: false,
           tabBarStyle,
@@ -183,6 +185,7 @@ function MainTabs() {
               Search: "search",
               Library: "library",
               Create: "add-circle",
+              Songs: "musical-notes",
             };
             return (
               <Ionicons name={icons[route.name]} color={color} size={size} />
@@ -206,6 +209,11 @@ function MainTabs() {
               openCreate();
             },
           }}
+        />
+        <Tab.Screen
+          name="Songs"
+          component={SongsScreen}
+          options={{ tabBarButton: () => null, tabBarItemStyle: { display: "none" } }}
         />
       </Tab.Navigator>
       <CreatePlaylistModal
@@ -507,11 +515,6 @@ function RootStack({ isAuthenticated }) {
             options={{ title: "Artist" }}
           />
           <Stack.Screen
-            name="Songs"
-            component={SongsScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
             name="Artists"
             component={ArtistsScreen}
             options={{ headerShown: false }}
@@ -595,11 +598,6 @@ function RootStack({ isAuthenticated }) {
             name="ArtistDetail"
             component={ArtistDetailScreen}
             options={{ title: "Artist" }}
-          />
-          <Stack.Screen
-            name="Songs"
-            component={SongsScreen}
-            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="Artists"

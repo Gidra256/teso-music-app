@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, BackHandler, FlatList, Platform, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BACKEND_CONNECTION_ERROR, getSongs } from "../api/musicApi";
@@ -9,14 +10,28 @@ import MiniPlayer from "../components/MiniPlayer";
 import ProfileAvatarButton from "../components/ProfileAvatarButton";
 import SearchBar from "../components/SearchBar";
 import SongCard from "../components/SongCard";
+import SongActionsModal from "../components/SongActionsModal";
 import { colors, spacing } from "../theme";
 
 export default function SongsScreen({ navigation }) {
+  const { width } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === "web" && width >= 900;
+  const [menuSong, setMenuSong] = useState(null);
   const [songs, setSongs] = useState([]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  useFocusEffect(useCallback(() => {
+    if (Platform.OS !== "android") return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (navigation.canGoBack()) return false;
+      navigation.navigate("Home");
+      return true;
+    });
+    return () => subscription.remove();
+  }, [navigation]));
 
   const loadSongs = useCallback(() => {
     setLoading(true);
@@ -46,23 +61,20 @@ export default function SongsScreen({ navigation }) {
   }, [songs, query, category]);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView edges={["top", "left", "right"]} style={styles.safe}>
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          {navigation?.canGoBack?.() ? (
-            <TouchableOpacity
-              activeOpacity={0.82}
-              accessibilityLabel="Go back"
-              style={styles.navButton}
-              onPress={() => navigation.goBack()}
-            >
-              <Ionicons name="arrow-back" color={colors.softText} size={21} />
-            </TouchableOpacity>
-          ) : (
-            <ProfileAvatarButton />
-          )}
+          <TouchableOpacity
+            activeOpacity={0.82}
+            accessibilityLabel="Go back"
+            style={styles.navButton}
+            onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate("Home")}
+          >
+            <Ionicons name="arrow-back" color={colors.softText} size={21} />
+          </TouchableOpacity>
           <Text style={styles.title}>Songs</Text>
           <View style={styles.titleSpacer} />
+          {!isDesktopWeb ? <ProfileAvatarButton /> : null}
         </View>
         <SearchBar value={query} onChangeText={setQuery} placeholder="Search songs or artists" />
         <CategoryFilter selected={category} onSelect={setCategory} />
@@ -78,15 +90,17 @@ export default function SongsScreen({ navigation }) {
         </View>
       ) : (
         <FlatList
+          testID="browse-songs-list"
           data={filteredSongs}
           keyExtractor={(item) => String(item.id)}
-          renderItem={({ item }) => <SongCard song={item} queue={filteredSongs} />}
+          renderItem={({ item }) => <SongCard song={item} queue={filteredSongs} onMenuPress={setMenuSong} />}
           contentContainerStyle={styles.list}
           ListEmptyComponent={<Text style={styles.empty}>No music available yet.</Text>}
           showsVerticalScrollIndicator={false}
         />
       )}
       <MiniPlayer />
+      <SongActionsModal song={menuSong} queue={filteredSongs} onClose={() => setMenuSong(null)} />
     </SafeAreaView>
   );
 }

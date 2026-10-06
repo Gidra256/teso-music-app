@@ -11,7 +11,7 @@ import { colors, spacing } from "../theme";
 import { artworkSource, TESOHUB_ARTWORK_PLACEHOLDER } from "../utils/artwork";
 import { formatPlays } from "../utils/format";
 
-export default function SongCard({ song, compact = false, queue = [], onPress }) {
+export default function SongCard({ song, compact = false, queue = [], onPress, onMenuPress }) {
   const navigation = useNavigation();
   const { width } = useWindowDimensions();
   const { isAuthenticated } = useAuth();
@@ -103,7 +103,8 @@ export default function SongCard({ song, compact = false, queue = [], onPress })
           style={styles.menuButton}
           onPress={(event) => {
             event.stopPropagation?.();
-            setPlaylistModalVisible(true);
+            if (onMenuPress) onMenuPress(song);
+            else setPlaylistModalVisible(true);
           }}
         >
           <Ionicons name="ellipsis-horizontal" color={colors.softText} size={20} />

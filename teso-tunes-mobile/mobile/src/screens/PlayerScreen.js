@@ -107,7 +107,7 @@ export default function PlayerScreen({ route, navigation }) {
   }
 
   function openSongs() {
-    navigation?.navigate("Songs");
+    navigation?.navigate("TesoTabs", { screen: "Songs" });
   }
 
   function goBackOrSongs() {
