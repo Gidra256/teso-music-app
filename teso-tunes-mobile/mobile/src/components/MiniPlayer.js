@@ -12,6 +12,7 @@ import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePlayer } from "../context/PlayerContext";
+import { usePlayerProgress } from "../context/PlayerProgressContext";
 import { colors, spacing } from "../theme";
 import { artworkSource } from "../utils/artwork";
 
@@ -19,13 +20,14 @@ export default function MiniPlayer() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const { currentSong, isPlaying, progress, togglePlay } = usePlayer();
+  const { currentSong, isPlaying, togglePlay } = usePlayer();
   const isDesktopWeb = Platform.OS === "web" && width >= 900;
 
   if (!currentSong) return null;
 
   return (
     <TouchableOpacity
+      accessibilityLabel="Open player"
       activeOpacity={0.86}
       style={[
         styles.wrapper,
@@ -42,11 +44,10 @@ export default function MiniPlayer() {
       <View style={[styles.copy, isDesktopWeb && styles.desktopCopy]}>
         <Text style={styles.title} numberOfLines={1}>{currentSong.title}</Text>
         <Text style={styles.artist} numberOfLines={1}>{currentSong.artist_name}</Text>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
-        </View>
+        <MiniProgress />
       </View>
       <TouchableOpacity
+        accessibilityLabel={isPlaying ? "Pause song" : "Play song"}
         style={[styles.iconButton, isDesktopWeb && styles.desktopIconButton]}
         onPress={(event) => {
           event.stopPropagation?.();
@@ -58,6 +59,11 @@ export default function MiniPlayer() {
       <Ionicons name="chevron-up" color={colors.muted} size={isDesktopWeb ? 18 : 16} />
     </TouchableOpacity>
   );
+}
+
+function MiniProgress() {
+  const { progress } = usePlayerProgress();
+  return <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress * 100}%` }]} /></View>;
 }
 
 const styles = StyleSheet.create({
@@ -124,9 +130,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "transparent",
     borderRadius: 21,
-    height: 42,
+    height: 44,
     justifyContent: "center",
-    width: 42,
+    width: 44,
   },
   desktopIconButton: {
     backgroundColor: colors.primary,

@@ -41,6 +41,8 @@ import SongScreen from "./src/screens/SongScreen";
 import PlayerScreen from "./src/screens/PlayerScreen";
 import PlaylistDetailScreen from "./src/screens/PlaylistDetailScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
+import EditProfileScreen from "./src/screens/EditProfileScreen";
+import SettingsScreen from "./src/screens/SettingsScreen";
 import ReleaseUploadScreen from "./src/screens/ReleaseUploadScreen";
 import SupportHomeScreen from "./src/screens/SupportHomeScreen";
 import SupportTicketDetailScreen from "./src/screens/SupportTicketDetailScreen";
@@ -75,6 +77,8 @@ const linking = {
       Songs: "songs",
       Artists: "artists",
       Profile: "profile",
+      EditProfile: "profile/edit",
+      Settings: "settings",
       ArtistApplication: "artist-application",
       ArtistStudio: "artist-studio",
       ReleaseUpload: "artist-studio/upload",
@@ -532,6 +536,8 @@ function RootStack({ isAuthenticated }) {
             component={SupportTicketFormScreen}
             options={{ headerShown: false }}
           />
+          <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
           <Stack.Screen
             name="SupportTickets"
             component={SupportTicketsScreen}

@@ -36,7 +36,12 @@ async function fixture(browser, width, height, mode = 'guest') {
   await context.addInitScript(seed => {
     if (!localStorage.getItem('discovery_seeded')) { for (const [key, value] of Object.entries(seed)) localStorage.setItem(key, value); localStorage.setItem('discovery_seeded', '1'); }
     window.audioPlays = [];
-    HTMLMediaElement.prototype.play = function () { window.audioPlays.push(this.src); this.dispatchEvent(new Event('play')); return Promise.resolve(); };
+    HTMLMediaElement.prototype.play = function () {
+      window.audioPlays.push(this.src);
+      Object.defineProperties(this, { paused: { configurable: true, value: false }, readyState: { configurable: true, value: 4 }, currentTime: { configurable: true, value: 1 }, duration: { configurable: true, value: 120 } });
+      this.dispatchEvent(new Event('timeupdate'));
+      return Promise.resolve();
+    };
   }, seed);
   const calls = [], errors = [];
   let failed = mode === 'failure';

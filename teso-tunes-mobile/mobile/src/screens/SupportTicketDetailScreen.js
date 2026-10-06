@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -52,6 +52,7 @@ export default function SupportTicketDetailScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const [error, setError] = useState("");
 
   const canReply = useMemo(
@@ -110,12 +111,13 @@ export default function SupportTicketDetailScreen({ navigation, route }) {
   }
 
   async function sendReply() {
-    if (sending || !ticket?.id) return;
+    if (sendingRef.current || !ticket?.id || !canReply) return;
     if (reply.trim().length < 2) {
       setError("Enter a reply message.");
       return;
     }
 
+    sendingRef.current = true;
     setSending(true);
     setError("");
     try {
@@ -137,6 +139,7 @@ export default function SupportTicketDetailScreen({ navigation, route }) {
     } catch (sendError) {
       setError(errorMessage(sendError));
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
@@ -231,7 +234,7 @@ export default function SupportTicketDetailScreen({ navigation, route }) {
                         <Text style={styles.attachmentText} numberOfLines={1}>
                           {pickedAssetName(attachment)}
                         </Text>
-                        <TouchableOpacity onPress={() => setAttachment(null)}>
+                        <TouchableOpacity accessibilityLabel="Remove attachment" style={styles.attachmentRemove} onPress={() => setAttachment(null)}>
                           <Ionicons name="close-circle" color={colors.muted} size={20} />
                         </TouchableOpacity>
                       </View>
@@ -292,6 +295,7 @@ function MessageBubble({ message }) {
 }
 
 const styles = StyleSheet.create({
+  attachmentRemove: { width: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   keyboardAvoider: {
     backgroundColor: colors.background,
     flex: 1,
@@ -315,12 +319,12 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 8,
     borderWidth: 1,
-    height: 42,
+    height: 44,
     justifyContent: "center",
-    width: 42,
+    width: 44,
   },
   iconSpacer: {
-    width: 42,
+    width: 44,
   },
   title: {
     flex: 1,

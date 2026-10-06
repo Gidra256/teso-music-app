@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -33,6 +33,8 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
   const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(false);
   const [addingId, setAddingId] = useState(null);
+  const addingRef = useRef(false);
+  const createdRef = useRef(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [message, setMessage] = useState("");
@@ -45,7 +47,7 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
       setNewName("");
       setMessage("");
       setError("");
-      setAddingId(null);
+      if (!addingRef.current) setAddingId(null);
       setShareVisible(false);
       return;
     }
@@ -79,9 +81,10 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
   }
 
   async function handleAdd(playlist) {
-    if (!playlist?.id || !song?.id || addingId) return;
+    if (!playlist?.id || !song?.id || addingRef.current) return;
 
     try {
+      addingRef.current = true;
       setAddingId(playlist.id);
       setError("");
       const result = await addSongToPlaylist(playlist.id, song.id);
@@ -97,30 +100,38 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
     } catch (addError) {
       setError(addError?.detail || "Could not add this song.");
     } finally {
+      addingRef.current = false;
       setAddingId(null);
     }
   }
 
   async function handleCreateAndAdd() {
     const cleanName = newName.trim();
-    if (!cleanName || addingId || !song?.id) {
+    if (addingRef.current) return;
+    if (!cleanName || !song?.id) {
       setError("Enter a playlist name.");
       return;
     }
 
     try {
+      addingRef.current = true;
       setAddingId("new");
       setError("");
-      const playlist = await createPlaylist({ name: cleanName });
+      const playlist = createdRef.current?.name === cleanName
+        ? createdRef.current : await createPlaylist({ name: cleanName });
+      // Retain a successful create if the subsequent add fails, so retry cannot duplicate it.
+      createdRef.current = playlist;
       const result = await addSongToPlaylist(playlist.id, song.id);
       const nextPlaylist = result?.playlist || playlist;
-      setPlaylists((items) => [nextPlaylist, ...items]);
+      setPlaylists((items) => [nextPlaylist, ...items.filter(item => Number(item.id) !== Number(nextPlaylist.id))]);
+      createdRef.current = null;
       setCreating(false);
       setNewName("");
       setMessage(`Added to ${nextPlaylist.name}.`);
     } catch (createError) {
       setError(createError?.detail || "Could not create playlist.");
     } finally {
+      addingRef.current = false;
       setAddingId(null);
     }
   }

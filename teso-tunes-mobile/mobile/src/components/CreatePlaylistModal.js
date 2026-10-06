@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -24,24 +24,27 @@ export default function CreatePlaylistModal({ visible, onClose, onCreated }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!visible) return;
     setName("");
     setDescription("");
-    setSaving(false);
+    setSaving(savingRef.current);
     setError("");
   }, [visible]);
 
   async function handleCreate() {
     const cleanName = name.trim();
-    if (!cleanName || saving) {
+    if (savingRef.current) return;
+    if (!cleanName) {
       setError("Enter a playlist name.");
       return;
     }
 
     try {
+      savingRef.current = true;
       setSaving(true);
       setError("");
       const playlist = await createPlaylist({
@@ -53,6 +56,7 @@ export default function CreatePlaylistModal({ visible, onClose, onCreated }) {
     } catch (createError) {
       setError(createError?.detail || "Could not create playlist.");
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }

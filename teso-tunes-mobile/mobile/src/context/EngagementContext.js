@@ -1,8 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Alert } from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { followArtist, likeSong, unfollowArtist, unlikeSong } from "../api/musicApi";
+import { colors } from "../theme";
 
 const DEVICE_ID_KEY = "teso_tunes_device_id";
 const LIKED_SONGS_KEY = "teso_tunes_liked_songs";
@@ -33,16 +35,19 @@ function updateCountMap(previous, id, nextCount, delta) {
   return { ...previous, [id]: safeNext };
 }
 
-function actionCount(serverCount, optimisticCount, direction) {
+function actionCount(serverCount, optimisticCount) {
   const safeOptimistic = Math.max(0, Number(optimisticCount || 0));
   if (!Number.isFinite(serverCount)) return safeOptimistic;
   const safeServer = Math.max(0, Number(serverCount));
-  return direction > 0
-    ? Math.max(safeServer, safeOptimistic)
-    : Math.min(safeServer, safeOptimistic);
+  return safeServer;
 }
 
 export function EngagementProvider({ children }) {
+  const insets = useSafeAreaInsets();
+  const [notice, setNotice] = useState("");
+  const noticeTimer = useRef(null);
+  const cacheWrites = useRef(Promise.resolve());
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
   const [deviceId, setDeviceId] = useState(null);
   const [likedSongs, setLikedSongs] = useState(new Set());
   const [followedArtists, setFollowedArtists] = useState(new Set());
@@ -86,16 +91,18 @@ export function EngagementProvider({ children }) {
     loadEngagement();
   }, []);
 
-  async function saveLikedSongs(nextSet) {
+  function saveLikedSongs(nextSet) {
     likedSongsRef.current = nextSet;
     setLikedSongs(nextSet);
-    await AsyncStorage.setItem(LIKED_SONGS_KEY, JSON.stringify([...nextSet])).catch(() => {});
+    cacheWrites.current = cacheWrites.current.catch(() => {}).then(() =>
+      AsyncStorage.setItem(LIKED_SONGS_KEY, JSON.stringify([...nextSet]))).catch(() => {});
   }
 
-  async function saveFollowedArtists(nextSet) {
+  function saveFollowedArtists(nextSet) {
     followedArtistsRef.current = nextSet;
     setFollowedArtists(nextSet);
-    await AsyncStorage.setItem(FOLLOWED_ARTISTS_KEY, JSON.stringify([...nextSet])).catch(() => {});
+    cacheWrites.current = cacheWrites.current.catch(() => {}).then(() =>
+      AsyncStorage.setItem(FOLLOWED_ARTISTS_KEY, JSON.stringify([...nextSet]))).catch(() => {});
   }
 
   function setArtistFollowPending(id, pending) {
@@ -123,9 +130,9 @@ export function EngagementProvider({ children }) {
   }
 
   function showEngagementError(message) {
-    try {
-      Alert.alert("TesoHub Music", message);
-    } catch (error) {}
+    clearTimeout(noticeTimer.current);
+    setNotice(message);
+    noticeTimer.current = setTimeout(() => setNotice(""), 6000);
   }
 
   const getEngagementRevision = useCallback(() => engagementRevisionRef.current, []);
@@ -169,7 +176,7 @@ export function EngagementProvider({ children }) {
     if (alreadyLiked) {
       const optimisticCount = Math.max(0, previousCount - 1);
       nextLikedSongs.delete(id);
-      await saveLikedSongs(nextLikedSongs);
+      saveLikedSongs(nextLikedSongs);
       setSongLikeCounts((counts) => updateCountMap(counts, id, optimisticCount, 0));
       try {
         const result = await unlikeSong(id, deviceId);
@@ -191,7 +198,7 @@ export function EngagementProvider({ children }) {
     } else {
       const optimisticCount = previousCount + 1;
       nextLikedSongs.add(id);
-      await saveLikedSongs(nextLikedSongs);
+      saveLikedSongs(nextLikedSongs);
       setSongLikeCounts((counts) => updateCountMap(counts, id, optimisticCount, 0));
       try {
         const result = await likeSong(id, deviceId);
@@ -250,7 +257,7 @@ export function EngagementProvider({ children }) {
     optimisticFollowedArtists.add(id);
     setArtistFollowPending(id, true);
     try {
-      await saveFollowedArtists(optimisticFollowedArtists);
+      saveFollowedArtists(optimisticFollowedArtists);
       setArtistFollowerCounts((counts) =>
         updateCountMap(counts, id, previousCount + 1, 0),
       );
@@ -294,7 +301,7 @@ export function EngagementProvider({ children }) {
     optimisticFollowedArtists.delete(id);
     setArtistFollowPending(id, true);
     try {
-      await saveFollowedArtists(optimisticFollowedArtists);
+      saveFollowedArtists(optimisticFollowedArtists);
       setArtistFollowerCounts((counts) =>
         updateCountMap(counts, id, Math.max(0, previousCount - 1), 0),
       );
@@ -357,8 +364,26 @@ export function EngagementProvider({ children }) {
     ]
   );
 
-  return <EngagementContext.Provider value={value}>{children}</EngagementContext.Provider>;
+  return <EngagementContext.Provider value={value}>
+    {children}
+    {notice ? <View pointerEvents="box-none" style={[styles.noticeArea, { top: insets.top + 12 }]}>
+      <View style={styles.notice} accessibilityLiveRegion="polite">
+        <Text style={styles.noticeText}>{notice}</Text>
+        <TouchableOpacity accessibilityLabel="Dismiss message" onPress={() => setNotice("")} style={styles.dismiss}>
+          <Text style={styles.dismissText}>OK</Text>
+        </TouchableOpacity>
+      </View>
+    </View> : null}
+  </EngagementContext.Provider>;
 }
+
+const styles = StyleSheet.create({
+  noticeArea: { position: "absolute", left: 16, right: 16, alignItems: "center", zIndex: 1000 },
+  notice: { flexDirection: "row", alignItems: "center", backgroundColor: colors.elevated, borderColor: colors.border, borderWidth: 1, borderRadius: 8, maxWidth: 520, paddingLeft: 14 },
+  noticeText: { flex: 1, color: colors.text, fontSize: 14, lineHeight: 20, paddingVertical: 12 },
+  dismiss: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center" },
+  dismissText: { color: colors.accent, fontWeight: "700" },
+});
 
 export function useEngagement() {
   return useContext(EngagementContext);

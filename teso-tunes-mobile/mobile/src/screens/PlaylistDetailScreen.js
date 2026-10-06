@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -40,6 +40,7 @@ export default function PlaylistDetailScreen({ navigation, route }) {
   const [allSongs, setAllSongs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const mutationRef = useRef(false);
   const [error, setError] = useState("");
   const [renameVisible, setRenameVisible] = useState(false);
   const [songPickerVisible, setSongPickerVisible] = useState(false);
@@ -93,9 +94,10 @@ export default function PlaylistDetailScreen({ navigation, route }) {
 
   async function handleRename() {
     const cleanName = newName.trim();
-    if (!cleanName || saving || !playlist?.id) return;
+    if (!cleanName || mutationRef.current || !playlist?.id) return;
 
     try {
+      mutationRef.current = true;
       setSaving(true);
       setError("");
       const updated = await updatePlaylist(playlist.id, { name: cleanName });
@@ -104,12 +106,17 @@ export default function PlaylistDetailScreen({ navigation, route }) {
     } catch (renameError) {
       setError(renameError?.detail || "Could not rename playlist.");
     } finally {
+      mutationRef.current = false;
       setSaving(false);
     }
   }
 
   function confirmDelete() {
-    if (!playlist?.id) return;
+    if (!playlist?.id || mutationRef.current) return;
+    if (Platform.OS === "web") {
+      if (window.confirm(`Delete ${playlist.name}?`)) handleDelete();
+      return;
+    }
 
     Alert.alert(
       "Delete playlist",
@@ -126,9 +133,10 @@ export default function PlaylistDetailScreen({ navigation, route }) {
   }
 
   async function handleDelete() {
-    if (!playlist?.id || saving) return;
+    if (!playlist?.id || mutationRef.current) return;
 
     try {
+      mutationRef.current = true;
       setSaving(true);
       await deletePlaylist(playlist.id);
       if (navigation.canGoBack?.()) {
@@ -139,14 +147,16 @@ export default function PlaylistDetailScreen({ navigation, route }) {
     } catch (deleteError) {
       setError(deleteError?.detail || "Could not delete playlist.");
     } finally {
+      mutationRef.current = false;
       setSaving(false);
     }
   }
 
   async function handleAdd(song) {
-    if (!playlist?.id || !song?.id || addingSongId) return;
+    if (!playlist?.id || !song?.id || mutationRef.current) return;
 
     try {
+      mutationRef.current = true;
       setAddingSongId(song.id);
       setError("");
       const result = await addSongToPlaylist(playlist.id, song.id);
@@ -154,14 +164,16 @@ export default function PlaylistDetailScreen({ navigation, route }) {
     } catch (addError) {
       setError(addError?.detail || "Could not add song.");
     } finally {
+      mutationRef.current = false;
       setAddingSongId(null);
     }
   }
 
   async function handleRemove(song) {
-    if (!playlist?.id || !song?.id || removingSongId) return;
+    if (!playlist?.id || !song?.id || mutationRef.current) return;
 
     try {
+      mutationRef.current = true;
       setRemovingSongId(song.id);
       setError("");
       const result = await removeSongFromPlaylist(playlist.id, song.id);
@@ -169,6 +181,7 @@ export default function PlaylistDetailScreen({ navigation, route }) {
     } catch (removeError) {
       setError(removeError?.detail || "Could not remove song.");
     } finally {
+      mutationRef.current = false;
       setRemovingSongId(null);
     }
   }
@@ -235,6 +248,7 @@ export default function PlaylistDetailScreen({ navigation, route }) {
               </TouchableOpacity>
               <TouchableOpacity
                 activeOpacity={0.84}
+                accessibilityLabel="Shuffle playlist"
                 disabled={playlistSongs.length === 0}
                 style={[styles.secondaryButton, playlistSongs.length === 0 && styles.disabledButton]}
                 onPress={shuffleAndPlay}
@@ -243,6 +257,7 @@ export default function PlaylistDetailScreen({ navigation, route }) {
               </TouchableOpacity>
               <TouchableOpacity
                 activeOpacity={0.84}
+                accessibilityLabel="Add songs to playlist"
                 style={styles.secondaryButton}
                 onPress={() => setSongPickerVisible(true)}
               >

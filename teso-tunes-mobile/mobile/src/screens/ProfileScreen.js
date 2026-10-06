@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
-import { LinearGradient } from "expo-linear-gradient";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -9,7 +8,6 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -19,9 +17,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BACKEND_CONNECTION_ERROR } from "../api/musicApi";
 import MiniPlayer from "../components/MiniPlayer";
+import { AccountRow, accountStyles } from "../components/AccountPage";
 import { useAuth } from "../context/AuthContext";
-import { useEngagement } from "../context/EngagementContext";
-import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
 
 export default function ProfileScreen({ navigation }) {
@@ -33,13 +30,10 @@ export default function ProfileScreen({ navigation }) {
     logout,
     refreshAccount,
     registerAccount,
-    updateAccount,
   } = useAuth();
-  const { deviceId } = useEngagement();
-  const { backgroundPlaybackEnabled, setBackgroundPlaybackEnabled } = usePlayer();
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [authMode, setAuthMode] = useState("register");
+  const [authMode, setAuthMode] = useState("");
   const [authForm, setAuthForm] = useState({
     email: "",
     identifier: "",
@@ -47,12 +41,8 @@ export default function ProfileScreen({ navigation }) {
     password: "",
     phone: "",
   });
-  const [profileForm, setProfileForm] = useState({
-    email: "",
-    name: "",
-    phone: "",
-  });
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   const loadProfile = useCallback(
     async ({ refresh = false } = {}) => {
@@ -84,15 +74,6 @@ export default function ProfileScreen({ navigation }) {
     }, [isAuthenticated, loadProfile])
   );
 
-  useEffect(() => {
-    if (!listener) return;
-    setProfileForm({
-      email: listener.email || "",
-      name: listener.name || "",
-      phone: listener.phone || "",
-    });
-  }, [listener]);
-
   const profileName = listener?.name || "Teso Listener";
   const initials = useMemo(() => {
     return profileName
@@ -102,18 +83,6 @@ export default function ProfileScreen({ navigation }) {
       .map((part) => part[0]?.toUpperCase())
       .join("") || "TT";
   }, [profileName]);
-
-  const listenerCode = listener?.id
-    ? `USER ${listener.id}`
-    : deviceId
-      ? `ID ${deviceId.slice(-8).toUpperCase()}`
-      : "SYNCING";
-
-  const hasProfileChanges =
-    listener &&
-    (profileForm.name.trim() !== listener.name ||
-      profileForm.email.trim() !== (listener.email || "") ||
-      profileForm.phone.trim() !== (listener.phone || ""));
 
   function updateAuthField(field, value) {
     setAuthForm((current) => ({ ...current, [field]: value }));
@@ -129,7 +98,8 @@ export default function ProfileScreen({ navigation }) {
   }
 
   async function submitAuth() {
-    if (submitting) return;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setError("");
     try {
@@ -152,32 +122,21 @@ export default function ProfileScreen({ navigation }) {
     } catch (actionError) {
       setError(messageFromError(actionError));
     } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function saveProfile() {
-    if (!hasProfileChanges || submitting) return;
-    setSubmitting(true);
-    setError("");
-    try {
-      await updateAccount({
-        email: profileForm.email,
-        name: profileForm.name,
-        phone: profileForm.phone,
-      });
-    } catch (actionError) {
-      setError(messageFromError(actionError));
-    } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
 
   async function handleLogout() {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       await logout();
+      setAuthMode("");
+      setAuthForm({ email: "", identifier: "", name: "", password: "", phone: "" });
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -228,63 +187,32 @@ export default function ProfileScreen({ navigation }) {
           <View style={styles.topBarSpacer} />
         </View>
 
-        <LinearGradient colors={["#081F24", "#160919"]} style={styles.hero}>
+        <View style={styles.hero}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initials}</Text>
+            {isAuthenticated ? <Text style={styles.avatarText}>{initials}</Text> : <Ionicons name="person-outline" color={colors.background} size={30} />}
           </View>
           <View style={styles.identity}>
-            <Text style={styles.kicker}>{isAuthenticated ? "Profile" : "Your music, saved"}</Text>
-            <Text style={styles.name} numberOfLines={1}>
-              {isAuthenticated ? profileName : "Make it yours"}
+            {isAuthenticated ? <Text style={styles.kicker}>{listener?.role === "artist" ? "Artist" : "Listener"}</Text> : null}
+            <Text style={styles.name}>
+              {isAuthenticated ? profileName : "Make TesoHub yours"}
             </Text>
-            <View style={styles.deviceRow}>
-              <Ionicons
-                name={isAuthenticated ? "person-circle" : "phone-portrait"}
-                color={colors.accent}
-                size={14}
-              />
-              <Text style={styles.deviceText}>
-                {isAuthenticated ? listenerCode : "Sign in or create an account"}
-              </Text>
-            </View>
           </View>
-          {isAuthenticated && (
-            <TouchableOpacity
-              accessibilityLabel="Logout"
-              disabled={submitting}
-              style={styles.logoutButton}
-              onPress={handleLogout}
-            >
-              <Ionicons name="log-out-outline" color={colors.text} size={21} />
-            </TouchableOpacity>
-          )}
-        </LinearGradient>
+          {isAuthenticated ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="Edit Profile" activeOpacity={0.65} style={styles.editButton} onPress={() => navigation.navigate("EditProfile")}>
+            <Ionicons name="create-outline" color={colors.text} size={18} />
+            <Text style={styles.editText}>Edit Profile</Text>
+          </TouchableOpacity> : null}
+        </View>
 
         {!isAuthenticated ? (
           <View style={styles.authInvitation}>
-            <Text style={styles.invitationText}>Sign in or create an account to save likes, follow artists and keep your playlists across devices. You can listen to public songs without an account.</Text>
-            <TouchableOpacity accessibilityRole="button" style={styles.keepListening} onPress={goBackOrHome}>
-              <Ionicons name="play-outline" color={colors.primary} size={20} />
-              <Text style={styles.keepListeningText}>Keep listening</Text>
-            </TouchableOpacity>
+            <Text style={styles.invitationText}>Create an account to like songs, follow artists and build playlists. You can listen to public songs without an account.</Text>
           </View>
         ) : null}
-
-        {isAuthenticated ? (
-          <>
-            <Text style={styles.sectionTitle}>Settings</Text>
-            <PlaybackSettings
-              enabled={backgroundPlaybackEnabled}
-              onValueChange={setBackgroundPlaybackEnabled}
-            />
-          </>
-        ) : null}
-
-        <SupportSettingsPanel onPress={() => navigation.navigate("Support")} />
 
         {authLoading ? (
           <ActivityIndicator color={colors.primary} style={styles.loader} />
         ) : !isAuthenticated ? (
+          <>
           <AuthCard
             authForm={authForm}
             authMode={authMode}
@@ -294,70 +222,27 @@ export default function ProfileScreen({ navigation }) {
             submitAuth={submitAuth}
             updateAuthField={updateAuthField}
           />
+          <TouchableOpacity accessibilityRole="button" style={styles.keepListening} onPress={goBackOrHome}>
+            <Ionicons name="play-outline" color={colors.primary} size={20} />
+            <Text style={styles.keepListeningText}>Keep Listening</Text>
+          </TouchableOpacity>
+          <AccountRow title="Help & Support" accessibilityLabel="Open Help and Support" icon="help-buoy-outline" onPress={() => navigation.navigate("Support")} />
+          </>
         ) : (
           <>
-            <View style={styles.accountPanel}>
-              <Text style={styles.settingTitle}>Edit Profile</Text>
-              <ProfileInput
-                icon="person"
-                placeholder="Profile name"
-                value={profileForm.name}
-                onChangeText={(value) =>
-                  setProfileForm((current) => ({ ...current, name: value }))
-                }
-              />
-              <ProfileInput
-                icon="mail"
-                placeholder="Email"
-                value={profileForm.email}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                onChangeText={(value) =>
-                  setProfileForm((current) => ({ ...current, email: value }))
-                }
-              />
-              <ProfileInput
-                icon="call"
-                placeholder="Phone"
-                value={profileForm.phone}
-                keyboardType="phone-pad"
-                returnKeyType="done"
-                onChangeText={(value) =>
-                  setProfileForm((current) => ({ ...current, phone: value }))
-                }
-                onSubmitEditing={saveProfile}
-              />
-              <TouchableOpacity
-                accessibilityLabel="Save profile"
-                disabled={!hasProfileChanges || submitting}
-                style={[
-                  styles.saveButton,
-                  (!hasProfileChanges || submitting) && styles.disabledButton,
-                ]}
-                onPress={saveProfile}
-              >
-                <Ionicons
-                  name="checkmark"
-                  color={hasProfileChanges ? colors.text : colors.muted}
-                  size={20}
-                />
-                <Text
-                  style={[
-                    styles.saveText,
-                    !hasProfileChanges && styles.disabledText,
-                  ]}
-                >
-                  Save profile
-                </Text>
-              </TouchableOpacity>
-            </View>
-
+            <Text style={accountStyles.section}>Artist</Text>
             <ArtistAccessPanel
               application={listener?.artist_application}
               navigation={navigation}
               role={listener?.role || "listener"}
             />
-
+            <Text style={accountStyles.section}>Account</Text>
+            <AccountRow title="Settings" icon="settings-outline" onPress={() => navigation.navigate("Settings")} />
+            <AccountRow title="Help & Support" accessibilityLabel="Open Help and Support" icon="help-buoy-outline" onPress={() => navigation.navigate("Support")} />
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Log out" disabled={submitting} activeOpacity={0.65} style={styles.logoutButton} onPress={handleLogout}>
+              {submitting ? <ActivityIndicator color={colors.text} /> : <Ionicons name="log-out-outline" color={colors.text} size={22} />}
+              <Text style={styles.editText}>{submitting ? "Logging out..." : "Log out"}</Text>
+            </TouchableOpacity>
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </>
         )}
@@ -380,9 +265,11 @@ function ArtistAccessPanel({ application, navigation, role }) {
         </View>
         <View style={styles.artistCopy}>
           <Text style={styles.artistTitle}>Artist Studio</Text>
-          <Text style={styles.artistText}>Manage your releases and upload music.</Text>
+          <Text style={styles.artistText}>Manage releases and upload music.</Text>
         </View>
         <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Open Artist Studio"
           style={styles.artistAction}
           onPress={() => navigation.navigate("ArtistStudio")}
         >
@@ -399,7 +286,8 @@ function ArtistAccessPanel({ application, navigation, role }) {
           <Ionicons name="time" color={colors.primary} size={22} />
         </View>
         <View style={styles.artistCopy}>
-          <Text style={styles.artistTitle}>Artist Application - Under Review</Text>
+          <Text style={styles.artistTitle}>Artist Application</Text>
+          <Text style={styles.artistText}>Under Review</Text>
           <Text style={styles.artistText}>Uploads unlock after admin approval.</Text>
         </View>
       </View>
@@ -419,6 +307,8 @@ function ArtistAccessPanel({ application, navigation, role }) {
           <Text style={styles.artistText}>{reason || "You can update and apply again."}</Text>
         </View>
         <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Edit or reapply"
           style={styles.artistAction}
           onPress={() => navigation.navigate("ArtistApplication")}
         >
@@ -438,57 +328,14 @@ function ArtistAccessPanel({ application, navigation, role }) {
         <Text style={styles.artistText}>Apply for approval before uploading music.</Text>
       </View>
       <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel="Open Artist Application"
         style={styles.artistAction}
         onPress={() => navigation.navigate("ArtistApplication")}
       >
         <Ionicons name="add" color={colors.background} size={22} />
       </TouchableOpacity>
     </View>
-  );
-}
-
-function PlaybackSettings({ enabled, onValueChange }) {
-  return (
-    <View style={styles.settingsPanel}>
-      <View style={styles.settingIcon}>
-        <Ionicons name="headset" color={colors.accent} size={22} />
-      </View>
-      <View style={styles.settingCopy}>
-        <Text style={styles.settingTitle}>Play in background</Text>
-        <Text style={styles.settingStatus}>{enabled ? "On" : "Off"}</Text>
-      </View>
-      <Switch
-        accessibilityLabel="Play in background"
-        ios_backgroundColor={colors.elevated}
-        thumbColor={enabled ? colors.accent : colors.softText}
-        trackColor={{
-          false: colors.elevated,
-          true: "rgba(32, 230, 243, 0.58)",
-        }}
-        value={enabled}
-        onValueChange={onValueChange}
-      />
-    </View>
-  );
-}
-
-function SupportSettingsPanel({ onPress }) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.84}
-      accessibilityLabel="Open Help and Support"
-      style={styles.settingsPanel}
-      onPress={onPress}
-    >
-      <View style={styles.settingIcon}>
-        <Ionicons name="help-buoy" color={colors.primary} size={22} />
-      </View>
-      <View style={styles.settingCopy}>
-        <Text style={styles.settingTitle}>Help & Support</Text>
-        <Text style={styles.settingStatus}>Support requests, replies, and help articles</Text>
-      </View>
-      <Ionicons name="chevron-forward" color={colors.muted} size={20} />
-    </TouchableOpacity>
   );
 }
 
@@ -524,13 +371,14 @@ function AuthCard({
     <View style={styles.authPanel}>
       <View style={styles.segment}>
         <ModeButton
-          active={!isLogin}
-          label="Create"
+          active={authMode === "register"}
+          label="Create Account"
+          disabled={submitting}
           onPress={() => setAuthMode("register")}
         />
-        <ModeButton active={isLogin} label="Login" onPress={() => setAuthMode("login")} />
+        <ModeButton active={isLogin} label="Log In" disabled={submitting} onPress={() => setAuthMode("login")} />
       </View>
-
+      {authMode ? <>
       {!isLogin && (
         <ProfileInput
           icon="person"
@@ -604,6 +452,7 @@ function AuthCard({
           </>
         )}
       </TouchableOpacity>
+      </> : null}
     </View>
   );
 }
@@ -631,9 +480,12 @@ function getAuthValidationMessage(authForm, isLogin) {
   return "";
 }
 
-function ModeButton({ active, label, onPress }) {
+function ModeButton({ active, label, onPress, disabled }) {
   return (
     <TouchableOpacity
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      disabled={disabled}
       style={[styles.modeButton, active && styles.activeModeButton]}
       onPress={onPress}
     >
@@ -669,6 +521,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
+    width: "100%",
+    maxWidth: 640,
+    alignSelf: "center",
     gap: 16,
     padding: spacing.page,
     paddingBottom: 112,
@@ -682,9 +537,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.elevated,
     borderRadius: 20,
-    height: 40,
+    height: 44,
     justifyContent: "center",
-    width: 40,
+    width: 44,
   },
   pageTitle: {
     color: colors.text,
@@ -693,16 +548,12 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   topBarSpacer: {
-    width: 40,
+    width: 44,
   },
   hero: {
     alignItems: "center",
-    borderColor: "rgba(32, 230, 243, 0.34)",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
     gap: 14,
-    padding: 16,
+    paddingVertical: 16,
   },
   avatar: {
     alignItems: "center",
@@ -713,12 +564,13 @@ const styles = StyleSheet.create({
     width: 64,
   },
   avatarText: {
-    color: colors.text,
+    color: colors.background,
     fontSize: 23,
     fontWeight: "900",
   },
   identity: {
-    flex: 1,
+    width: "100%",
+    alignItems: "center",
     gap: 5,
   },
   kicker: {
@@ -728,87 +580,33 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   name: {
+    textAlign: "center",
+    ...(Platform.OS === "web" ? { overflowWrap: "anywhere" } : {}),
     color: colors.text,
     fontSize: 24,
     fontWeight: "900",
-  },
-  deviceRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 6,
-  },
-  deviceText: {
-    color: colors.softText,
-    fontSize: 12,
-    fontWeight: "700",
   },
   logoutButton: {
     alignItems: "center",
     backgroundColor: colors.elevated,
     borderRadius: 8,
-    height: 42,
+    minHeight: 48,
     justifyContent: "center",
-    width: 42,
-  },
-  settingsPanel: {
-    alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
     flexDirection: "row",
-    gap: 12,
-    minHeight: 72,
-    padding: 14,
-  },
-  settingIcon: {
-    alignItems: "center",
-    backgroundColor: "rgba(244, 39, 200, 0.12)",
-    borderRadius: 22,
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  settingCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  settingTitle: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: "900",
-  },
-  settingStatus: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  authPanel: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 12,
-    padding: 14,
-  },
-  accountPanel: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: 8,
-    borderWidth: 1,
     gap: 10,
-    padding: 12,
+    marginTop: 20,
+  },
+  editButton: { flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center", minHeight: 48, paddingHorizontal: 18, borderRadius: 8, borderWidth: 1, borderColor: colors.border },
+  editText: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  authPanel: {
+    gap: 12,
   },
   artistPanel: {
     alignItems: "center",
-    backgroundColor: colors.card,
-    borderColor: "rgba(32, 230, 243, 0.26)",
-    borderRadius: 8,
-    borderWidth: 1,
     flexDirection: "row",
     gap: 12,
     minHeight: 74,
-    padding: 12,
+    paddingVertical: 12,
   },
   artistIcon: {
     alignItems: "center",
@@ -837,9 +635,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.primary,
     borderRadius: 8,
-    height: 40,
+    height: 48,
     justifyContent: "center",
-    width: 40,
+    width: 48,
   },
   segment: {
     backgroundColor: colors.surface,
@@ -852,7 +650,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 8,
     flex: 1,
-    minHeight: 38,
+    minHeight: 44,
     justifyContent: "center",
   },
   activeModeButton: {
@@ -878,6 +676,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   input: {
+    minWidth: 0,
     color: colors.text,
     flex: 1,
     fontSize: 15,
@@ -898,30 +697,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
   },
-  saveButton: {
-    alignItems: "center",
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
-    minHeight: 44,
-  },
-  saveText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "900",
-  },
   disabledButton: {
     backgroundColor: colors.elevated,
-  },
-  disabledText: {
-    color: colors.muted,
-  },
-  sectionTitle: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: "900",
   },
   loader: {
     marginTop: 30,

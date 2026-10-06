@@ -1,182 +1,114 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PanResponder, StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { PanResponder, Platform, StyleSheet, View } from "react-native";
 
 import { colors } from "../theme";
+import { clampPosition } from "../utils/playerProgress";
 
-function clamp(value, min = 0, max = 1) {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(value, max));
-}
+export default function SeekBar({ currentTime = 0, disabled = false, duration = 0, onSeek, onSeekingChange }) {
+  const widthRef = useRef(0);
+  const gestureRef = useRef(null);
+  const latest = useRef(null);
+  const [preview, setPreview] = useState(null);
+  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+  const canSeek = !disabled && safeDuration > 0;
+  const position = preview === null ? clampPosition(currentTime, safeDuration) : clampPosition(preview, safeDuration);
+  latest.current = { canSeek, duration: safeDuration, onSeek, onSeekingChange };
+  useEffect(() => () => { gestureRef.current = null; latest.current.canSeek = false; }, []);
 
-function safePositive(value) {
-  return Number.isFinite(value) && value > 0 ? value : 0;
-}
+  function previewAt(x) {
+    const state = latest.current;
+    if (!gestureRef.current || !state.canSeek || widthRef.current <= 0) return;
+    const next = clampPosition(x / widthRef.current * state.duration, state.duration);
+    gestureRef.current.position = next;
+    setPreview(next);
+    state.onSeekingChange?.(true, next);
+  }
 
-function safeTime(value, duration) {
-  const nextValue = Number.isFinite(value) ? value : 0;
-  return duration > 0 ? clamp(nextValue, 0, duration) : Math.max(0, nextValue);
-}
+  function finish(commit) {
+    const gesture = gestureRef.current;
+    gestureRef.current = null;
+    setPreview(null);
+    latest.current.onSeekingChange?.(false, null);
+    if (commit && gesture && latest.current.canSeek) latest.current.onSeek?.(gesture.position);
+  }
 
-export default function SeekBar({
-  currentTime = 0,
-  disabled = false,
-  duration = 0,
-  onSeek,
-  onSeekingChange,
-}) {
-  const trackWidthRef = useRef(0);
-  const dragRatioRef = useRef(0);
-  const dragStartXRef = useRef(0);
-  const safeDuration = safePositive(duration);
-  const safeCurrentTime = safeTime(currentTime, safeDuration);
-  const [trackWidth, setTrackWidth] = useState(0);
-  const [isSeeking, setIsSeeking] = useState(false);
-  const [dragRatio, setDragRatio] = useState(0);
-
-  const canSeek = !disabled && safeDuration > 0 && trackWidth > 0;
-  const playerRatio = safeDuration > 0 ? clamp(safeCurrentTime / safeDuration) : 0;
-  const visibleRatio = isSeeking ? dragRatio : playerRatio;
-
-  useEffect(() => {
-    if (isSeeking) return;
-    dragRatioRef.current = playerRatio;
-    setDragRatio(playerRatio);
-  }, [isSeeking, playerRatio]);
-
-  useEffect(() => {
-    dragRatioRef.current = 0;
-    setDragRatio(0);
-    setIsSeeking(false);
-    onSeekingChange?.(false, 0);
-  }, [duration, onSeekingChange]);
-
-  const setTrackWidthFromLayout = useCallback((width) => {
-    const nextWidth = Number.isFinite(width) ? Math.max(0, width) : 0;
-    trackWidthRef.current = nextWidth;
-    setTrackWidth(nextWidth);
-  }, []);
-
-  const ratioFromLocalX = useCallback((locationX) => {
-    const width = trackWidthRef.current;
-    if (width <= 0) return 0;
-    return clamp(locationX / width);
-  }, []);
-
-  const previewRatio = useCallback(
-    (ratio) => {
-      const nextRatio = clamp(ratio);
-      dragRatioRef.current = nextRatio;
-      setDragRatio(nextRatio);
-      onSeekingChange?.(true, nextRatio * safeDuration);
-      return nextRatio;
+  // Keep the responder stable while audio status and preview values change.
+  const responder = useRef(null);
+  if (!responder.current) responder.current = PanResponder.create({
+    onStartShouldSetPanResponder: () => latest.current.canSeek && widthRef.current > 0,
+    onMoveShouldSetPanResponder: () => false,
+    onPanResponderGrant: event => {
+      const x = event.nativeEvent.locationX;
+      gestureRef.current = { start: x, position: 0 };
+      previewAt(x);
     },
-    [onSeekingChange, safeDuration]
-  );
-
-  const previewLocalX = useCallback(
-    (locationX) => {
-      if (!canSeek) return 0;
-      return previewRatio(ratioFromLocalX(locationX));
+    onPanResponderMove: (_event, gesture) => {
+      if (gestureRef.current) previewAt(gestureRef.current.start + gesture.dx);
     },
-    [canSeek, previewRatio, ratioFromLocalX]
-  );
+    onPanResponderRelease: () => finish(true),
+    onPanResponderTerminate: () => finish(false),
+    onPanResponderTerminationRequest: () => false,
+  });
 
-  const finishSeek = useCallback(
-    (ratio = dragRatioRef.current) => {
-      if (!canSeek) {
-        setIsSeeking(false);
-        onSeekingChange?.(false, null);
-        return;
-      }
-
-      const finalRatio = clamp(ratio);
-      const finalTime = finalRatio * safeDuration;
-      setIsSeeking(false);
-      onSeekingChange?.(false, finalTime);
-      onSeek?.(finalTime);
+  const webEvents = {
+    onPointerDown: event => {
+      if (!canSeek || (event.button !== undefined && event.button !== 0)) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      widthRef.current = rect.width;
+      if (!rect.width) return;
+      event.preventDefault();
+      event.currentTarget.focus();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      gestureRef.current = { left: rect.left, pointerId: event.pointerId, position: 0 };
+      previewAt(event.clientX - rect.left);
     },
-    [canSeek, onSeek, onSeekingChange, safeDuration]
-  );
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => canSeek,
-        onMoveShouldSetPanResponder: () => canSeek,
-        onPanResponderGrant: (event) => {
-          if (!canSeek) return;
-          setIsSeeking(true);
-          dragStartXRef.current = event.nativeEvent.locationX;
-          previewLocalX(event.nativeEvent.locationX);
-        },
-        onPanResponderMove: (event, gestureState) => {
-          if (!canSeek) return;
-          previewLocalX(dragStartXRef.current + gestureState.dx);
-        },
-        onPanResponderRelease: () => finishSeek(),
-        onPanResponderTerminate: () => finishSeek(),
-      }),
-    [canSeek, finishSeek, previewLocalX]
-  );
+    onPointerMove: event => {
+      if (gestureRef.current?.pointerId === event.pointerId) previewAt(event.clientX - gestureRef.current.left);
+    },
+    onPointerUp: event => {
+      if (gestureRef.current?.pointerId !== event.pointerId) return;
+      previewAt(event.clientX - gestureRef.current.left);
+      finish(true);
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    },
+    onPointerCancel: () => finish(false),
+    onLostPointerCapture: () => { if (gestureRef.current) finish(false); },
+    onKeyDown: event => {
+      if (!canSeek) return;
+      const keys = { ArrowLeft: position - 5, ArrowDown: position - 5, ArrowRight: position + 5, ArrowUp: position + 5, Home: 0, End: safeDuration };
+      if (!(event.key in keys)) return;
+      event.preventDefault();
+      onSeek?.(clampPosition(keys[event.key], safeDuration));
+    },
+  };
 
   return (
     <View
-      {...panResponder.panHandlers}
-      style={[styles.touchArea, !canSeek && styles.disabled]}
+      {...(Platform.OS === "web" ? webEvents : responder.current.panHandlers)}
+      onLayout={event => { widthRef.current = event.nativeEvent.layout.width; }}
+      accessibilityRole="adjustable"
+      accessibilityLabel="Song progress"
+      accessibilityValue={{ min: 0, max: safeDuration, now: position }}
+      accessibilityState={{ disabled: !canSeek }}
+      accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
+      onAccessibilityAction={event => {
+        if (canSeek) onSeek?.(clampPosition(position + (event.nativeEvent.actionName === "increment" ? 5 : -5), safeDuration));
+      }}
+      {...(Platform.OS === "web" ? { role: "slider", tabIndex: canSeek ? 0 : -1, "aria-valuemin": 0, "aria-valuemax": safeDuration, "aria-valuenow": position, "aria-disabled": !canSeek } : {})}
+      style={[styles.touchArea, Platform.OS === "web" && { touchAction: "none", cursor: canSeek ? "pointer" : "default" }, !canSeek && styles.disabled]}
     >
-      <View
-        onLayout={(event) => setTrackWidthFromLayout(event.nativeEvent.layout.width)}
-        style={styles.track}
-      >
-        <View style={[styles.fill, { width: `${visibleRatio * 100}%` }]} />
-        <View
-          style={[
-            styles.thumb,
-            {
-              left: `${visibleRatio * 100}%`,
-            },
-          ]}
-        />
+      <View pointerEvents="none" style={styles.track}>
+        <View style={[styles.fill, { width: `${safeDuration ? position / safeDuration * 100 : 0}%` }]} />
+        <View style={[styles.thumb, { left: `${safeDuration ? position / safeDuration * 100 : 0}%` }]} />
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  touchArea: {
-    justifyContent: "center",
-    minHeight: 42,
-    width: "100%",
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  track: {
-    backgroundColor: "rgba(255, 255, 255, 0.17)",
-    borderRadius: 999,
-    height: 6,
-    overflow: "visible",
-    width: "100%",
-  },
-  fill: {
-    backgroundColor: colors.primary,
-    borderRadius: 999,
-    height: "100%",
-  },
-  thumb: {
-    backgroundColor: colors.accent,
-    borderColor: colors.background,
-    borderRadius: 9,
-    borderWidth: 3,
-    height: 18,
-    marginLeft: -9,
-    marginTop: -6,
-    position: "absolute",
-    shadowColor: colors.primary,
-    shadowOffset: { height: 2, width: 0 },
-    shadowOpacity: 0.45,
-    shadowRadius: 7,
-    top: 0,
-    width: 18,
-  },
+  touchArea: { justifyContent: "center", minHeight: 48, width: "100%" },
+  disabled: { opacity: 0.5 },
+  track: { backgroundColor: "rgba(255, 255, 255, 0.17)", borderRadius: 999, height: 6, width: "100%" },
+  fill: { backgroundColor: colors.primary, borderRadius: 999, height: "100%" },
+  thumb: { backgroundColor: colors.accent, borderColor: colors.background, borderRadius: 9, borderWidth: 3, height: 18, marginLeft: -9, marginTop: -6, position: "absolute", top: 0, width: 18 },
 });

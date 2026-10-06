@@ -2,6 +2,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { incrementSongPlay } from "../api/musicApi";
+import { createProgressStore } from "../utils/playerProgress";
+import { PlayerProgressContext, usePlayerActions } from "./PlayerProgressContext";
+export { usePlayerProgress } from "./PlayerProgressContext";
 
 const PlayerContext = createContext(null);
 const BACKGROUND_PLAYBACK_KEY = "teso_tunes_background_playback";
@@ -37,7 +40,13 @@ export function PlayerProvider({ children }) {
   const currentTimeRef = useRef(0);
   const durationRef = useRef(0);
   const finishHandledRef = useRef(false);
-  const isBusyRef = useRef(false);
+  const commandRef = useRef(0);
+  const desiredPlayingRef = useRef(false);
+  const pendingPlayRef = useRef(null);
+  const progressStore = useRef(createProgressStore()).current;
+  const historyWriteRef = useRef(Promise.resolve());
+  const historyRevisionRef = useRef(0);
+  const recordedAudioRef = useRef(null);
   const lastCountedSongIdRef = useRef(null);
   const queueRef = useRef([]);
   const recentlyPlayedRef = useRef([]);
@@ -45,9 +54,9 @@ export function PlayerProvider({ children }) {
   const shuffleRef = useRef(false);
   const [backgroundPlaybackEnabled, setBackgroundPlaybackEnabledState] = useState(true);
   const [currentSong, setCurrentSong] = useState(null);
-  const [currentTime, setCurrentTime] = useState(0);
   const [didFinish, setDidFinish] = useState(false);
-  const [duration, setDuration] = useState(0);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [playbackError, setPlaybackError] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [isRepeatOn, setIsRepeatOn] = useState(false);
   const [isShuffleOn, setIsShuffleOn] = useState(false);
@@ -59,6 +68,7 @@ export function PlayerProvider({ children }) {
     configureMediaSessionHandlers();
 
     return () => {
+      commandRef.current += 1;
       clearMediaSessionHandlers();
       unloadCurrentAudio();
     };
@@ -76,15 +86,18 @@ export function PlayerProvider({ children }) {
   }
 
   async function loadRecentlyPlayed() {
+    const revision = historyRevisionRef.current;
     try {
       const savedSongs = await AsyncStorage.getItem(RECENTLY_PLAYED_KEY);
       const parsedSongs = JSON.parse(savedSongs || "[]");
       const nextSongs = Array.isArray(parsedSongs)
         ? parsedSongs.filter((song) => song?.id).slice(0, RECENTLY_PLAYED_LIMIT)
         : [];
+      if (historyRevisionRef.current !== revision) return;
       recentlyPlayedRef.current = nextSongs;
       setRecentlyPlayed(nextSongs);
     } catch (error) {
+      if (historyRevisionRef.current !== revision) return;
       recentlyPlayedRef.current = [];
       setRecentlyPlayed([]);
     }
@@ -93,6 +106,7 @@ export function PlayerProvider({ children }) {
   async function recordRecentlyPlayed(song) {
     if (!song?.id) return;
 
+    historyRevisionRef.current += 1;
     const compactSong = compactRecentSong(song);
     const nextSongs = [
       compactSong,
@@ -105,7 +119,9 @@ export function PlayerProvider({ children }) {
     setRecentlyPlayed(nextSongs);
 
     try {
-      await AsyncStorage.setItem(RECENTLY_PLAYED_KEY, JSON.stringify(nextSongs));
+      historyWriteRef.current = historyWriteRef.current.catch(() => {}).then(() =>
+        AsyncStorage.setItem(RECENTLY_PLAYED_KEY, JSON.stringify(nextSongs)));
+      await historyWriteRef.current;
     } catch (error) {}
   }
 
@@ -113,24 +129,33 @@ export function PlayerProvider({ children }) {
     const nextDuration = safeNumber(seconds);
     const safeDuration = nextDuration > 0 ? nextDuration : 0;
     durationRef.current = safeDuration;
-    setDuration(safeDuration);
+    progressStore.update(currentTimeRef.current, safeDuration);
     return safeDuration;
   }
 
   function setSafeCurrentTime(seconds) {
     const nextTime = clampTime(seconds, durationRef.current);
     currentTimeRef.current = nextTime;
-    setCurrentTime(nextTime);
+    progressStore.update(nextTime, durationRef.current);
     return nextTime;
   }
 
   function syncFromAudio(audio = audioRef.current) {
-    if (!audio) return;
+    if (!audio || audio !== audioRef.current) return;
 
+    const previousTime = currentTimeRef.current;
     const nextDuration = setSafeDuration(safeNumber(audio.duration));
     setSafeCurrentTime(clampTime(audio.currentTime, nextDuration));
-    setIsPlaying(!audio.paused && !audio.ended);
+    if (!pendingPlayRef.current) {
+      desiredPlayingRef.current = !audio.paused && !audio.ended;
+      setIsPlaying(desiredPlayingRef.current);
+    }
     setDidFinish(Boolean(audio.ended));
+    if (!audio.paused && !audio.seeking && audio.readyState >= 3 && audio.currentTime > previousTime && recordedAudioRef.current !== audio) {
+      recordedAudioRef.current = audio;
+      recordRecentlyPlayed(currentSongRef.current);
+      recordPlayCount(currentSongRef.current);
+    }
   }
 
   function clearAudioEvents() {
@@ -141,8 +166,25 @@ export function PlayerProvider({ children }) {
   }
 
   function attachAudioEvents(audio) {
+    let frame = null;
+    const sample = () => {
+      if (audio !== audioRef.current) return;
+      syncFromAudio(audio);
+      if (!audio.paused && !audio.ended) frame = requestAnimationFrame(sample);
+    };
     const handleProgress = () => syncFromAudio(audio);
+    const handlePlaying = () => {
+      if (audio !== audioRef.current) return;
+      setIsBuffering(false);
+      setPlaybackError("");
+      if (frame !== null) cancelAnimationFrame(frame);
+      sample();
+    };
+    const handleWaiting = () => { if (audio === audioRef.current) setIsBuffering(desiredPlayingRef.current); };
     const handleEnded = () => {
+      if (audio !== audioRef.current) return;
+      pendingPlayRef.current = null;
+      desiredPlayingRef.current = false;
       syncFromAudio(audio);
       if (!finishHandledRef.current) {
         finishHandledRef.current = true;
@@ -150,7 +192,13 @@ export function PlayerProvider({ children }) {
       }
     };
     const handleError = () => {
+      if (audio !== audioRef.current) return;
+      pendingPlayRef.current = null;
+      desiredPlayingRef.current = false;
+      audio.pause();
       setIsPlaying(false);
+      setIsBuffering(false);
+      setPlaybackError("Could not play this song. Please try again.");
       setDidFinish(false);
     };
 
@@ -161,6 +209,9 @@ export function PlayerProvider({ children }) {
       ["loadedmetadata", handleProgress],
       ["pause", handleProgress],
       ["play", handleProgress],
+      ["playing", handlePlaying],
+      ["waiting", handleWaiting],
+      ["seeked", handleProgress],
       ["timeupdate", handleProgress],
     ];
 
@@ -169,6 +220,7 @@ export function PlayerProvider({ children }) {
     });
 
     cleanupAudioEventsRef.current = () => {
+      if (frame !== null) cancelAnimationFrame(frame);
       listeners.forEach(([eventName, handler]) => {
         audio.removeEventListener(eventName, handler);
       });
@@ -190,15 +242,8 @@ export function PlayerProvider({ children }) {
     currentTimeRef.current = 0;
     durationRef.current = 0;
     setIsPlaying(false);
-    setCurrentTime(0);
-    setDuration(0);
+    progressStore.update(0, 0);
     setDidFinish(false);
-  }
-
-  function releaseBusySoon() {
-    setTimeout(() => {
-      isBusyRef.current = false;
-    }, 180);
   }
 
   function recordPlayCount(song) {
@@ -206,7 +251,7 @@ export function PlayerProvider({ children }) {
     if (!songId || lastCountedSongIdRef.current === songId) return;
 
     lastCountedSongIdRef.current = songId;
-    incrementSongPlay(songId);
+    incrementSongPlay(songId).catch(() => {});
   }
 
   function findCurrentQueueIndex() {
@@ -226,6 +271,11 @@ export function PlayerProvider({ children }) {
   }
 
   function playNextSong() {
+    if (shuffleRef.current && queueRef.current.length > 1) {
+      const alternatives = queueRef.current.filter(song => Number(song.id) !== Number(currentSongRef.current?.id));
+      if (alternatives.length) playSong(alternatives[Math.floor(Math.random() * alternatives.length)], queueRef.current);
+      return;
+    }
     const index = findCurrentQueueIndex();
     if (index < 0) return;
     playQueueSongAt(index + 1);
@@ -245,7 +295,7 @@ export function PlayerProvider({ children }) {
       setSafeCurrentTime(0);
       setDidFinish(false);
       finishHandledRef.current = false;
-      audio.play().catch(() => setIsPlaying(false));
+      setPlayback(true);
       return;
     }
 
@@ -289,8 +339,8 @@ export function PlayerProvider({ children }) {
     if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
 
     try {
-      navigator.mediaSession.setActionHandler("play", () => togglePlay());
-      navigator.mediaSession.setActionHandler("pause", () => togglePlay());
+      navigator.mediaSession.setActionHandler("play", () => setPlayback(true));
+      navigator.mediaSession.setActionHandler("pause", () => setPlayback(false));
       navigator.mediaSession.setActionHandler("previoustrack", () => playPreviousSong());
       navigator.mediaSession.setActionHandler("nexttrack", () => playNextSong());
       navigator.mediaSession.setActionHandler("seekbackward", () => seekBy(-10));
@@ -321,46 +371,44 @@ export function PlayerProvider({ children }) {
   }
 
   async function playSong(song, queue = []) {
-    if (!song || isBusyRef.current) return;
-
-    isBusyRef.current = true;
+    if (!song) return;
+    if (Number(song.id) === Number(currentSongRef.current?.id) && audioRef.current && desiredPlayingRef.current && (pendingPlayRef.current || (!audioRef.current.paused && !audioRef.current.ended))) return;
+    commandRef.current += 1;
+    pendingPlayRef.current = null;
+    unloadCurrentAudio();
     setCurrentSong(song);
     currentSongRef.current = song;
     finishHandledRef.current = false;
     if (Array.isArray(queue) && queue.length > 0) {
       queueRef.current = queue;
-    } else if (queueRef.current.length === 0) {
+    } else if (!queueRef.current.some(item => Number(item.id) === Number(song.id))) {
       queueRef.current = [song];
     }
     currentTimeRef.current = 0;
     durationRef.current = 0;
-    setCurrentTime(0);
-    setDuration(0);
+    progressStore.update(0, 0);
     setDidFinish(false);
-    setIsPlaying(false);
+    setPlaybackError("");
 
     if (!song?.audio_file) {
-      releaseBusySoon();
+      desiredPlayingRef.current = false;
+      setIsBuffering(false);
+      setPlaybackError("This song has no playable audio.");
       return;
     }
 
     try {
-      unloadCurrentAudio();
       const audio = new Audio(song.audio_file);
       audio.preload = "metadata";
       audioRef.current = audio;
       attachAudioEvents(audio);
       updateMediaSession(song);
 
-      await audio.play();
-      setIsPlaying(true);
-      recordPlayCount(song);
-      recordRecentlyPlayed(song);
-      syncFromAudio(audio);
+      await setPlayback(true);
     } catch (error) {
       setIsPlaying(false);
-    } finally {
-      releaseBusySoon();
+      setIsBuffering(false);
+      setPlaybackError("Could not play this song. Please try again.");
     }
   }
 
@@ -377,48 +425,60 @@ export function PlayerProvider({ children }) {
       setSafeCurrentTime(nextTime);
       setDidFinish(false);
       finishHandledRef.current = false;
-    } catch (error) {}
+    } catch (error) {
+      syncFromAudio(audio);
+      setPlaybackError("Could not seek in this song. Please try again.");
+    }
   }
 
   function seekBy(seconds) {
     seekTo(currentTimeRef.current + seconds);
   }
 
-  async function togglePlay() {
+  async function setPlayback(playing) {
     if (!currentSongRef.current) return;
 
     const audio = audioRef.current;
     if (!audio) {
-      playSong(currentSongRef.current, queueRef.current);
+      if (playing) playSong(currentSongRef.current, queueRef.current);
       return;
     }
-
-    if (!audio.paused && !audio.ended) {
+    if (playing && pendingPlayRef.current && desiredPlayingRef.current) return;
+    const command = ++commandRef.current;
+    desiredPlayingRef.current = playing;
+    pendingPlayRef.current = playing ? command : null;
+    setIsPlaying(playing);
+    setIsBuffering(playing && audio.readyState < 3);
+    setPlaybackError("");
+    if (!playing) {
       audio.pause();
-      setIsPlaying(false);
       syncFromAudio(audio);
       return;
     }
-
-    if (isBusyRef.current) return;
-
-    isBusyRef.current = true;
     try {
-      if (audio.ended || didFinish) {
+      if (audio.ended) {
         audio.currentTime = 0;
         setSafeCurrentTime(0);
         setDidFinish(false);
         finishHandledRef.current = false;
       }
       await audio.play();
-      setIsPlaying(true);
+      if (audio !== audioRef.current || command !== commandRef.current) return;
+      pendingPlayRef.current = null;
+      setIsBuffering(false);
       syncFromAudio(audio);
     } catch (error) {
+      if (audio !== audioRef.current || command !== commandRef.current) return;
+      pendingPlayRef.current = null;
+      desiredPlayingRef.current = false;
       setIsPlaying(false);
-    } finally {
-      releaseBusySoon();
+      setIsBuffering(false);
+      setPlaybackError("Could not play this song. Please try again.");
     }
   }
+
+  function togglePlay() { return setPlayback(!desiredPlayingRef.current); }
+  function retryPlayback() { return playSong(currentSongRef.current, queueRef.current); }
 
   function toggleRepeat() {
     setIsRepeatOn((value) => {
@@ -446,37 +506,26 @@ export function PlayerProvider({ children }) {
     } catch (error) {}
   }
 
+  const actions = usePlayerActions({ playNextSong, playPreviousSong, playSong, seekBy, seekTo, setBackgroundPlaybackEnabled, togglePlay, toggleRepeat, toggleShuffle, retryPlayback });
   const value = useMemo(
     () => ({
       backgroundPlaybackEnabled,
       currentSong,
-      currentTime,
       didFinish,
-      duration,
+      isBuffering,
+      playbackError,
       isPlaying,
       isRepeatOn,
       isShuffleOn,
-      playNextSong,
-      playPreviousSong,
-      playSong,
-      progress:
-        duration > 0 && Number.isFinite(currentTime)
-          ? Math.min(Math.max(currentTime / duration, 0), 1)
-          : 0,
+      ...actions,
       recentlyPlayed,
-      seekBy,
-      seekTo,
-      setBackgroundPlaybackEnabled,
-      togglePlay,
-      toggleRepeat,
-      toggleShuffle,
     }),
     [
       backgroundPlaybackEnabled,
       currentSong,
-      currentTime,
       didFinish,
-      duration,
+      isBuffering,
+      playbackError,
       isPlaying,
       isRepeatOn,
       isShuffleOn,
@@ -484,7 +533,7 @@ export function PlayerProvider({ children }) {
     ],
   );
 
-  return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;
+  return <PlayerContext.Provider value={value}><PlayerProgressContext.Provider value={progressStore}>{children}</PlayerProgressContext.Provider></PlayerContext.Provider>;
 }
 
 export function usePlayer() {

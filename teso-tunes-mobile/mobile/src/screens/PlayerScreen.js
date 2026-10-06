@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Image,
   ScrollView,
@@ -14,21 +14,22 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getSong, getSongs } from "../api/musicApi";
 import AddToPlaylistModal from "../components/AddToPlaylistModal";
-import SeekBar from "../components/SeekBar";
+import PlayerTimeline from "../components/PlayerTimeline";
 import SongShareModal from "../components/SongShareModal";
 import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
 import { artworkSource } from "../utils/artwork";
-import { formatPlays, formatTime } from "../utils/format";
+import { formatPlays } from "../utils/format";
 import { trackShareEvent } from "../utils/shareLinks";
 
 export default function PlayerScreen({ route, navigation }) {
   const {
     currentSong,
-    currentTime,
-    duration,
+    isBuffering,
+    playbackError,
+    retryPlayback,
     isPlaying,
     playNextSong,
     playPreviousSong,
@@ -44,42 +45,13 @@ export default function PlayerScreen({ route, navigation }) {
   const { isAuthenticated } = useAuth();
   const { getSongLikeCount, isSongLiked, isSongLikePending, toggleSongLike } = useEngagement();
   const { height, width } = useWindowDimensions();
-  const [previewTime, setPreviewTime] = useState(null);
   const [deepLinkLoading, setDeepLinkLoading] = useState(false);
   const [deepLinkError, setDeepLinkError] = useState("");
   const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
   const [shareVisible, setShareVisible] = useState(false);
 
   const deepLinkedSongId = route?.params?.id;
-  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
-  const safeCurrentTime = Number.isFinite(currentTime)
-    ? Math.max(0, Math.min(currentTime, safeDuration || currentTime))
-    : 0;
-  const displayTime = previewTime === null ? safeCurrentTime : previewTime;
   const coverSize = Math.min(width - spacing.page * 2, height * 0.4, 350);
-
-  useEffect(() => {
-    setPreviewTime(null);
-  }, [currentSong?.id]);
-
-  const clampSeekTime = useCallback((value) => {
-    if (!Number.isFinite(value) || safeDuration <= 0) return 0;
-    return Math.max(0, Math.min(value, safeDuration));
-  }, [safeDuration]);
-
-  const handleSeekingChange = useCallback((isSeeking, nextTime) => {
-    if (safeDuration <= 0 || !Number.isFinite(nextTime)) {
-      setPreviewTime(null);
-      return;
-    }
-    setPreviewTime(isSeeking ? clampSeekTime(nextTime) : null);
-  }, [clampSeekTime, safeDuration]);
-
-  const handleSeek = useCallback((nextTime) => {
-    const nextPosition = clampSeekTime(nextTime);
-    setPreviewTime(null);
-    seekTo(nextPosition);
-  }, [clampSeekTime, seekTo]);
 
   useEffect(() => {
     const songId = deepLinkedSongId;
@@ -116,7 +88,8 @@ export default function PlayerScreen({ route, navigation }) {
     return () => {
       mounted = false;
     };
-  }, [deepLinkedSongId, currentSong?.id, playSong]);
+  // Consume a linked song once; Next/Previous must not reopen the original link.
+  }, [deepLinkedSongId, playSong]);
 
   function requireAccountAction(action) {
     if (!isAuthenticated) {
@@ -245,19 +218,16 @@ export default function PlayerScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.progressBlock}>
-          <SeekBar
-            currentTime={displayTime}
-            duration={safeDuration}
-            onSeek={handleSeek}
-            onSeekingChange={handleSeekingChange}
-            disabled={safeDuration <= 0}
-          />
-          <View style={styles.timeRow}>
-            <Text style={styles.time}>{formatTime(displayTime)}</Text>
-            <Text style={styles.time}>{safeDuration > 0 ? formatTime(safeDuration) : "0:00"}</Text>
+        <PlayerTimeline key={currentSong.id} onSeek={seekTo} />
+        {playbackError ? (
+          <View style={styles.playbackNotice} accessibilityLiveRegion="polite">
+            <Text style={styles.loadingText}>{playbackError}</Text>
+            <TouchableOpacity accessibilityRole="button" onPress={retryPlayback} style={styles.trackAction}>
+              <Ionicons name="refresh" color={colors.accent} size={18} />
+              <Text style={styles.trackActionText}>Retry</Text>
+            </TouchableOpacity>
           </View>
-        </View>
+        ) : isBuffering ? <Text accessibilityLiveRegion="polite" style={styles.loadingText}>Buffering...</Text> : null}
 
         <View style={styles.controls}>
           <PlayerIconButton
@@ -427,9 +397,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 20,
     borderWidth: 1,
-    height: 40,
+    height: 44,
     justifyContent: "center",
-    width: 40,
+    width: 44,
   },
   headerTitle: {
     color: colors.text,
@@ -448,7 +418,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 6,
     justifyContent: "center",
-    minHeight: 38,
+    minHeight: 44,
     paddingHorizontal: 10,
   },
   playlistButtonText: {
@@ -534,7 +504,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 8,
     maxWidth: "90%",
-    minHeight: 32,
+    minHeight: 44,
     paddingHorizontal: 8,
   },
   artist: {
@@ -613,7 +583,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 7,
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: 12,
   },
   trackActionActive: {
@@ -737,4 +707,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
   },
+  playbackNotice: { alignSelf: "stretch", alignItems: "center", gap: 8, marginTop: 8 },
 });

@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -51,11 +51,12 @@ export default function SupportTicketFormScreen({ navigation, route }) {
     category: route?.params?.category || "",
     message: "",
     priority: "normal",
-    subject: "",
+    subject: route?.params?.subject || "",
   });
   const [attachment, setAttachment] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [error, setError] = useState("");
 
   const roleKey = ["artist", "artist_pending"].includes(listener?.role) ? "artist" : "listener";
@@ -128,12 +129,13 @@ export default function SupportTicketFormScreen({ navigation, route }) {
   }
 
   async function submitTicket() {
-    if (saving) return;
+    if (savingRef.current) return;
     if (validationMessage) {
       setError(validationMessage);
       return;
     }
 
+    savingRef.current = true;
     setSaving(true);
     setError("");
     try {
@@ -155,6 +157,7 @@ export default function SupportTicketFormScreen({ navigation, route }) {
     } catch (submitError) {
       setError(errorMessage(submitError));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -267,7 +270,7 @@ export default function SupportTicketFormScreen({ navigation, route }) {
                       <Text style={styles.attachmentText} numberOfLines={1}>
                         {pickedAssetName(attachment)}
                       </Text>
-                      <TouchableOpacity onPress={() => setAttachment(null)}>
+                      <TouchableOpacity accessibilityLabel="Remove attachment" style={styles.attachmentRemove} onPress={() => setAttachment(null)}>
                         <Ionicons name="close-circle" color={colors.muted} size={20} />
                       </TouchableOpacity>
                     </View>
@@ -315,6 +318,7 @@ function SupportInput({ icon, style, ...props }) {
 }
 
 const styles = StyleSheet.create({
+  attachmentRemove: { width: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   keyboardAvoider: {
     backgroundColor: colors.background,
     flex: 1,
@@ -338,12 +342,12 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 8,
     borderWidth: 1,
-    height: 42,
+    height: 44,
     justifyContent: "center",
-    width: 42,
+    width: 44,
   },
   iconSpacer: {
-    width: 42,
+    width: 44,
   },
   title: {
     flex: 1,
@@ -378,7 +382,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 8,
     borderWidth: 1,
-    minHeight: 40,
+    minHeight: 44,
     justifyContent: "center",
     paddingHorizontal: 12,
   },
@@ -422,7 +426,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 8,
     borderWidth: 1,
-    minHeight: 38,
+    minHeight: 44,
     justifyContent: "center",
     paddingHorizontal: 11,
   },

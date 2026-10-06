@@ -181,9 +181,9 @@ const styles = StyleSheet.create({
   menuButton: {
     alignItems: "center",
     borderRadius: 20,
-    height: 40,
+    height: 44,
     justifyContent: "center",
-    width: 40,
+    width: 44,
   },
   activeButton: {
     backgroundColor: colors.primary,
