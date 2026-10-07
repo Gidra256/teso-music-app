@@ -17,4 +17,11 @@ export const MUSIC_WEB_BASE_URL = (
 
 export const ANDROID_STORE_URL = getAndroidStoreUrl();
 
+// Public distribution destination; an environment override can later point to Google Play.
+export const ANDROID_DOWNLOAD_URL =
+  process.env.EXPO_PUBLIC_ANDROID_DOWNLOAD_URL ||
+  process.env.EXPO_PUBLIC_ANDROID_STORE_URL ||
+  ANDROID_STORE_URL ||
+  "https://github.com/Gidra256/teso-music-app/releases/download/tesohub-music-android-v1.0.6/TesoHub-Music-Android-v1.0.6.apk";
+
 export const IOS_STORE_URL = getIosStoreUrl();

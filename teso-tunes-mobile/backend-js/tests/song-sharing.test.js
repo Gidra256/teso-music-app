@@ -7,6 +7,34 @@ import { isShareableSong, renderPublicSongPage } from "../songSharing.js";
 const song = { id: 37, status: "published", title: 'Song <script>" &', artist_name: "Artist", cover_image: "/artwork.jpg", audio_file: "PRIVATE-AUDIO-SECRET" };
 const config = { shareBaseUrl: "https://api.example.test", webBaseUrl: "https://web.example.test", assetBaseUrl: "https://api.example.test" };
 
+test("Android actions have distinct names, stay hidden off Android, and omit unconfigured download", () => {
+  assert.ok(!renderPublicSongPage(song, config).includes('id="get-android-app"'));
+  const html = renderPublicSongPage(song, { ...config, androidDownloadUrl: "https://example.test/app.apk" });
+  assert.ok(html.includes('id="get-android-app" hidden'));
+  assert.ok(html.includes('>Get Android App</a>'));
+  assert.ok(html.includes('>Open App</a>'));
+  const script = html.match(/<script>(.*?)<\/script>/s)[1];
+  for (const userAgent of ["Android", "iPhone", "desktop"]) {
+    const open = { hidden: true, dataset: { androidIntent: "exact-content-intent" } };
+    const download = { hidden: true, href: "https://example.test/app.apk" };
+    const prompts = [];
+    let accepted = false;
+    vm.runInNewContext(script, { URL, window: { confirm: text => { prompts.push(text); return accepted; } }, navigator: { userAgent }, document: { getElementById: id => id === "open-app" ? open : download } });
+    assert.equal(open.hidden, userAgent !== "Android");
+    assert.equal(download.hidden, userAgent !== "Android");
+    if (userAgent === "Android") {
+      assert.equal(open.href, "exact-content-intent");
+      assert.equal(download.onclick(), false);
+      assert.match(prompts[0], /Early Access APK.*not Google Play/);
+      accepted = true;
+      assert.equal(download.onclick(), true);
+      download.href = "https://play.google.com/store/apps/details?id=com.tesotunes.app";
+      assert.equal(download.onclick(), true);
+      assert.equal(prompts.at(-1), "Open TesoHub Music on Google Play?");
+    }
+  }
+});
+
 test("metadata is escaped and links to the exact public song without audio", () => {
   const html = renderPublicSongPage(song, config);
   assert.ok(html.includes('property="og:title" content="Song &lt;script&gt;&quot; &amp;"'));
@@ -14,7 +42,8 @@ test("metadata is escaped and links to the exact public song without audio", () 
   assert.ok(html.includes('href="tesohubmusic://song/37"'));
   assert.ok(html.includes('property="og:url" content="https://api.example.test/song/37"'));
   assert.ok(!html.includes("PRIVATE-AUDIO-SECRET"));
-  assert.ok(!html.includes("<script>"));
+  assert.ok(!html.includes('Song <script>'));
+  assert.equal((html.match(/<script>/g) || []).length, 1, "Only the fixed Android routing script is executable");
 });
 
 test("only published public identifiers are shareable", () => {
@@ -50,6 +79,7 @@ function handlerFor(route, getPublicSong) {
     PUBLIC_BASE_URL: config.assetBaseUrl,
     directSongResponse: (_req, item) => item,
     trackProductEvent: () => {}, console: { error: () => {} },
+    process: { env: {} },
   });
   return async (id = "37") => {
     const response = { code: 200, headers: {}, set(key, value) { this.headers[key] = value; return this; }, status(value) { this.code = value; return this; }, type() { return this; }, send(value) { this.body = value; return this; }, json(value) { this.body = value; return this; } };

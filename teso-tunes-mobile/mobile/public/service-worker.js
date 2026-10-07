@@ -1,9 +1,11 @@
-const CACHE_NAME = "tesohub-music-shell-v1";
+const CACHE_NAME = "tesohub-music-shell-v2";
 const APP_SHELL_URLS = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
   "/icons/tesohub-music.png",
+  "/icons/tesohub-192.png",
+  "/icons/tesohub-512.png",
 ];
 const PRIVATE_PATH_PREFIXES = [
   "/api/",

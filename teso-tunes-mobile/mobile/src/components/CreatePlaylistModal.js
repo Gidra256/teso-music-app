@@ -2,21 +2,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Keyboard,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   TouchableOpacity,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createPlaylist } from "../api/musicApi";
+import KeyboardSheetViewport from "./KeyboardSheetViewport";
 import { colors, spacing } from "../theme";
 
 export default function CreatePlaylistModal({ visible, onClose, onCreated }) {
@@ -63,13 +60,8 @@ export default function CreatePlaylistModal({ visible, onClose, onCreated }) {
 
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        enabled={Platform.OS !== "web"}
-        style={styles.backdrop}
-      >
+      <KeyboardSheetViewport visible={visible} style={styles.backdrop}>
         <TouchableOpacity activeOpacity={1} style={styles.dismissArea} onPress={onClose} />
-        <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
           <View style={[styles.sheet, { paddingBottom: Math.max(24, insets.bottom + 16) }]}>
             <ScrollView
               contentContainerStyle={styles.sheetContent}
@@ -137,8 +129,7 @@ export default function CreatePlaylistModal({ visible, onClose, onCreated }) {
               </TouchableOpacity>
             </ScrollView>
           </View>
-        </TouchableWithoutFeedback>
-      </KeyboardAvoidingView>
+      </KeyboardSheetViewport>
     </Modal>
   );
 }

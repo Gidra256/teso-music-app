@@ -14,7 +14,7 @@ function load(os, options = {}) {
     console: { log: (_label, data) => events.push(data) },
     require: id => id === "react-native" ? {
       Platform: { OS: os }, Share: { sharedAction: "sharedAction", share: async data => { calls.push(data); return { action: options.action || "sharedAction" }; } },
-    } : { SHARE_BASE_URL: "https://teso-music-app.onrender.com" },
+    } : { SHARE_BASE_URL: "https://teso-music-app.onrender.com", MUSIC_WEB_BASE_URL: "https://tesohub-music-pwa.onrender.com" },
   });
   return { ...exports, calls, events };
 }
@@ -68,4 +68,15 @@ test("unpublished songs and invalid identifiers cannot be shared", async () => {
   for (const status of ["hidden", "draft", "under_review", "removed", undefined]) await assert.rejects(helper.shareSongLink({ ...song, status }));
   for (const id of [null, 0, "../secret", "9007199254740993"]) assert.throws(() => helper.songShareUrl(id));
   assert.equal(helper.calls.length, 0);
+});
+
+test("artist and playlist Web Share/copy target real PWA routes", async () => {
+  let copied;
+  const helper = load("web", { navigator: { clipboard: { writeText: async value => { copied = value; } } } });
+  await helper.shareArtistLink({ id: 11, name: "Artist" });
+  assert.equal(copied, "https://tesohub-music-pwa.onrender.com/artist/11");
+  await helper.sharePlaylistLink({ id: 22, name: "Playlist" });
+  assert.equal(copied, "https://tesohub-music-pwa.onrender.com/playlist/22");
+  assert.throws(() => helper.artistShareUrl("../invalid"));
+  assert.throws(() => helper.playlistShareUrl(0));
 });

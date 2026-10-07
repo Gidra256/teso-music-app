@@ -6,15 +6,12 @@ import {
   Alert,
   FlatList,
   Image,
-  Keyboard,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -29,6 +26,9 @@ import {
   updatePlaylist,
 } from "../api/musicApi";
 import MiniPlayer from "../components/MiniPlayer";
+import AppAccess from "../components/AppAccess";
+import { useAuth } from "../context/AuthContext";
+import KeyboardSheetViewport from "../components/KeyboardSheetViewport";
 import SongActionsModal from "../components/SongActionsModal";
 import { usePlayer } from "../context/PlayerContext";
 import { colors, spacing } from "../theme";
@@ -36,6 +36,7 @@ import { artworkSource } from "../utils/artwork";
 
 export default function PlaylistDetailScreen({ navigation, route }) {
   const playlistId = route?.params?.id;
+  const { isAuthenticated } = useAuth();
   const { playSong } = usePlayer();
   const [playlist, setPlaylist] = useState(null);
   const [allSongs, setAllSongs] = useState([]);
@@ -59,6 +60,7 @@ export default function PlaylistDetailScreen({ navigation, route }) {
 
   const loadDetail = useCallback(async () => {
     if (!playlistId) return;
+    if (!isAuthenticated) { setPlaylist(null); setLoading(false); return; }
 
     try {
       setLoading(true);
@@ -75,7 +77,7 @@ export default function PlaylistDetailScreen({ navigation, route }) {
     } finally {
       setLoading(false);
     }
-  }, [playlistId]);
+  }, [playlistId, isAuthenticated]);
 
   useFocusEffect(
     useCallback(() => {
@@ -196,7 +198,7 @@ export default function PlaylistDetailScreen({ navigation, route }) {
             activeOpacity={0.82}
             accessibilityLabel="Go back"
             style={styles.roundIconButton}
-            onPress={() => navigation.goBack()}
+            onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate("TesoTabs", { screen: "Library" })}
           >
             <Ionicons name="arrow-back" color={colors.softText} size={21} />
           </TouchableOpacity>
@@ -214,6 +216,16 @@ export default function PlaylistDetailScreen({ navigation, route }) {
 
         {loading ? (
           <ActivityIndicator color={colors.primary} style={styles.loader} />
+        ) : !isAuthenticated ? (
+          <View style={styles.stateBlock}>
+            <Text style={styles.errorText}>Sign in to access your saved playlists. You can keep listening without an account.</Text>
+            <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate("Profile", { loginRequired: true })}>
+              <Text style={styles.primaryText}>Log In / Create Account</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.guestSecondary} onPress={() => navigation.navigate("TesoTabs", { screen: "Home" })}>
+              <Text style={styles.outlineText}>Keep Listening</Text>
+            </TouchableOpacity>
+          </View>
         ) : error && !playlist ? (
           <View style={styles.stateBlock}>
             <Text style={styles.errorText}>{error}</Text>
@@ -292,6 +304,7 @@ export default function PlaylistDetailScreen({ navigation, route }) {
             )}
           </>
         ) : null}
+        <AppAccess path={`/playlist/${playlistId}`} />
       </ScrollView>
 
       <RenameModal
@@ -363,14 +376,10 @@ function RenameModal({
 
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        enabled={Platform.OS !== "web"}
-        style={styles.modalBackdrop}
-      >
+      <KeyboardSheetViewport visible={visible} style={styles.modalBackdrop}>
         <TouchableOpacity activeOpacity={1} style={styles.dismissArea} onPress={onClose} />
-        <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
           <View style={[styles.sheet, { paddingBottom: Math.max(24, insets.bottom + 16) }]}>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 14 }}>
             <View style={styles.handle} />
             <Text style={styles.sheetTitle}>Edit playlist</Text>
             <TextInput
@@ -402,9 +411,9 @@ function RenameModal({
                 <Text style={styles.primaryText}>Save</Text>
               </TouchableOpacity>
             </View>
+            </ScrollView>
           </View>
-        </TouchableWithoutFeedback>
-      </KeyboardAvoidingView>
+      </KeyboardSheetViewport>
     </Modal>
   );
 }
@@ -494,6 +503,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     marginTop: 34,
+  },
+  guestSecondary: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: 16,
   },
   errorText: {
     color: colors.softText,

@@ -2,6 +2,7 @@ import {
   NavigationContainer,
   createNavigationContainerRef,
   useNavigation,
+  useFocusEffect,
 } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -9,7 +10,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Linking from "expo-linking";
 import * as Updates from "expo-updates";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -228,8 +229,30 @@ function MainTabs() {
   );
 }
 
-function CreateScreenPlaceholder() {
-  return <View style={styles.placeholderScreen} />;
+function CreateScreenPlaceholder({ navigation }) {
+  const { isAuthenticated } = useAuth();
+  const [visible, setVisible] = useState(false);
+  const created = useRef(null);
+  useFocusEffect(useCallback(() => {
+    if (isAuthenticated) setVisible(true);
+    else {
+      // Keep Listening must return to the library, not re-enter this action route.
+      navigation.navigate("Library");
+      navigation.navigate("Profile", { loginRequired: true });
+    }
+    return () => setVisible(false);
+  }, [isAuthenticated, navigation]));
+  function close() {
+    setVisible(false);
+    navigation.navigate("Library");
+    if (created.current) {
+      navigation.navigate("PlaylistDetail", { id: created.current.id });
+      created.current = null;
+    }
+  }
+  return <View style={styles.placeholderScreen}>
+    <CreatePlaylistModal visible={visible} onClose={close} onCreated={playlist => { created.current = playlist; }} />
+  </View>;
 }
 
 function ReleaseRedirectScreen({ route, navigation }) {
@@ -356,7 +379,7 @@ function WebPwaRuntime() {
       typeof navigator !== "undefined" &&
       "serviceWorker" in navigator &&
       typeof window !== "undefined" &&
-      (window.location.protocol === "https:" || window.location.hostname === "localhost") &&
+      window.isSecureContext &&
       process.env.NODE_ENV === "production";
 
     if (canRegisterServiceWorker) {

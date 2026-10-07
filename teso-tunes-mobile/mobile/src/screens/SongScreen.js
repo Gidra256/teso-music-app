@@ -6,6 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getShareableSong } from "../api/musicApi";
 import SongShareModal from "../components/SongShareModal";
+import AppAccess from "../components/AppAccess";
 import { useAuth } from "../context/AuthContext";
 import { useEngagement } from "../context/EngagementContext";
 import { usePlayer } from "../context/PlayerContext";
@@ -72,6 +73,7 @@ export default function SongScreen({ navigation, route }) {
             </TouchableOpacity>
           </View>
         </> : null}
+        <AppAccess path={`/song/${id}`} />
         <TouchableOpacity style={styles.discover} onPress={() => navigation.navigate("TesoTabs", { screen: "Home" })}>
           <Text style={styles.discoveryText}>Discover more music</Text><Ionicons name="arrow-forward" size={20} color={colors.primary} />
         </TouchableOpacity>

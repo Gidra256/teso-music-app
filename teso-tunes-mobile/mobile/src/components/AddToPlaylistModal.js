@@ -4,14 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Keyboard,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -23,6 +20,7 @@ import {
   getPlaylists,
 } from "../api/musicApi";
 import { useAuth } from "../context/AuthContext";
+import KeyboardSheetViewport from "./KeyboardSheetViewport";
 import { colors, spacing } from "../theme";
 
 export default function AddToPlaylistModal({ visible, song, onClose }) {
@@ -135,13 +133,8 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
 
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        enabled={Platform.OS !== "web"}
-        style={styles.backdrop}
-      >
+      <KeyboardSheetViewport visible={visible} style={styles.backdrop}>
         <TouchableOpacity activeOpacity={1} style={styles.dismissArea} onPress={onClose} />
-        <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
         <View style={[styles.sheet, { paddingBottom: Math.max(24, insets.bottom + 16) }]}>
           <View style={styles.handle} />
           <View style={styles.header}>
@@ -170,11 +163,14 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
               <Text style={styles.stateTitle}>Sign in to use playlists</Text>
               <Text style={styles.stateText}>Your playlists are saved to your account.</Text>
               <TouchableOpacity activeOpacity={0.86} style={styles.primaryButton} onPress={openProfile}>
-                <Text style={styles.primaryText}>Sign In</Text>
+                <Text style={styles.primaryText}>Log In / Create Account</Text>
+              </TouchableOpacity>
+              <TouchableOpacity activeOpacity={0.86} style={styles.secondaryButton} onPress={onClose}>
+                <Text style={styles.secondaryText}>Keep Listening</Text>
               </TouchableOpacity>
             </View>
           ) : creating ? (
-            <View style={styles.createBox}>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.createBox}>
               <TextInput
                 autoCapitalize="words"
                 blurOnSubmit
@@ -211,7 +207,7 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
                   <Text style={styles.primaryText}>Create</Text>
                 </TouchableOpacity>
               </View>
-            </View>
+            </ScrollView>
           ) : (
             <>
               <TouchableOpacity
@@ -268,8 +264,7 @@ export default function AddToPlaylistModal({ visible, song, onClose }) {
           {message ? <Text style={styles.success}>{message}</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
-        </TouchableWithoutFeedback>
-      </KeyboardAvoidingView>
+      </KeyboardSheetViewport>
     </Modal>
   );
 }

@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import AppAccess from "../components/AppAccess";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -117,6 +118,7 @@ export default function HomeScreen({ navigation }) {
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Retry unavailable sections" style={styles.retry} onPress={() => reload(true)}><Text style={styles.link}>Retry</Text></TouchableOpacity>
         </View>}
         {slow && loading && <Text accessibilityLiveRegion="polite" style={styles.noticeText}>Still loading more music...</Text>}
+        <AppAccess compact />
         {sections.recent.length > 0 && <View style={styles.section} testID="home-recent">
           <Heading title="Continue listening" />
           <View style={styles.recentList}>{sections.recent.slice(0, 3).map(song => <SongCard key={song.id} song={song} queue={sections.recent}

@@ -1938,6 +1938,13 @@ app.get("/.well-known/apple-app-site-association", (req, res) => {
   );
 });
 
+// Preserve artist/playlist links previously shared on the API origin.
+app.get(["/artist/:id", "/playlist/:id"], (req, res) => {
+  if (!/^[1-9]\d*$/.test(req.params.id) || !Number.isSafeInteger(Number(req.params.id))) return res.sendStatus(404);
+  res.set("Cache-Control", "no-store");
+  return res.redirect(302, `${PUBLIC_MUSIC_WEB_URL.replace(/\/+$/, "")}${req.path}`);
+});
+
 app.get("/song/:id", async (req, res) => {
   res.set("Cache-Control", "no-store");
   res.set("X-Content-Type-Options", "nosniff");
@@ -1962,6 +1969,7 @@ app.get("/song/:id", async (req, res) => {
       shareBaseUrl: publicShareBaseUrl(req),
       webBaseUrl: PUBLIC_MUSIC_WEB_URL,
       assetBaseUrl: PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`,
+      androidDownloadUrl: process.env.ANDROID_DOWNLOAD_URL || process.env.ANDROID_STORE_URL || "",
     }));
   } catch (error) {
     console.error("Song share page unavailable:", error.message);

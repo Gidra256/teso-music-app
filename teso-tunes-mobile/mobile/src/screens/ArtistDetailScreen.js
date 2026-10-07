@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import AppAccess from "../components/AppAccess";
 import { useNavigation } from "@react-navigation/native";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -222,6 +223,7 @@ export default function ArtistDetailScreen({ route }) {
             <SongCard key={song.id} song={song} queue={artist.songs || []} />
           ))}
         </View>
+        <AppAccess path={`/artist/${artist.id}`} />
       </ScrollView>
       {snackbar ? (
         <View style={styles.snackbar}>

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Image, Platform, StyleSheet, Switch, Text, View } from "react-native";
 
 import appConfig from "../../app.json";
+import AppAccess from "../components/AppAccess";
 import AccountPage, { AccountRow, accountStyles } from "../components/AccountPage";
 import { useAuth } from "../context/AuthContext";
 import { usePlayer } from "../context/PlayerContext";
@@ -38,6 +39,7 @@ export default function SettingsScreen({ navigation }) {
       <AccountRow title="Account information" icon="person-outline" onPress={() => navigation.navigate("EditProfile")} />
       <Text style={accountStyles.section}>Privacy & Data</Text>
       <AccountRow title="Request account deletion" subtitle="Send a request to Support. Your account is not deleted immediately." icon="trash-outline" onPress={() => navigation.navigate("SupportTicketForm", { category: artist ? "Other" : "Account / Login", subject: "Account deletion request" })} />
+      <AppAccess persistent />
       <Text style={accountStyles.section}>About</Text>
       <View style={styles.about}>
         <Image source={require("../../assets/images/tesohub-music.png")} style={styles.logo} accessibilityLabel="TesoHub Music logo" />

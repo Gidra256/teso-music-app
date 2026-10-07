@@ -1,6 +1,6 @@
 import { Platform, Share } from "react-native";
 
-import { SHARE_BASE_URL } from "../config/api";
+import { MUSIC_WEB_BASE_URL, SHARE_BASE_URL } from "../config/api";
 
 export function songShareUrl(songOrId) {
   const id = typeof songOrId === "object" ? songOrId?.id : songOrId;
@@ -12,12 +12,14 @@ export function songShareUrl(songOrId) {
 
 export function artistShareUrl(artistOrId) {
   const id = typeof artistOrId === "object" ? artistOrId?.id : artistOrId;
-  return `${SHARE_BASE_URL}/artist/${encodeURIComponent(String(id || ""))}`;
+  if (!/^[1-9]\d*$/.test(String(id)) || !Number.isSafeInteger(Number(id))) throw new Error("This artist is unavailable.");
+  return `${MUSIC_WEB_BASE_URL}/artist/${id}`;
 }
 
 export function playlistShareUrl(playlistOrId) {
   const id = typeof playlistOrId === "object" ? playlistOrId?.id : playlistOrId;
-  return `${SHARE_BASE_URL}/playlist/${encodeURIComponent(String(id || ""))}`;
+  if (!/^[1-9]\d*$/.test(String(id)) || !Number.isSafeInteger(Number(id))) throw new Error("This playlist is unavailable.");
+  return `${MUSIC_WEB_BASE_URL}/playlist/${id}`;
 }
 
 export function songShareMessage(song) {
@@ -94,7 +96,7 @@ export async function shareArtistLink(artist) {
   const title = artist.name || "TesoHub Music artist";
   trackShareEvent("artist_share", { artist_id: artist.id });
 
-  await Share.share({
+  return shareContentLink({
     message: `${title}\nListen on TesoHub Music\n${url}`,
     title,
     url,
@@ -108,9 +110,21 @@ export async function sharePlaylistLink(playlist) {
   const title = playlist.name || "TesoHub Music playlist";
   trackShareEvent("playlist_share", { playlist_id: playlist.id });
 
-  await Share.share({
+  return shareContentLink({
     message: `${title}\nListen on TesoHub Music\n${url}`,
     title,
     url,
   });
+}
+
+async function shareContentLink(content) {
+  if (Platform.OS !== "web") return Share.share(content);
+  const data = { title: content.title, text: content.title, url: content.url };
+  if (navigator.share && (!navigator.canShare || navigator.canShare(data))) {
+    try { await navigator.share(data); return { method: "web_share" }; }
+    catch (error) { if (error.name === "AbortError") return { dismissed: true }; throw error; }
+  }
+  if (!navigator.clipboard?.writeText) throw new Error("Sharing is unavailable in this browser. Copy the page address instead.");
+  await navigator.clipboard.writeText(content.url);
+  return { method: "copy_link" };
 }
