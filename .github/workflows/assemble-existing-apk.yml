@@ -1,0 +1,78 @@
+name: Assemble verified existing Early Access APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: existing-apk-v1.0.6
+  cancel-in-progress: false
+
+jobs:
+  assemble:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Reassemble original bytes and verify before attaching
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import crypto from 'node:crypto';
+          const repo = 'Gidra256/teso-music-app';
+          assert.equal(process.env.GITHUB_REPOSITORY.toLowerCase(), repo.toLowerCase());
+          const root = `https://api.github.com/repos/${repo}`;
+          const headers = { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' };
+          const releaseId = 405581379;
+          const expected = '26c5a12153a6e761a62063832b1334df948a0a832e20ae327bf3eb7903a9b0b0';
+          const size = 80332111, partSize = 1048576;
+          const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+          async function api(path) {
+            const response = await fetch(root + path, { headers, signal: AbortSignal.timeout(60000) });
+            assert.ok(response.ok, `GitHub read HTTP ${response.status}`);
+            return response.json();
+          }
+          const release = await api(`/releases/${releaseId}`);
+          assert.equal(release.tag_name, 'tesohub-music-android-v1.0.6');
+          assert.equal(release.draft, true, 'Keep transport parts private until verification');
+          const assets = await api(`/releases/${releaseId}/assets?per_page=100`);
+          const parts = [];
+          for (let index = 0; index < Math.ceil(size / partSize); index++) {
+            const name = `tesohub-v1.0.6-transfer-part-${String(index).padStart(3, '0')}.bin`;
+            const asset = assets.find(item => item.name === name);
+            assert.ok(asset, `Missing ${name}`);
+            const length = Math.min(partSize, size - index * partSize);
+            assert.equal(asset.size, length);
+            const response = await fetch(`${root}/releases/assets/${asset.id}`, { headers: { ...headers, Accept: 'application/octet-stream' }, signal: AbortSignal.timeout(120000) });
+            assert.ok(response.ok, `Part download HTTP ${response.status}`);
+            const bytes = Buffer.from(await response.arrayBuffer());
+            assert.equal(bytes.length, length);
+            if (asset.digest) assert.equal(`sha256:${hash(bytes)}`, asset.digest);
+            parts.push(bytes);
+          }
+          const apk = Buffer.concat(parts);
+          assert.equal(apk.length, size);
+          assert.equal(hash(apk), expected, 'Never attach altered APK bytes');
+          assert.equal(apk.subarray(0, 4).toString('hex'), '504b0304');
+          const name = 'TesoHub-Music-Android-v1.0.6.apk';
+          const existing = assets.find(item => item.name === name);
+          if (existing) {
+            assert.equal(existing.size, size);
+            assert.equal(existing.digest, `sha256:${expected}`);
+          } else {
+            const upload = new URL(release.upload_url.split('{')[0]);
+            assert.equal(upload.origin, 'https://uploads.github.com');
+            upload.searchParams.set('name', name);
+            const response = await fetch(upload, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/vnd.android.package-archive' }, body: apk, signal: AbortSignal.timeout(240000) });
+            assert.equal(response.status, 201, `Final upload HTTP ${response.status}`);
+            const asset = await response.json();
+            assert.equal(asset.size, size);
+            assert.equal(asset.digest, `sha256:${expected}`);
+          }
+          console.log(`Verified original APK SHA-256: ${expected}`);
+          console.log('Existing APK attached. Draft retained for public download gate; no APK build performed.');
+          NODE
