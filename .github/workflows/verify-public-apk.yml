@@ -1,0 +1,37 @@
+name: Verify anonymous Early Access APK download
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Download without credentials and verify original bytes
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import crypto from 'node:crypto';
+          const url = 'https://github.com/Gidra256/teso-music-app/releases/download/tesohub-music-android-v1.0.6/TesoHub-Music-Android-v1.0.6.apk';
+          const expected = '26c5a12153a6e761a62063832b1334df948a0a832e20ae327bf3eb7903a9b0b0';
+          // No authorization headers, cookies, checkout or GitHub token.
+          const response = await fetch(url, { signal: AbortSignal.timeout(480000) });
+          assert.equal(response.status, 200);
+          assert.ok(!/text\/html/i.test(response.headers.get('content-type') || ''));
+          const hash = crypto.createHash('sha256');
+          let size = 0, signature = Buffer.alloc(0);
+          for await (const chunk of response.body) {
+            if (signature.length < 4) signature = Buffer.concat([signature, Buffer.from(chunk)]).subarray(0, 4);
+            hash.update(chunk);
+            size += chunk.length;
+          }
+          const sha256 = hash.digest('hex');
+          assert.equal(signature.toString('hex'), '504b0304');
+          assert.equal(size, 80332111);
+          assert.equal(sha256, expected);
+          console.log(JSON.stringify({ result: 'PASS', anonymous: true, status: response.status, size, sha256, url }));
+          NODE
