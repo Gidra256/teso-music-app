@@ -1,6 +1,6 @@
 # Android Early Access and PWA parity release
 
-Status: IN PROGRESS. Public APK checksum gate passed; final frontend checks and publication are in progress.
+Status: RELEASED. APK public checksum gate, Android OTA and PWA publication passed. Post-deployment verification results and remaining limitations are separated below.
 
 ## Existing APK identity
 
@@ -33,11 +33,13 @@ Status: IN PROGRESS. Public APK checksum gate passed; final frontend checks and 
 
 ## Frontend release
 
-- Frontend commit: PENDING.
-- OTA update/group: PENDING.
+- Frontend/sharing release commit: `9a0b5c22c5df7accacfb91209a4b3952d58faf4d`, pushed to master after Android OTA publication.
+- OTA Android update: `01a1164a-76d0-7af3-889e-612cf4fe0f51`.
+- OTA group: `4a73431b-8d14-41d2-98b1-093d2a44ecca`.
+- OTA published at `2026-10-07T12:15:41.264Z`. Expo Updates endpoint returned HTTP 200 and this exact ID/runtime for Android + preview headers. Protocol v1 required multipart Accept; the initial JSON-only probe returned 406 and the corrected probe passed.
 - OTA channel/branch: preview; runtime: 1.0.6.
 - PWA: https://tesohub-music-pwa.onrender.com
-- PWA deployment: PENDING.
+- PWA deployment: LIVE. Render serves `AppEntry-230b38ba089b960db88afcd0a8a1cea8.js`, HTTP 200. Its build hash differs from the local export; the delivered bundle was checked for the exact approved APK URL, confirmation wording, all three distinct actions, dismissal storage, visual-viewport handling and the production API URL. Tests below target the actual public origin.
 - Final Android export passed (`dist-early-access-android-final`, bundle `AppEntry-644e8ad0a23f3a27c3f115661be15d5e.hbc`); no APK built.
 - Final web export passed (`dist-early-access-final`, bundle `AppEntry-7abec0ac874447943e5aa07e672ac5b4.js`). Both exports were scanned for backend secret/connection-string markers; none found.
 - Mobile unit/native regressions: 40 passed; all six backend unit suites: 30 passed, including Admin loading and empty playlist serialization. The initial directory-only test invocation was corrected to explicit test files on this Node version.
@@ -63,3 +65,36 @@ Status: IN PROGRESS. Public APK checksum gate passed; final frontend checks and 
 - A truly zero-playlist listener account remains unavailable in the local environment; no existing playlist is deleted to manufacture that state. Empty playlist objects and authenticated CRUD are tested separately.
 - Physical Android installation/update, warm/cold exact-content intents, no-app fallback, Android/PWA cross-device UI synchronization, and actual OS installation on Android/iOS require handset checks.
 - No new APK, native configuration/signing change, Supabase schema change or production music catalog edit.
+
+## Production verification
+
+- PASS real public PWA login and authenticated `/api/auth/me/`.
+- PASS touch/Enter playlist creation on the public PWA, empty playlist `song_count: 0`, add/remove, rename/delete, cross-session visibility in both directions. Original playlist unchanged; isolated test playlists/sessions cleaned up.
+- PASS `/healthz` reports Supabase; private music proxy returns HTTP 206 for first and nonzero ranges.
+- PASS real guest music playback, advancing clock/progress, pause/resume, tap seek while paused, drag seek while playing.
+- PASS targeted live Up Next: current song and empty upcoming state, guest Add to Queue, intentional duplicate entry and removal, without account writes.
+- PASS targeted live Browse Songs: real catalog, Home/Search/Your Library/Create shell and song menu with Queue/Play Next/Playlist/Share actions.
+- PASS live New Releases, Popular, Genres, Featured songs/artists and genuine Continue Listening after reload.
+- PASS guest Profile/Help Center and authenticated Profile/Edit Profile/Settings/Library/Support reads. Existing identity, likes and follows unchanged; test session logged out.
+- PASS canonical song metadata page has exact-content Android intent plus matching web fallback without exposing the private audio URL. Legacy artist/playlist links return HTTP 302 to their exact PWA routes.
+- Canonical backend song landing does not expose an unconfigured APK button. The verified download is configured centrally in the PWA reached by Listen in browser.
+- The first listener verification stopped on a hidden-screen duplicate Back selector. Restricting the test to the visible control fixed the harness; the full production check then passed with no page errors.
+- The later expanded listener check verified Browse and Up Next but then hit a 30-second Profile navigation timeout. Profile/Edit/Settings/Library/Support had already passed in the earlier complete production run. Thus checks passed across runs, not as one completely green expanded rerun.
+- Install regression runs encountered 30-second live navigation timeouts. The live-only navigation allowance was raised to 90 seconds and tests rerun sequentially; no app timeout or behavior was changed.
+- PASS public-origin install/parity suite at all five widths, iPhone and standalone contexts, deferred install/dismissal behavior, approved URL confirmation/cancel, manifest dimensions and actual service-worker registration. Chromium reported zero installability errors.
+- Expanded post-deployment fixture reruns did NOT pass as a complete set. Browse, queue, Profile and sharing stopped on cold navigation/reload timeouts; player/onboarding/discovery encountered `12000ms timeout exceeded` and font-loading waits; Library's mocked artist-role transition timed out waiting for Artist Studio. These are not reported as passed. All nine suites passed against the local production export before release.
+- A separate fresh-browser diagnostic reproduced the 12-second font-loader error while `document.fonts` reported Ionicons still loading. The actual public font URL returned HTTP 200, `font/ttf`, 389,724 bytes, and a SHA-256 identical to the local export (an independent download took about 2 seconds). The deployed asset is present and valid; the browser-specific loading variability remains a follow-up, not a claimed fix.
+
+## Playlist failure addressed
+
+- The production backend fix was already deployed in `83d80c8` before this frontend release. Empty playlist serialization incorrectly fell through from zero to a null song list; the fix preserves the authoritative zero count.
+- Web touch was losing input focus through the keyboard-dismiss wrapper; forms now use the shared keyboard-aware viewport and scroll container. A direct `/create` load now opens the existing creation flow rather than a placeholder.
+
+## Release boundaries and follow-up
+
+- Product source remains release commit `9a0b5c2`; subsequent edits only document verification and improve test selectors/live navigation allowance. These use a `[skip render]` verification-only commit, per https://render.com/docs/deploys, so documentation does not trigger another product deployment.
+- No APK rebuild, signing change, package-name change, native configuration/dependency change, Supabase schema/persistence change or music catalog modification occurred.
+- The unrelated local `backend-js/scripts/apply-supabase-schema.js` edit and earlier untracked reports/exports/migrations were left untouched and excluded from this release.
+- Physical-phone checks still required: install this unchanged APK, receive preview OTA on an online launch, cold/warm song/artist/playlist Open App routing, no-app web fallback, Android/iPhone OS installation UI, physical keyboard behavior and cross-device playlist UI synchronization.
+- A separate truly zero-playlist account is still unverified because `TESO_EMPTY_TEST_EMAIL` / `TESO_EMPTY_TEST_PASSWORD` are unavailable. Existing-account empty playlist objects and CRUD passed; no original playlist was removed to fake a zero-account state.
+- Expanded public-origin cold-load/font and mocked artist-role regression failures remain unresolved. This report does not claim a completely green post-deployment regression gate.

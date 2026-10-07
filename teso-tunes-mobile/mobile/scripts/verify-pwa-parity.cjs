@@ -13,6 +13,7 @@ const expectedDownload = process.env.EXPECT_ANDROID_DOWNLOAD_URL || "";
 async function fixture(browser, width, height, authenticated, standalone = false, userAgent) {
   const context = await browser.newContext({ viewport: { width, height }, hasTouch: true, isMobile: width < 900,
     userAgent: userAgent || (width < 900 ? "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36" : undefined), serviceWorkers: "block" });
+  if (process.env.VERIFY_BASE_URL) context.setDefaultNavigationTimeout(90000);
   await context.addInitScript(({ authenticated, listener, standalone }) => {
     localStorage.setItem("tesohub_music_onboarding_v1", "completed");
     if (authenticated) {
