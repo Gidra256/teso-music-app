@@ -1029,8 +1029,29 @@ export function createSupabasePersistence({
     }
   }
 
+  async function mutateEngagementWithCount(sql, params, countSql) {
+    const client = await getPool().connect();
+    try {
+      await client.query("begin isolation level read committed");
+      const result = await client.query(sql, params);
+      if (result.rows[0]?.found) {
+        // A data-modifying CTE's SELECT sees the pre-write snapshot. Count in a
+        // separate statement to include our write and committed concurrent writes.
+        const count = await client.query(countSql, [params[0]]);
+        Object.assign(result.rows[0], count.rows[0]);
+      }
+      await client.query("commit");
+      return result;
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async function followArtist({ artistId, deviceId = "", listenerId = null }) {
-    const result = await getPool().query(
+    const result = await mutateEngagementWithCount(
       `with target as (
          select id
          from tesohub_music.artists
@@ -1059,14 +1080,9 @@ export function createSupabasePersistence({
                and duplicate.listener_id = $2::bigint
            )
        )
-       select
-         exists(select 1 from target) as found,
-         (
-           select count(*)::int
-           from tesohub_music.artist_follows
-           where artist_id = $1
-         ) as follower_count`,
+       select exists(select 1 from target) as found`,
       [artistId, numberOrNull(listenerId), deviceId || ""],
+      "select count(*)::int as follower_count from tesohub_music.artist_follows where artist_id = $1",
     );
     if (!result.rows[0]?.found) return { notFound: true };
     return {
@@ -1076,7 +1092,7 @@ export function createSupabasePersistence({
   }
 
   async function unfollowArtist({ artistId, deviceId = "", listenerId = null }) {
-    const result = await getPool().query(
+    const result = await mutateEngagementWithCount(
       `with target as (
          select id
          from tesohub_music.artists
@@ -1091,14 +1107,9 @@ export function createSupabasePersistence({
              or ($3::text <> '' and device_id = $3::text)
            )
        )
-       select
-         exists(select 1 from target) as found,
-         (
-           select count(*)::int
-           from tesohub_music.artist_follows
-           where artist_id = $1
-         ) as follower_count`,
+       select exists(select 1 from target) as found`,
       [artistId, numberOrNull(listenerId), deviceId || ""],
+      "select count(*)::int as follower_count from tesohub_music.artist_follows where artist_id = $1",
     );
     if (!result.rows[0]?.found) return { notFound: true };
     return {
@@ -1108,7 +1119,7 @@ export function createSupabasePersistence({
   }
 
   async function likeSong({ songId, deviceId = "", listenerId = null }) {
-    const result = await getPool().query(
+    const result = await mutateEngagementWithCount(
       `with target as (
          select song.id
          from tesohub_music.songs song
@@ -1140,14 +1151,9 @@ export function createSupabasePersistence({
                and duplicate.listener_id = $2::bigint
            )
        )
-       select
-         exists(select 1 from target) as found,
-         (
-           select count(*)::int
-           from tesohub_music.song_likes
-           where song_id = $1
-         ) as like_count`,
+       select exists(select 1 from target) as found`,
       [songId, numberOrNull(listenerId), deviceId || ""],
+      "select count(*)::int as like_count from tesohub_music.song_likes where song_id = $1",
     );
     if (!result.rows[0]?.found) return { notFound: true };
     return {
@@ -1157,7 +1163,7 @@ export function createSupabasePersistence({
   }
 
   async function unlikeSong({ songId, deviceId = "", listenerId = null }) {
-    const result = await getPool().query(
+    const result = await mutateEngagementWithCount(
       `with target as (
          select song.id
          from tesohub_music.songs song
@@ -1175,14 +1181,9 @@ export function createSupabasePersistence({
              or ($3::text <> '' and device_id = $3::text)
            )
        )
-       select
-         exists(select 1 from target) as found,
-         (
-           select count(*)::int
-           from tesohub_music.song_likes
-           where song_id = $1
-         ) as like_count`,
+       select exists(select 1 from target) as found`,
       [songId, numberOrNull(listenerId), deviceId || ""],
+      "select count(*)::int as like_count from tesohub_music.song_likes where song_id = $1",
     );
     if (!result.rows[0]?.found) return { notFound: true };
     return {

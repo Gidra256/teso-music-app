@@ -36,7 +36,9 @@ test("Release Review browser, preview and responsive behavior",{skip:!process.en
     }
     if(!req.url.startsWith("/admin-api/")){res.writeHead(204);return res.end();}
     res.setHeader("Content-Type","application/json");res.setHeader("Cache-Control","no-store");let data=[];
-    if(req.url==="/admin-api/me"){res.setHeader("Set-Cookie","fixture-preview=yes; HttpOnly; SameSite=Strict; Max-Age=900; Path=/api");data=identity;}
+    // Model asynchronous preview-session renewal so Retry cannot accidentally
+    // pass only because a loopback identity response beat the test's play call.
+    if(req.url==="/admin-api/me"){await delay(250);res.setHeader("Set-Cookie","fixture-preview=yes; HttpOnly; SameSite=Strict; Max-Age=900; Path=/api");data=identity;}
     else if(req.url==="/admin-api/dashboard")data={};
     else if(req.url==="/admin-api/releases"){reads++;const snapshot=structuredClone(records);if(listDelay)await delay(listDelay);res.statusCode=status;data=status===200?snapshot:{detail:"Fixture unavailable"};}
     else if(req.url==="/admin-api/releases/1"){res.statusCode=detailStatus;data=detailStatus===200?records[0]:{detail:"Fixture unavailable"};}
@@ -91,7 +93,21 @@ test("Release Review browser, preview and responsive behavior",{skip:!process.en
     await page.locator("audio").evaluate(audio=>audio.dispatchEvent(new Event("waiting")));await page.getByText("Buffering...",{exact:true}).waitFor();
     // A distinct synthetic URL avoids Chrome reusing decoded in-memory audio.
     audioError=true;await page.locator("audio").evaluate(audio=>{audio.src="/api/releases/1/audio/?fixture=error";audio.load();audio.play().catch(()=>{});});await page.getByText("Audio could not load. Retry or refresh your Admin session.").waitFor();
-    audioError=false;await page.getByRole("button",{name:"Retry audio"}).click();await page.locator("audio").evaluate(async audio=>{await audio.play();audio.pause();});
+    audioError=false;
+    const renewedSession=page.waitForResponse(response=>response.url().endsWith("/admin-api/me")&&response.status()===200);
+    const retriedAudio=page.waitForResponse(response=>response.url().includes("/api/releases/1/audio/?fixture=error")&&response.status()===206);
+    await page.getByRole("button",{name:"Retry audio"}).click();
+    await renewedSession;
+    const response=await retriedAudio;
+    assert.match(response.headers()["content-range"],/^bytes \d+-\d+\/\d+$/);
+    // The click handler awaits identity renewal before load(). Observe its real
+    // completion; never clear errors or call load() from the test to force success.
+    await page.waitForFunction(()=>{const audio=document.querySelector("audio");return !audio.error&&audio.readyState>=3;});
+    await page.locator("audio").evaluate(async audio=>{await audio.play();});
+    await page.waitForFunction(()=>document.querySelector("audio").currentTime>0.15);
+    await page.locator("audio").evaluate(audio=>audio.pause());
+    assert.equal(records[0].status,"under_review");
+    assert.ok(!(await page.evaluate(()=>document.cookie)).includes("fixture-preview"));
   });
   await t.test("required reason and duplicate click protection send one revision-bound decision",async()=>{
     await page.getByRole("button",{name:"Reject",exact:true}).click();await page.getByText("Enter a meaningful review reason (at least 5 characters).",{exact:true}).waitFor();
