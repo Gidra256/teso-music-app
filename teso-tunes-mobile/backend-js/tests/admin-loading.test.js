@@ -36,7 +36,9 @@ function adminHarness(respond) {
   return {
     run: code => vm.runInContext(code, ctx),
     view: () => element("view").innerHTML,
-    savedToken: () => token,
+    // The Console now retains only a non-secret request generation in JS;
+    // the actual credential is an HttpOnly cookie, not localStorage.
+    savedToken: () => vm.runInContext("state.token", ctx),
   };
 }
 

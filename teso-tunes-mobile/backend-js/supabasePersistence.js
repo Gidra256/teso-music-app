@@ -2235,6 +2235,7 @@ export function createSupabasePersistence({
 
   return {
     assertConfigured,
+    getAdminPool: getPool,
     addSongToPlaylist,
     addSupportAdminReply,
     addSupportInternalNote,

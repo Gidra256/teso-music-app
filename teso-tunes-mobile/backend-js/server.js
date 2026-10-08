@@ -11,6 +11,7 @@ import multer from "multer";
 import { perfMetricsMiddleware } from "./perfMetrics.js";
 import { discoveryOptions, selectDiscovery } from "./discovery.js";
 import { createSupabasePersistence } from "./supabasePersistence.js";
+import { createAdminAccounts } from "./adminAccounts.js";
 import { isShareableSong, renderPublicSongPage } from "./songSharing.js";
 import { AUDIO_COOKIE, AUDIO_COOKIE_SECONDS, audioResponseUrl, canReadAudio, makeAudioCookie,
   normalizeAudioInput, publicExternalAudio, validAudioCookie, validAudioId, validObjectPath } from "./audioAccess.js";
@@ -43,7 +44,7 @@ const UPLOADS_DIR = path.join(STORAGE_DIR, "uploads");
 const LEGACY_MEDIA_DIR = path.join(__dirname, "..", "backend", "media");
 const PORT = Number(process.env.PORT || 8000);
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "TesoAdmin@2026";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const ADMIN_TOKEN =
   process.env.ADMIN_TOKEN || crypto.randomBytes(32).toString("hex");
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
@@ -95,6 +96,9 @@ app.set("trust proxy", true);
 app.use(cors());
 app.use(perfMetricsMiddleware);
 app.use(express.json({ limit: "2mb" }));
+app.use("/admin-api", (req, res, next) => adminAccounts.middleware(req, res, next));
+app.use(["/api/storage", "/api/songs/:id/audio", "/api/releases/:id/audio", "/uploads", "/media"],
+  (req, res, next) => adminAccounts.audioMiddleware(req, res, next));
 app.use("/uploads", (req, res, next) => serveLegacyMedia(req, res).catch(next));
 app.use("/media", (req, res, next) => serveLegacyMedia(req, res).catch(next));
 app.use("/app-assets", express.static(path.join(__dirname, "..", "mobile", "assets")));
@@ -136,19 +140,16 @@ app.get("/api/releases/:id/audio/", (req, res) => serveAudio("release", req, res
 
 function audioAccessFor(req) {
   const token = getBearerToken(req);
-  const cookie = String(req.get("cookie") || "").split(";").map((part) => part.trim())
-    .find((part) => part.startsWith(`${AUDIO_COOKIE}=`))?.slice(AUDIO_COOKIE.length + 1);
-  const browserPreview = !token && validAudioCookie(cookie, ADMIN_TOKEN) &&
-    req.get("sec-fetch-site") !== "cross-site";
-  const admin = token === ADMIN_TOKEN || browserPreview ? publicAdminUser() : null;
+  const admin = req.adminIdentity;
   return {
     tokenHash: token && !admin ? hashToken(token) : "",
     reviewer: { releases: adminCan(admin, "releases"), catalog: adminCan(admin, "catalog") },
   };
 }
 
-function setAudioPreviewCookie(req, res) {
+async function setAudioPreviewCookie(req, res) {
   if (!adminCan(req.adminUser, "releases") && !adminCan(req.adminUser, "catalog")) return;
+  if (req.adminSessionHash) return adminAccounts.preview(req, res);
   res.cookie(AUDIO_COOKIE, makeAudioCookie(ADMIN_TOKEN), {
     httpOnly: true, secure: req.secure, sameSite: "strict", path: "/api/",
     maxAge: AUDIO_COOKIE_SECONDS * 1000,
@@ -1311,13 +1312,8 @@ function adminCan(adminUser, permission) {
 
 function requireAdminPermission(...permissions) {
   return (req, res, next) => {
-    const header = req.get("authorization") || "";
-    const token = header.replace(/^Bearer\s+/i, "").trim();
-    if (token !== ADMIN_TOKEN) {
-      return res.status(403).json({ detail: "Forbidden" });
-    }
-    req.adminUser = publicAdminUser();
-    if (!req.adminUser.role) {
+    req.adminUser = req.adminIdentity;
+    if (!req.adminUser || !Object.prototype.hasOwnProperty.call(ADMIN_ROLE_PERMISSIONS, req.adminUser.role)) {
       return res.status(403).json({ detail: "Forbidden" });
     }
     if (
@@ -1332,6 +1328,13 @@ function requireAdminPermission(...permissions) {
 
 const requireAdmin = requireAdminPermission();
 const requireSuperAdmin = requireAdminPermission("*");
+const adminAccounts = createAdminAccounts({getPool: () => {
+  if (!USE_SUPABASE_PERSISTENCE) throw new Error("Individual Admin accounts require PostgreSQL.");
+  return supabasePersistence.getAdminPool();
+}, roles: ADMIN_ROLE_PERMISSIONS, breakGlass: {
+  username: ADMIN_USERNAME, password: ADMIN_PASSWORD, token: ADMIN_TOKEN, role: configuredAdminRole,
+}});
+adminAccounts.install(app, requireAdmin, requireSuperAdmin);
 
 function requirePermanentDeletePermission(req, res, next) {
   if (req.query?.confirm === "DELETE FOREVER") return requireSuperAdmin(req, res, next);
@@ -3542,25 +3545,13 @@ function settingsPayloadFromBody(req, currentSettings) {
   return normalizePlatformSettings(next);
 }
 
-app.post("/admin-api/login", (req, res) => {
-  if (!configuredAdminRole()) {
-    return res.status(403).json({ detail: "Forbidden" });
-  }
-  if (
-    req.body?.username === ADMIN_USERNAME &&
-    req.body?.password === ADMIN_PASSWORD
-  ) {
-    return res.json({ token: ADMIN_TOKEN, ...publicAdminUser() });
-  }
-  return res.status(401).json({ detail: "Invalid admin login." });
-});
-
-app.get("/admin-api/me", requireAdmin, (req, res) => {
-  setAudioPreviewCookie(req, res);
+app.get("/admin-api/me", requireAdmin, async (req, res) => {
+  await setAudioPreviewCookie(req, res);
   res.json({ admin: req.adminUser });
 });
 
-app.delete("/admin-api/audio-preview-session", requireAdmin, (req, res) => {
+app.delete("/admin-api/audio-preview-session", requireAdmin, async (req, res) => {
+  await adminAccounts.revokePreview(req, res);
   res.clearCookie(AUDIO_COOKIE, { httpOnly: true, secure: req.secure, sameSite: "strict", path: "/api/" });
   res.status(204).end();
 });
@@ -4028,6 +4019,7 @@ app.get("/admin-api/persistence-export", requireSuperAdmin, async (req, res) => 
         })),
       };
 
+  await adminAccounts.recordAction(req, "admin_persistence_export", null, {includes_sensitive_hashes:includeSensitive});
   res.set("cache-control", "no-store");
   res.json({
     exported_at: nowIso(),
@@ -4055,7 +4047,7 @@ app.get("/admin-api/supabase-migration/jobs/:id", requireSuperAdmin, (req, res) 
   res.json(migrationJobSnapshot(job));
 });
 
-app.post("/admin-api/supabase-migration/schema", requireSuperAdmin, (req, res) => {
+app.post("/admin-api/supabase-migration/schema", requireSuperAdmin, async (req, res) => {
   if (!requireMigrationConfirmation(req, res, "schema")) return;
   const activeJob = [...migrationJobs.values()].find((job) => job.status === "running");
   if (activeJob) {
@@ -4064,11 +4056,12 @@ app.post("/admin-api/supabase-migration/schema", requireSuperAdmin, (req, res) =
       job: migrationJobSnapshot(activeJob),
     });
   }
+  await adminAccounts.recordAction(req, "admin_migration_requested", null, {kind:"schema"});
   const job = startMigrationJob("schema", "apply-supabase-schema.js");
   res.status(202).json({ job: migrationJobSnapshot(job) });
 });
 
-app.post("/admin-api/supabase-migration/migrate", requireSuperAdmin, (req, res) => {
+app.post("/admin-api/supabase-migration/migrate", requireSuperAdmin, async (req, res) => {
   if (!requireMigrationConfirmation(req, res, "migrate")) return;
   const activeJob = [...migrationJobs.values()].find((job) => job.status === "running");
   if (activeJob) {
@@ -4077,13 +4070,14 @@ app.post("/admin-api/supabase-migration/migrate", requireSuperAdmin, (req, res) 
       job: migrationJobSnapshot(activeJob),
     });
   }
+  await adminAccounts.recordAction(req, "admin_migration_requested", null, {kind:"migrate"});
   const job = startMigrationJob("migrate", "migrate-json-to-supabase.js", {
     MIGRATION_SOURCE_NAME: `render-json-${Date.now()}`,
   });
   res.status(202).json({ job: migrationJobSnapshot(job) });
 });
 
-app.post("/admin-api/supabase-migration/validate", requireSuperAdmin, (req, res) => {
+app.post("/admin-api/supabase-migration/validate", requireSuperAdmin, async (req, res) => {
   if (!requireMigrationConfirmation(req, res, "validate")) return;
   const activeJob = [...migrationJobs.values()].find((job) => job.status === "running");
   if (activeJob) {
@@ -4092,6 +4086,7 @@ app.post("/admin-api/supabase-migration/validate", requireSuperAdmin, (req, res)
       job: migrationJobSnapshot(activeJob),
     });
   }
+  await adminAccounts.recordAction(req, "admin_migration_requested", null, {kind:"validate"});
   const job = startMigrationJob("validate", "validate-supabase-migration.js", {
     VALIDATE_STORAGE: "1",
   });

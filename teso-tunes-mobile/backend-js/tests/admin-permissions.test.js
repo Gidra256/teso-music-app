@@ -15,7 +15,6 @@ const roles = {
 };
 // Independent expected policy; registration coverage fails if a route is added or omitted.
 const policy = [
-  ["post", "/admin-api/login", []],
   ["get", "/admin-api/me", []],
   ["delete", "/admin-api/audio-preview-session", []],
   ["get", "/admin-api/dashboard", ["artists", "catalog", "releases", "reports"]],
@@ -115,6 +114,8 @@ async function fixture(t, role, gateOnly = false) {
   const noop = (req,res,next) => { record("uploadParse"); next(); };
   const ctx = vm.createContext({
     app: registrationApp, process: {env:role === undefined ? {} : {ADMIN_ROLE:role}}, ADMIN_TOKEN: "fixture-admin-token", ADMIN_USERNAME:"fixture-admin", ADMIN_PASSWORD:"fixture-password",
+    createAdminAccounts:()=>({install(){},revokePreview:async()=>{},recordAction:async()=>record("audit")}),
+    hashToken:()=>"fixture-listener-token-hash",
     cleanText: value=>String(value||"").trim(), boolValue: value=>[true,"true","1",1,"on"].includes(value),
     USE_SUPABASE_PERSISTENCE:true, PERSISTENCE_BACKEND:"supabase", AUDIO_COOKIE:"tesohub_audio_preview", upload:{single:()=>noop,fields:()=>noop},
     loadDb: async()=>{record("load");return db;}, loadDbWithPublishedReleases:async()=>{record("publicationRead");return db;},
@@ -143,8 +144,14 @@ async function fixture(t, role, gateOnly = false) {
   const authEnd=source.indexOf("const migrationJobs =",authStart);
   vm.runInContext(source.slice(roleStart,roleEnd)+"\n"+source.slice(authStart,authEnd)+"\n"+
     functionSource("serializeGenre")+"\n"+functionSource("requireMigrationConfirmation")+"\n"+
-    source.slice(source.indexOf('app.post("/admin-api/login"'),source.indexOf("app.use((error, req, res, next)")),ctx);
+    source.slice(source.indexOf('app.get("/admin-api/me"'),source.indexOf("app.use((error, req, res, next)")),ctx);
   const app=express();app.use(express.json());
+  // Permission matrix begins after identity resolution. Real cookie/login/recovery
+  // resolution is exercised separately against PostgreSQL in admin-accounts.test.js.
+  app.use((req,res,next)=>{
+    if(req.get("authorization")==="Bearer fixture-admin-token") req.adminIdentity=vm.runInContext("publicAdminUser()",ctx);
+    next();
+  });
   for(const {method,route,handlers} of registrations){
     const selected=gateOnly ? [...handlers.slice(0,-1),(req,res)=>res.json({allowed:true})] : handlers;
     app[method](route,...selected.map(fn=>(req,res,next)=>Promise.resolve().then(()=>fn(req,res,next)).catch(next)));
@@ -164,10 +171,6 @@ for (const role of Object.keys(roles)) {
   test(`explicit configured role authenticates without privilege substitution: ${role}`, async t => {
     const f = await fixture(t, role);
     assert.equal(vm.runInContext("configuredAdminRole()", f.ctx), role);
-    const login = await f.request("post", "/admin-api/login", {username:"fixture-admin", password:"fixture-password"});
-    assert.equal(login.status, 200);
-    assert.equal(login.json.role, role);
-    assert.deepEqual(login.json.permissions, roles[role]);
     const me = await f.request("get", "/admin-api/me");
     assert.equal(me.status, 200);
     assert.equal(me.json.admin.role, role);

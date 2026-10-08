@@ -87,6 +87,14 @@ async function fixture(t, role = "content_admin") {
   });
   const auth = authHarness(role);
   const app = express();
+  // Supply a synthetic resolved principal for the P0-A stream authorization matrix.
+  // Real staff session/preview revocation is covered by admin-accounts.test.js.
+  app.use((req,res,next)=>{
+    const bearer=(req.get("authorization")||"").replace(/^Bearer\s+/i,"").trim();
+    const preview=(req.get("cookie")||"").split(";").map(x=>x.trim()).find(x=>x.startsWith(`${AUDIO_COOKIE}=`))?.slice(AUDIO_COOKIE.length+1);
+    if(bearer===token||(!bearer&&req.get("sec-fetch-site")!=="cross-site"&&validAudioCookie(preview,token))) req.adminIdentity=auth.publicAdminUser();
+    next();
+  });
   app.get("/api/storage/:bucket/*", (req, res, next) => persistence.streamObject(req, res, auth.audioAccessFor(req)).catch(next));
   for (const kind of ["song", "release"]) {
     app.get(`/api/${kind}s/:id/audio/`, (req, res, next) =>
