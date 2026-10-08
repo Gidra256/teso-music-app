@@ -22,7 +22,7 @@ function adminHarness(respond) {
       addEventListener() {},
     },
     localStorage: { getItem: () => token, removeItem: () => { token = ""; } },
-    requestAnimationFrame: fn => fn(), FormData, AbortSignal,
+    requestAnimationFrame: fn => fn(), setInterval() {}, FormData, AbortSignal,
     fetch: async (path, options) => {
       const result = await respond(path, options);
       return {
