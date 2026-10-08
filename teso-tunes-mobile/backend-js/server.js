@@ -314,7 +314,7 @@ const ADMIN_ROLE_PERMISSIONS = {
     "releases",
   ],
   [ADMIN_ROLES.MODERATOR]: ["reports", "users", "artists", "catalog"],
-  [ADMIN_ROLES.SUPPORT_ADMIN]: ["users", "support:view", "support:reply", "support:note", "support:update"],
+  [ADMIN_ROLES.SUPPORT_ADMIN]: ["support:view", "support:reply", "support:note", "support:update"],
 };
 const GENRE_OPTIONS = [
   "Ateso Traditional",
@@ -1230,8 +1230,10 @@ function getDeviceId(req) {
 }
 
 function configuredAdminRole() {
-  const role = cleanText(process.env.ADMIN_ROLE || ADMIN_ROLES.SUPER_ADMIN);
-  return ADMIN_ROLE_PERMISSIONS[role] ? role : ADMIN_ROLES.SUPER_ADMIN;
+  const role = process.env.ADMIN_ROLE;
+  // Require an explicit, exact role; never infer privileges from invalid config.
+  return typeof role === "string" && Object.prototype.hasOwnProperty.call(ADMIN_ROLE_PERMISSIONS, role)
+    ? role : null;
 }
 
 function publicAdminUser() {
@@ -1244,7 +1246,9 @@ function publicAdminUser() {
 }
 
 function adminCan(adminUser, permission) {
-  const permissions = ADMIN_ROLE_PERMISSIONS[adminUser?.role] || [];
+  const role = adminUser?.role;
+  const permissions = typeof role === "string" && Object.prototype.hasOwnProperty.call(ADMIN_ROLE_PERMISSIONS, role)
+    ? ADMIN_ROLE_PERMISSIONS[role] : [];
   return permissions.includes("*") || permissions.includes(permission);
 }
 
@@ -1256,6 +1260,9 @@ function requireAdminPermission(...permissions) {
       return res.status(403).json({ detail: "Forbidden" });
     }
     req.adminUser = publicAdminUser();
+    if (!req.adminUser.role) {
+      return res.status(403).json({ detail: "Forbidden" });
+    }
     if (
       permissions.length > 0 &&
       !permissions.some((permission) => adminCan(req.adminUser, permission))
@@ -1267,6 +1274,22 @@ function requireAdminPermission(...permissions) {
 }
 
 const requireAdmin = requireAdminPermission();
+const requireSuperAdmin = requireAdminPermission("*");
+
+function requirePermanentDeletePermission(req, res, next) {
+  if (req.query?.confirm === "DELETE FOREVER") return requireSuperAdmin(req, res, next);
+  next();
+}
+
+function allowFeaturedChange(req, res, current = false) {
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "is_featured") &&
+      boolValue(req.body.is_featured) !== Boolean(current) && !adminCan(req.adminUser, "discovery")) {
+    res.status(403).json({ detail: "Forbidden" });
+    return false;
+  }
+  return true;
+}
+
 const migrationJobs = new Map();
 
 const MIGRATION_CONFIRMATIONS = {
@@ -3448,6 +3471,9 @@ function settingsPayloadFromBody(req, currentSettings) {
 }
 
 app.post("/admin-api/login", (req, res) => {
+  if (!configuredAdminRole()) {
+    return res.status(403).json({ detail: "Forbidden" });
+  }
   if (
     req.body?.username === ADMIN_USERNAME &&
     req.body?.password === ADMIN_PASSWORD
@@ -3467,8 +3493,8 @@ app.delete("/admin-api/audio-preview-session", requireAdmin, (req, res) => {
   res.status(204).end();
 });
 
-app.get("/admin-api/dashboard", requireAdmin, async (req, res) => {
-  const db = await loadDbWithPublishedReleases();
+app.get("/admin-api/dashboard", requireAdminPermission("artists", "catalog", "releases", "reports"), async (req, res) => {
+  const db = await loadDb();
   res.json(dashboardPayload(db));
 });
 
@@ -3674,7 +3700,7 @@ app.post("/admin-api/users/:id/restore", requireAdminPermission("users"), async 
 
 app.post(
   "/admin-api/users/:id/revoke-sessions",
-  requireAdminPermission("users"),
+  requireSuperAdmin,
   async (req, res) => {
     const db = await loadDb();
     const listener = db.listeners.find((item) => Number(item.id) === Number(req.params.id));
@@ -3690,9 +3716,11 @@ app.post(
   },
 );
 
-app.get("/admin-api/genres", requireAdminPermission("genres"), async (req, res) => {
+app.get("/admin-api/genres", requireAdminPermission("genres", "catalog"), async (req, res) => {
   const db = await loadDb();
-  res.json(db.genres.map(serializeGenre));
+  // Catalog editors need active choices, not genre-management metadata or writes.
+  res.json(adminCan(req.adminUser, "genres") ? db.genres.map(serializeGenre) :
+    db.genres.filter((genre) => genre.active !== false).map(({ id, name }) => ({ id, name, active: true })));
 });
 
 app.post("/admin-api/genres", requireAdminPermission("genres"), async (req, res) => {
@@ -3863,7 +3891,7 @@ app.get("/admin-api/discovery", requireAdminPermission("discovery"), async (req,
   });
 });
 
-app.get("/admin-api/platform-health", requireAdmin, async (req, res) => {
+app.get("/admin-api/platform-health", requireSuperAdmin, async (req, res) => {
   const db = await loadDb();
   const [dbStatResult, uploadsStatResult] = USE_SUPABASE_PERSISTENCE
     ? [{ status: "rejected" }, { status: "rejected" }]
@@ -3896,7 +3924,7 @@ app.get("/admin-api/platform-health", requireAdmin, async (req, res) => {
   });
 });
 
-app.get("/admin-api/audit-log", requireAdmin, async (req, res) => {
+app.get("/admin-api/audit-log", requireSuperAdmin, async (req, res) => {
   const db = await loadDb();
   const limit = Math.min(200, Math.max(1, Number(req.query?.limit || 100)));
   res.json(
@@ -3909,7 +3937,7 @@ app.get("/admin-api/audit-log", requireAdmin, async (req, res) => {
   );
 });
 
-app.get("/admin-api/persistence-export", requireAdmin, async (req, res) => {
+app.get("/admin-api/persistence-export", requireSuperAdmin, async (req, res) => {
   const includeSensitive =
     req.query?.include_sensitive === "true" &&
     req.query?.confirm === "EXPORT RAW HASHES";
@@ -3939,7 +3967,7 @@ app.get("/admin-api/persistence-export", requireAdmin, async (req, res) => {
   });
 });
 
-app.get("/admin-api/supabase-migration/jobs", requireAdmin, (req, res) => {
+app.get("/admin-api/supabase-migration/jobs", requireSuperAdmin, (req, res) => {
   res.json(
     [...migrationJobs.values()]
       .sort((first, second) =>
@@ -3949,13 +3977,13 @@ app.get("/admin-api/supabase-migration/jobs", requireAdmin, (req, res) => {
   );
 });
 
-app.get("/admin-api/supabase-migration/jobs/:id", requireAdmin, (req, res) => {
+app.get("/admin-api/supabase-migration/jobs/:id", requireSuperAdmin, (req, res) => {
   const job = migrationJobs.get(req.params.id);
   if (!job) return res.status(404).json({ detail: "Migration job not found." });
   res.json(migrationJobSnapshot(job));
 });
 
-app.post("/admin-api/supabase-migration/schema", requireAdmin, (req, res) => {
+app.post("/admin-api/supabase-migration/schema", requireSuperAdmin, (req, res) => {
   if (!requireMigrationConfirmation(req, res, "schema")) return;
   const activeJob = [...migrationJobs.values()].find((job) => job.status === "running");
   if (activeJob) {
@@ -3968,7 +3996,7 @@ app.post("/admin-api/supabase-migration/schema", requireAdmin, (req, res) => {
   res.status(202).json({ job: migrationJobSnapshot(job) });
 });
 
-app.post("/admin-api/supabase-migration/migrate", requireAdmin, (req, res) => {
+app.post("/admin-api/supabase-migration/migrate", requireSuperAdmin, (req, res) => {
   if (!requireMigrationConfirmation(req, res, "migrate")) return;
   const activeJob = [...migrationJobs.values()].find((job) => job.status === "running");
   if (activeJob) {
@@ -3983,7 +4011,7 @@ app.post("/admin-api/supabase-migration/migrate", requireAdmin, (req, res) => {
   res.status(202).json({ job: migrationJobSnapshot(job) });
 });
 
-app.post("/admin-api/supabase-migration/validate", requireAdmin, (req, res) => {
+app.post("/admin-api/supabase-migration/validate", requireSuperAdmin, (req, res) => {
   if (!requireMigrationConfirmation(req, res, "validate")) return;
   const activeJob = [...migrationJobs.values()].find((job) => job.status === "running");
   if (activeJob) {
@@ -4252,6 +4280,7 @@ app.post(
   requireAdminPermission("artists"),
   upload.single("photo_file"),
   async (req, res) => {
+    if (!allowFeaturedChange(req, res)) return;
     const db = await loadDb();
     const uploadError = validateUploadSettings(db, { photo_file: req.file ? [req.file] : [] });
     if (uploadError) {
@@ -4289,6 +4318,7 @@ app.put(
       (item) => Number(item.id) === Number(req.params.id),
     );
     if (!artist) return res.status(404).json({ detail: "Artist not found." });
+    if (!allowFeaturedChange(req, res, artist.is_featured)) return;
     const uploadError = validateUploadSettings(db, { photo_file: req.file ? [req.file] : [] });
     if (uploadError) {
       return res.status(400).json({ detail: uploadError });
@@ -4299,7 +4329,7 @@ app.put(
       bio: req.body.bio ?? artist.bio,
       photo: (await uploadUrlFor(req.file)) || req.body.photo || artist.photo,
       location: req.body.location ?? artist.location,
-      is_featured: boolValue(req.body.is_featured),
+      is_featured: adminCan(req.adminUser, "discovery") ? boolValue(req.body.is_featured) : Boolean(artist.is_featured),
       status: ARTIST_STATUSES.has(req.body.status) ? req.body.status : artist.status || "active",
       updated_at: nowIso(),
     });
@@ -4311,7 +4341,7 @@ app.put(
   },
 );
 
-app.delete("/admin-api/artists/:id", requireAdminPermission("artists"), async (req, res) => {
+app.delete("/admin-api/artists/:id", requireAdminPermission("artists"), requirePermanentDeletePermission, async (req, res) => {
   const db = await loadDb();
   const id = Number(req.params.id);
   const artist = db.artists.find((item) => Number(item.id) === id);
@@ -4400,6 +4430,7 @@ app.post(
     { name: "cover_upload", maxCount: 1 },
   ]),
   async (req, res) => {
+    if (!allowFeaturedChange(req, res)) return;
     const db = await loadDb();
     const uploadError = validateUploadSettings(db, req.files);
     if (uploadError) {
@@ -4452,6 +4483,7 @@ app.put(
       (item) => Number(item.id) === Number(req.params.id),
     );
     if (!song) return res.status(404).json({ detail: "Song not found." });
+    if (!allowFeaturedChange(req, res, song.is_featured)) return;
     const uploadError = validateUploadSettings(db, req.files);
     if (uploadError) {
       return res.status(400).json({ detail: uploadError });
@@ -4478,7 +4510,7 @@ app.put(
       lyrics: req.body.lyrics ?? song.lyrics,
       play_count: numberOrZero(req.body.play_count ?? song.play_count),
       release_date: req.body.release_date ?? song.release_date,
-      is_featured: boolValue(req.body.is_featured),
+      is_featured: adminCan(req.adminUser, "discovery") ? boolValue(req.body.is_featured) : Boolean(song.is_featured),
       status: SONG_STATUSES.has(req.body.status) ? req.body.status : song.status || "published",
       updated_at: nowIso(),
     });
@@ -4491,7 +4523,7 @@ app.put(
   },
 );
 
-app.delete("/admin-api/songs/:id", requireAdminPermission("catalog"), async (req, res) => {
+app.delete("/admin-api/songs/:id", requireAdminPermission("catalog"), requirePermanentDeletePermission, async (req, res) => {
   const db = await loadDb();
   const id = Number(req.params.id);
   const song = db.songs.find((item) => Number(item.id) === id);

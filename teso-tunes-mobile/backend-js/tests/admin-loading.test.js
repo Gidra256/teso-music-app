@@ -175,3 +175,70 @@ test("refresh invalidates other views; old-session responses are ignored", async
   assert.equal(admin.run("state.applications.length"), 0);
   assert.equal(admin.run("pendingLoads.size"), 0);
 });
+
+test("Support startup opens only Support and hides account/infrastructure navigation", async () => {
+  const calls = [];
+  const admin = adminHarness(async path => {
+    calls.push(path);
+    return { body: path === "/admin-api/me" ? { admin: {
+      username: "fixture", role: "support_admin", permissions: ["support:view", "support:reply", "support:note", "support:update"],
+    } } : bodyFor(path) };
+  });
+  await admin.run("loadData()");
+  assert.equal(admin.run("state.activeView"), "support");
+  assert.deepEqual(calls, ["/admin-api/me", "/admin-api/support/tickets"]);
+  const nav = admin.run("navEl.innerHTML");
+  assert.match(nav, /data-view="support"/);
+  assert.doesNotMatch(nav, /data-view="(?:users|health|audit|settings|catalog|dashboard)"/);
+  await admin.run('setView("users")');
+  await admin.run('loadView("settings")');
+  assert.equal(calls.length, 2);
+  assert.equal(admin.run("state.activeView"), "support");
+  assert.ok(admin.savedToken());
+});
+
+test("Moderator Artists has no genre dependency; Catalog uses only active genre choices", async () => {
+  const calls = [];
+  const admin = adminHarness(async path => {
+    calls.push(path);
+    if (path === "/admin-api/me") return { body: { admin: { username: "fixture", role: "moderator", permissions: ["reports", "users", "artists", "catalog"] } } };
+    if (path === "/admin-api/genres") return { body: [{ id: 1, name: "Gospel", active: true }] };
+    return { body: bodyFor(path) };
+  });
+  await admin.run("loadData()");
+  assert.deepEqual(calls, ["/admin-api/me", "/admin-api/dashboard"]);
+  await admin.run('setView("artists"); loadView("artists")');
+  assert.equal(calls.includes("/admin-api/genres"), false);
+  assert.doesNotMatch(admin.view(), /name="is_featured"/);
+  await admin.run('setView("catalog"); loadView("catalog")');
+  assert.equal(calls.filter(path => path === "/admin-api/genres").length, 1);
+  assert.match(admin.view(), /<option[^>]*>Gospel<\/option>/);
+  assert.doesNotMatch(admin.view(), /name="is_featured"/);
+  assert.equal(admin.run('can("genres")'), false);
+  assert.equal(admin.run('can("discovery")'), false);
+  assert.doesNotMatch(admin.run('songItem({id:1,status:"published",is_featured:true})'), /data-action="unfeature-song"/);
+  assert.doesNotMatch(admin.run('artistItem({id:1,status:"active",is_featured:false})'), /data-action="feature-artist"/);
+  assert.doesNotMatch(admin.run('userItem({id:1,status:"active"})'), /revoke-user-sessions/);
+  assert.doesNotMatch(admin.run("navEl.innerHTML"), /data-view="(?:genres|settings|health|audit|support)"/);
+});
+
+test("action-level 403 displays permission error without discarding the Admin session", async () => {
+  const admin = adminHarness(async path => path === "/admin-api/songs/1/feature"
+    ? { status: 403, body: { detail: "Forbidden" } } : { body: bodyFor(path) });
+  await admin.run("loadData()");
+  await assert.rejects(admin.run('api("/admin-api/songs/1/feature", {method:"POST"})'), /do not have permission/);
+  assert.ok(admin.savedToken());
+  assert.ok(admin.run("state.token"));
+});
+
+test("Content navigation retains review/discovery and Super Admin retains all controls", async () => {
+  for (const role of ["content_admin", "super_admin"]) {
+    const permissions = role === "super_admin" ? ["*"] : ["applications", "artists", "catalog", "discovery", "genres", "releases"];
+    const admin = adminHarness(async path => ({ body: path === "/admin-api/me"
+      ? { admin: { username: "fixture", role, permissions } } : bodyFor(path) }));
+    await admin.run("loadData()");
+    for (const view of ["applications", "releases", "catalog", "artists", "discovery", "genres"]) assert.equal(admin.run(`canView("${view}")`), true);
+    for (const view of ["settings", "health", "audit", "support", "users"]) assert.equal(admin.run(`canView("${view}")`), role === "super_admin");
+    assert.match(admin.run('songItem({id:1,status:"published",is_featured:true})'), /data-action="unfeature-song"/);
+  }
+});
