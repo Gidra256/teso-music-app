@@ -424,9 +424,18 @@ async function ensureDb() {
   }
 }
 
+const writeBaselines = new WeakMap();
+
 async function loadDb() {
   if (USE_SUPABASE_PERSISTENCE) {
-    return normalizeDb(await supabasePersistence.loadDb());
+    const raw = await supabasePersistence.loadDb();
+    const stored = structuredClone(raw);
+    const persistedGenres = raw.genres;
+    const db = normalizeDb(raw);
+    // JSON seed genres are not database records and can reuse persisted IDs.
+    if (Array.isArray(persistedGenres)) db.genres = persistedGenres;
+    writeBaselines.set(db, {before:structuredClone(db), stored});
+    return db;
   }
   await ensureDb();
   const raw = await fs.readFile(DB_PATH, "utf8");
@@ -435,7 +444,11 @@ async function loadDb() {
 
 async function saveDb(db) {
   if (USE_SUPABASE_PERSISTENCE) {
-    await supabasePersistence.saveDb(normalizeDb(db));
+    const baseline = writeBaselines.get(db);
+    if (!baseline) throw new Error("Supabase writes require a tracked baseline.");
+    await supabasePersistence.saveChanges(baseline.before, db, baseline.stored);
+    // This request must re-read before making a second independent mutation.
+    writeBaselines.delete(db);
     return;
   }
   await fs.mkdir(DATA_DIR, { recursive: true });
@@ -1127,6 +1140,7 @@ async function loadDbWithPublishedReleases() {
   const db = await loadDb();
   if (publishDueReleases(db)) {
     await saveDb(db);
+    if (USE_SUPABASE_PERSISTENCE) return loadDb();
   }
   return db;
 }
@@ -2701,6 +2715,11 @@ app.get("/api/songs/:id/", async (req, res) => {
 
 app.post("/api/songs/:id/play/", async (req, res) => {
   try {
+    if (USE_SUPABASE_PERSISTENCE) {
+      const song = await supabasePersistence.recordSongPlay(req.params.id);
+      if (!song) return res.status(404).json({ detail: "Song not found." });
+      return res.json({id:song.id, play_count:song.play_count, song:directSongResponse(req, song)});
+    }
     const db = await loadDbWithPublishedReleases();
     const song = db.songs.find(
       (item) => Number(item.id) === Number(req.params.id),
@@ -4609,6 +4628,10 @@ app.post("/admin-api/songs/:id/unfeature", requireAdminPermission("discovery"), 
 
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
+
+  if (error?.code === "STALE_WRITE") {
+    return res.status(409).json({ detail: "This record changed while saving. Reload and try again." });
+  }
 
   if (
     error instanceof multer.MulterError ||

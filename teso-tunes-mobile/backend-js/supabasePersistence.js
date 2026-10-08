@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 
 import pg from "pg";
 import { discoverySql } from "./discovery.js";
+import { applyScopedChanges, WriteConflict } from "./scopedChanges.js";
 import { canReadAudio, publicExternalAudio, storageAudioPath, validAudioId, validObjectPath } from "./audioAccess.js";
 
 import {
@@ -108,26 +109,9 @@ function mediaColumns(value, bucket) {
   };
 }
 
-function idList(items) {
-  return items
-    .map((item) => Number(item?.id || 0))
-    .filter((id) => Number.isFinite(id) && id > 0);
-}
-
 function toNumberArray(value) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.map((item) => Number(item)).filter(Number.isFinite))];
-}
-
-async function deleteMissing(client, table, ids, columnType = "bigint") {
-  if (ids.length === 0) {
-    await client.query(`delete from tesohub_music.${table}`);
-    return;
-  }
-  await client.query(
-    `delete from tesohub_music.${table} where not (id = any($1::${columnType}[]))`,
-    [ids],
-  );
 }
 
 export function createSupabasePersistence({
@@ -211,6 +195,7 @@ export function createSupabasePersistence({
          where status = 'scheduled'
            and (release_date is null or release_date <= current_date)
            and public_song_id is null
+         for update skip locked
        ),
        inserted as (
          insert into tesohub_music.songs
@@ -1996,504 +1981,37 @@ export function createSupabasePersistence({
     );
   }
 
-  async function upsertListener(client, listener) {
-    await client.query(
-      `insert into tesohub_music.listeners
-        (id, name, email, phone, password_hash, role, plan, status, artist_id,
-         artist_application_id, suspension_reason, created_at, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-       on conflict (id) do update set
-        name = excluded.name,
-        email = excluded.email,
-        phone = excluded.phone,
-        password_hash = excluded.password_hash,
-        role = excluded.role,
-        plan = excluded.plan,
-        status = excluded.status,
-        artist_id = excluded.artist_id,
-        artist_application_id = excluded.artist_application_id,
-        suspension_reason = excluded.suspension_reason,
-        updated_at = excluded.updated_at`,
-      [
-        listener.id,
-        listener.name || "",
-        listener.email || "",
-        listener.phone || "",
-        listener.password_hash || "",
-        listener.role || "listener",
-        listener.plan || "free",
-        listener.status || "active",
-        numberOrNull(listener.artist_id),
-        numberOrNull(listener.artist_application_id),
-        listener.suspension_reason || "",
-        listener.created_at || new Date().toISOString(),
-        listener.updated_at || null,
-      ],
-    );
-  }
-
-  async function upsertArtist(client, artist) {
-    const photo = mediaColumns(artist.photo, buckets.avatars);
-    await client.query(
-      `insert into tesohub_music.artists
-        (id, name, category, bio, photo_path, legacy_photo, location, is_featured,
-         status, owner_listener_id, source_application_id, created_at, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-       on conflict (id) do update set
-        name = excluded.name,
-        category = excluded.category,
-        bio = excluded.bio,
-        photo_path = excluded.photo_path,
-        legacy_photo = excluded.legacy_photo,
-        location = excluded.location,
-        is_featured = excluded.is_featured,
-        status = excluded.status,
-        owner_listener_id = excluded.owner_listener_id,
-        source_application_id = excluded.source_application_id,
-        updated_at = excluded.updated_at`,
-      [
-        artist.id,
-        artist.name || "",
-        artist.category || "",
-        artist.bio || "",
-        photo.objectPath,
-        photo.legacyValue,
-        artist.location || "",
-        Boolean(artist.is_featured),
-        artist.status || "active",
-        numberOrNull(artist.owner_listener),
-        numberOrNull(artist.source_application_id),
-        artist.created_at || new Date().toISOString(),
-        artist.updated_at || null,
-      ],
-    );
-  }
-
-  async function upsertGenre(client, genre) {
-    await client.query(
-      `insert into tesohub_music.genres (id, name, active, position, created_at, updated_at)
-       values ($1,$2,$3,$4,$5,$6)
-       on conflict (id) do update set
-        name = excluded.name,
-        active = excluded.active,
-        position = excluded.position,
-        updated_at = excluded.updated_at`,
-      [
-        genre.id,
-        genre.name || "",
-        genre.active !== false,
-        Number(genre.position || 0),
-        genre.created_at || new Date().toISOString(),
-        genre.updated_at || null,
-      ],
-    );
-  }
-
-  async function upsertApplication(client, application) {
-    const photo = mediaColumns(application.photo, buckets.avatars);
-    await client.query(
-      `insert into tesohub_music.artist_applications
-        (id, listener_id, artist_id, artist_name, contact_name, bio, country, region,
-         genre, genre_note, phone, email, photo_path, legacy_photo, social_link,
-         genuine_confirmed, status, review_reason, rejection_reason, reviewed_by,
-         reviewed_at, created_at, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
-       on conflict (id) do update set
-        listener_id = excluded.listener_id,
-        artist_id = excluded.artist_id,
-        artist_name = excluded.artist_name,
-        contact_name = excluded.contact_name,
-        bio = excluded.bio,
-        country = excluded.country,
-        region = excluded.region,
-        genre = excluded.genre,
-        genre_note = excluded.genre_note,
-        phone = excluded.phone,
-        email = excluded.email,
-        photo_path = excluded.photo_path,
-        legacy_photo = excluded.legacy_photo,
-        social_link = excluded.social_link,
-        genuine_confirmed = excluded.genuine_confirmed,
-        status = excluded.status,
-        review_reason = excluded.review_reason,
-        rejection_reason = excluded.rejection_reason,
-        reviewed_by = excluded.reviewed_by,
-        reviewed_at = excluded.reviewed_at,
-        updated_at = excluded.updated_at`,
-      [
-        application.id,
-        numberOrNull(application.listener),
-        numberOrNull(application.artist),
-        application.artist_name || "",
-        application.contact_name || "",
-        application.bio || "",
-        application.country || "",
-        application.region || "",
-        application.genre || "",
-        application.genre_note || "",
-        application.phone || "",
-        application.email || "",
-        photo.objectPath,
-        photo.legacyValue,
-        application.social_link || "",
-        Boolean(application.genuine_confirmed),
-        application.status || "pending",
-        application.review_reason || "",
-        application.rejection_reason || "",
-        application.reviewed_by || "",
-        application.reviewed_at || null,
-        application.created_at || new Date().toISOString(),
-        application.updated_at || null,
-      ],
-    );
-  }
-
-  async function upsertSong(client, song) {
-    const audio = mediaColumns(song.audio_file, buckets.audio);
-    const cover = mediaColumns(song.cover_image, buckets.artwork);
-    await client.query(
-      `insert into tesohub_music.songs
-        (id, artist_id, title, audio_path, legacy_audio_file, cover_path,
-         legacy_cover_image, genre, genre_note, lyrics, play_count, release_date,
-         is_featured, status, source_release_id, created_at, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-       on conflict (id) do update set
-        artist_id = excluded.artist_id,
-        title = excluded.title,
-        audio_path = excluded.audio_path,
-        legacy_audio_file = excluded.legacy_audio_file,
-        cover_path = excluded.cover_path,
-        legacy_cover_image = excluded.legacy_cover_image,
-        genre = excluded.genre,
-        genre_note = excluded.genre_note,
-        lyrics = excluded.lyrics,
-        play_count = excluded.play_count,
-        release_date = excluded.release_date,
-        is_featured = excluded.is_featured,
-        status = excluded.status,
-        source_release_id = excluded.source_release_id,
-        updated_at = excluded.updated_at`,
-      [
-        song.id,
-        song.artist,
-        song.title || "",
-        audio.objectPath,
-        audio.legacyValue,
-        cover.objectPath,
-        cover.legacyValue,
-        song.genre || "",
-        song.genre_note || "",
-        song.lyrics || "",
-        Number(song.play_count || 0),
-        cleanText(song.release_date) || null,
-        Boolean(song.is_featured),
-        song.status || "published",
-        numberOrNull(song.source_release_id),
-        song.created_at || new Date().toISOString(),
-        song.updated_at || null,
-      ],
-    );
-  }
-
-  async function upsertRelease(client, release) {
-    const audio = mediaColumns(release.audio_file, buckets.audio);
-    const cover = mediaColumns(release.cover_image, buckets.artwork);
-    await client.query(
-      `insert into tesohub_music.releases
-        (id, artist_id, listener_id, title, release_type, featured_artist, genre,
-         genre_note, language, release_date, explicit, producer, songwriter,
-         description, rights_confirmed, audio_path, legacy_audio_file, cover_path,
-         legacy_cover_image, status, rejection_reason, review_reason, public_song_id,
-         submitted_at, approved_at, published_at, created_at, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
-       on conflict (id) do update set
-        artist_id = excluded.artist_id,
-        listener_id = excluded.listener_id,
-        title = excluded.title,
-        release_type = excluded.release_type,
-        featured_artist = excluded.featured_artist,
-        genre = excluded.genre,
-        genre_note = excluded.genre_note,
-        language = excluded.language,
-        release_date = excluded.release_date,
-        explicit = excluded.explicit,
-        producer = excluded.producer,
-        songwriter = excluded.songwriter,
-        description = excluded.description,
-        rights_confirmed = excluded.rights_confirmed,
-        audio_path = excluded.audio_path,
-        legacy_audio_file = excluded.legacy_audio_file,
-        cover_path = excluded.cover_path,
-        legacy_cover_image = excluded.legacy_cover_image,
-        status = excluded.status,
-        rejection_reason = excluded.rejection_reason,
-        review_reason = excluded.review_reason,
-        public_song_id = excluded.public_song_id,
-        submitted_at = excluded.submitted_at,
-        approved_at = excluded.approved_at,
-        published_at = excluded.published_at,
-        updated_at = excluded.updated_at`,
-      [
-        release.id,
-        numberOrNull(release.artist),
-        numberOrNull(release.listener),
-        release.title || "",
-        release.release_type || "Single",
-        release.featured_artist || "",
-        release.genre || "",
-        release.genre_note || "",
-        release.language || "",
-        cleanText(release.release_date) || null,
-        Boolean(release.explicit),
-        release.producer || "",
-        release.songwriter || "",
-        release.description || "",
-        Boolean(release.rights_confirmed),
-        audio.objectPath,
-        audio.legacyValue,
-        cover.objectPath,
-        cover.legacyValue,
-        release.status || "draft",
-        release.rejection_reason || "",
-        release.review_reason || "",
-        numberOrNull(release.public_song),
-        release.submitted_at || null,
-        release.approved_at || null,
-        release.published_at || null,
-        release.created_at || new Date().toISOString(),
-        release.updated_at || null,
-      ],
-    );
-  }
-
-  async function saveDb(db) {
+  async function saveChanges(before, after, stored = before) {
     const client = await getPool().connect();
     try {
       await client.query("begin");
-      await client.query("set constraints all deferred");
-
-      for (const listener of db.listeners || []) await upsertListener(client, listener);
-      for (const artist of db.artists || []) await upsertArtist(client, artist);
-      for (const genre of db.genres || []) await upsertGenre(client, genre);
-      for (const application of db.artistApplications || []) await upsertApplication(client, application);
-      for (const song of db.songs || []) await upsertSong(client, song);
-      for (const release of db.releases || []) await upsertRelease(client, release);
-
-      await client.query("delete from tesohub_music.song_likes");
-      for (const like of db.songLikes || []) {
-        await client.query(
-          `insert into tesohub_music.song_likes (song_id, listener_id, device_id, created_at)
-           values ($1,$2,$3,$4)
-           on conflict do nothing`,
-          [
-            like.song,
-            numberOrNull(like.listener),
-            like.device_id || "",
-            like.created_at || new Date().toISOString(),
-          ],
-        );
-      }
-
-      await client.query("delete from tesohub_music.artist_follows");
-      for (const follow of db.artistFollows || []) {
-        await client.query(
-          `insert into tesohub_music.artist_follows (artist_id, listener_id, device_id, created_at)
-           values ($1,$2,$3,$4)
-           on conflict do nothing`,
-          [
-            follow.artist,
-            numberOrNull(follow.listener),
-            follow.device_id || "",
-            follow.created_at || new Date().toISOString(),
-          ],
-        );
-      }
-
-      for (const session of db.authTokens || []) {
-        await client.query(
-          `insert into tesohub_music.auth_tokens
-            (id, listener_id, token_hash, device_id, device_name, created_at, last_active_at)
-           values ($1,$2,$3,$4,$5,$6,$7)
-           on conflict (id) do update set
-            listener_id = excluded.listener_id,
-            token_hash = excluded.token_hash,
-            device_id = excluded.device_id,
-            device_name = excluded.device_name,
-            last_active_at = excluded.last_active_at`,
-          [
-            session.id,
-            session.listener,
-            session.token_hash || "",
-            session.device_id || "",
-            session.device_name || "",
-            session.created_at || new Date().toISOString(),
-            session.last_active_at || null,
-          ],
-        );
-      }
-
-      for (const playlist of db.playlists || []) {
-        const artwork = mediaColumns(playlist.artwork, buckets.artwork);
-        await client.query(
-          `insert into tesohub_music.playlists
-            (id, owner_id, name, description, artwork_path, legacy_artwork, created_at, updated_at)
-           values ($1,$2,$3,$4,$5,$6,$7,$8)
-           on conflict (id) do update set
-            owner_id = excluded.owner_id,
-            name = excluded.name,
-            description = excluded.description,
-            artwork_path = excluded.artwork_path,
-            legacy_artwork = excluded.legacy_artwork,
-            updated_at = excluded.updated_at`,
-          [
-            playlist.id,
-            playlist.owner,
-            playlist.name || "",
-            playlist.description || "",
-            artwork.objectPath,
-            artwork.legacyValue,
-            playlist.created_at || new Date().toISOString(),
-            playlist.updated_at || null,
-          ],
-        );
-      }
-
-      await client.query("delete from tesohub_music.playlist_songs");
-      for (const entry of db.playlistSongs || []) {
-        await client.query(
-          `insert into tesohub_music.playlist_songs (playlist_id, song_id, position, added_at)
-           values ($1,$2,$3,$4)
-           on conflict (playlist_id, song_id) do update set
-            position = excluded.position,
-            added_at = excluded.added_at`,
-          [
-            entry.playlist,
-            entry.song,
-            Number(entry.position || 0),
-            entry.added_at || new Date().toISOString(),
-          ],
-        );
-      }
-
-      for (const report of db.reports || []) {
-        await client.query(
-          `insert into tesohub_music.reports
-            (id, reporter_id, target_type, target_id, reason, status, notes, created_at, updated_at)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-           on conflict (id) do update set
-            reporter_id = excluded.reporter_id,
-            target_type = excluded.target_type,
-            target_id = excluded.target_id,
-            reason = excluded.reason,
-            status = excluded.status,
-            notes = excluded.notes,
-            updated_at = excluded.updated_at`,
-          [
-            report.id,
-            numberOrNull(report.reporter),
-            report.target_type || "content",
-            numberOrNull(report.target_id),
-            report.reason || "",
-            report.status || "open",
-            report.notes || "",
-            report.created_at || new Date().toISOString(),
-            report.updated_at || null,
-          ],
-        );
-      }
-
-      const settings = db.platformSettings || {};
-      await client.query(
-        `insert into tesohub_music.platform_settings
-          (id, registration_enabled, artist_applications_enabled, music_uploads_enabled,
-           maintenance_mode, maintenance_message, max_audio_upload_mb, max_artwork_upload_mb,
-           supported_audio_formats, minimum_supported_app_version, app_announcement,
-           updated_by, updated_at)
-         values (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-         on conflict (id) do update set
-          registration_enabled = excluded.registration_enabled,
-          artist_applications_enabled = excluded.artist_applications_enabled,
-          music_uploads_enabled = excluded.music_uploads_enabled,
-          maintenance_mode = excluded.maintenance_mode,
-          maintenance_message = excluded.maintenance_message,
-          max_audio_upload_mb = excluded.max_audio_upload_mb,
-          max_artwork_upload_mb = excluded.max_artwork_upload_mb,
-          supported_audio_formats = excluded.supported_audio_formats,
-          minimum_supported_app_version = excluded.minimum_supported_app_version,
-          app_announcement = excluded.app_announcement,
-          updated_by = excluded.updated_by,
-          updated_at = excluded.updated_at`,
-        [
-          settings.registration_enabled !== false,
-          settings.artist_applications_enabled !== false,
-          settings.music_uploads_enabled !== false,
-          Boolean(settings.maintenance_mode),
-          settings.maintenance_message || "TesoHub Music is temporarily under maintenance.",
-          Number(settings.max_audio_upload_mb || 80),
-          Number(settings.max_artwork_upload_mb || 10),
-          settings.supported_audio_formats || ["mp3", "m4a", "aac", "wav", "flac", "ogg", "opus", "webm"],
-          settings.minimum_supported_app_version || "",
-          settings.app_announcement || "",
-          settings.updated_by || "",
-          settings.updated_at || new Date().toISOString(),
-        ],
-      );
-
-      await client.query("delete from tesohub_music.feature_flags");
-      for (const [key, enabled] of Object.entries(settings.feature_flags || {})) {
-        await client.query(
-          `insert into tesohub_music.feature_flags (key, enabled, updated_at)
-           values ($1,$2,now())
-           on conflict (key) do update set enabled = excluded.enabled, updated_at = excluded.updated_at`,
-          [key, Boolean(enabled)],
-        );
-      }
-
-      for (const entry of db.adminAuditLogs || []) {
-        await client.query(
-          `insert into tesohub_music.admin_audit_logs
-            (id, admin_user, admin_role, action, target_type, target_id, details, reason, created_at)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-           on conflict (id) do update set
-            admin_user = excluded.admin_user,
-            admin_role = excluded.admin_role,
-            action = excluded.action,
-            target_type = excluded.target_type,
-            target_id = excluded.target_id,
-            details = excluded.details,
-            reason = excluded.reason`,
-          [
-            entry.id,
-            entry.admin_user || "",
-            entry.admin_role || "super_admin",
-            entry.action || "admin_action",
-            entry.target_type || "system",
-            numberOrNull(entry.target_id),
-            entry.details || {},
-            entry.reason || "",
-            entry.created_at || new Date().toISOString(),
-          ],
-        );
-      }
-
-      await deleteMissing(client, "auth_tokens", (db.authTokens || []).map((session) => session.id).filter(Boolean), "text");
-      await deleteMissing(client, "reports", idList(db.reports || []));
-      await deleteMissing(client, "releases", idList(db.releases || []));
-      await deleteMissing(client, "songs", idList(db.songs || []));
-      await deleteMissing(client, "artist_applications", idList(db.artistApplications || []));
-      await deleteMissing(client, "playlists", idList(db.playlists || []));
-      await deleteMissing(client, "genres", idList(db.genres || []));
-      await deleteMissing(client, "admin_audit_logs", idList(db.adminAuditLogs || []));
-      await deleteMissing(client, "listeners", idList(db.listeners || []));
-      await deleteMissing(client, "artists", idList(db.artists || []));
-
+      const reflect = await applyScopedChanges(client, before, after, {mediaColumns, buckets, stored});
       await client.query("commit");
+      reflect();
     } catch (error) {
       await client.query("rollback");
+      if (["23505", "23503", "40001", "40P01"].includes(error.code)) throw new WriteConflict();
       throw error;
     } finally {
       client.release();
     }
+  }
+
+  async function recordSongPlay(songId) {
+    await publishDueReleases();
+    const result = await getPool().query(
+      `update tesohub_music.songs song set play_count = song.play_count + 1
+       from tesohub_music.artists artist
+       where song.id = $1 and song.artist_id = artist.id
+         and song.status = 'published' and artist.status = 'active'
+         and (song.source_release_id is null or exists (
+           select 1 from tesohub_music.releases source where source.id = song.source_release_id
+             and source.status = 'published' and source.public_song_id = song.id))
+       returning song.*, artist.name as artist_name, artist.category as artist_category,
+         (select count(*)::int from tesohub_music.song_likes likes where likes.song_id = song.id) as like_count`,
+      [songId],
+    );
+    return result.rows[0] ? publicSongFromRow(result.rows[0]) : null;
   }
 
   async function uploadFile(file) {
@@ -2512,7 +2030,7 @@ export function createSupabasePersistence({
           apikey: secretKey,
           authorization: `Bearer ${secretKey}`,
           "content-type": file.mimetype || "application/octet-stream",
-          "x-upsert": "true",
+          "x-upsert": "false",
         },
         body,
       }),
@@ -2743,7 +2261,8 @@ export function createSupabasePersistence({
     platformSettings,
     recordAdminAuditLog,
     removeSongFromPlaylist,
-    saveDb,
+    saveChanges,
+    recordSongPlay,
     streamObject,
     streamAudio,
     streamSupportAttachment,
