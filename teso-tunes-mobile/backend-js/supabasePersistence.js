@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 
 import pg from "pg";
 import { discoverySql } from "./discovery.js";
+import { canReadAudio, publicExternalAudio, storageAudioPath, validAudioId, validObjectPath } from "./audioAccess.js";
 
 import {
   recordDbAcquire,
@@ -135,6 +136,8 @@ export function createSupabasePersistence({
   secretKey,
   buckets,
   storageUrlFor,
+  poolFactory = (config) => new Pool(config),
+  storageFetch = fetch,
 }) {
   let pool = null;
 
@@ -173,7 +176,7 @@ export function createSupabasePersistence({
       if (usesSupabasePooler || process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === "false") {
         poolConfig.ssl = { rejectUnauthorized: false };
       }
-      pool = new Pool(poolConfig);
+      pool = poolFactory(poolConfig);
       instrumentQueryTarget(pool);
       const originalConnect = pool.connect.bind(pool);
       pool.connect = (...args) =>
@@ -752,8 +755,9 @@ export function createSupabasePersistence({
     await publishDueReleases();
     const params = [];
     const filters = [
-      "song.status not in ('hidden', 'removed')",
-      "artist.status <> 'removed'",
+      "song.status = 'published'",
+      "artist.status = 'active'",
+      "(song.source_release_id is null or exists (select 1 from tesohub_music.releases source where source.id = song.source_release_id and source.status = 'published' and source.public_song_id = song.id))",
     ];
     if (artistId) {
       params.push(Number(artistId));
@@ -809,8 +813,11 @@ export function createSupabasePersistence({
          group by song_id
        ) likes on likes.song_id = song.id
        where song.id = $1
-         and song.status not in ('hidden', 'removed')
-         and artist.status <> 'removed'`,
+         and song.status = 'published'
+         and artist.status = 'active'
+         and (song.source_release_id is null or exists (
+           select 1 from tesohub_music.releases source where source.id = song.source_release_id
+             and source.status = 'published' and source.public_song_id = song.id))`,
       [songId],
     );
     return result.rows[0] ? publicSongFromRow(result.rows[0]) : null;
@@ -1213,8 +1220,11 @@ export function createSupabasePersistence({
          group by song_id
        ) likes on likes.song_id = song.id
        where entry.playlist_id = $1
-         and song.status not in ('hidden', 'removed')
-         and artist.status <> 'removed'
+         and song.status = 'published'
+         and artist.status = 'active'
+         and (song.source_release_id is null or exists (
+           select 1 from tesohub_music.releases source where source.id = song.source_release_id
+             and source.status = 'published' and source.public_song_id = song.id))
        order by entry.position, entry.added_at, entry.id`,
       [playlistId],
     );
@@ -2557,6 +2567,67 @@ export function createSupabasePersistence({
     };
   }
 
+  async function audioCandidates(target, tokenHash = "") {
+    const isObject = target.kind === "object";
+    if (isObject ? !validObjectPath(target.value) :
+      !["song", "release"].includes(target.kind) || !validAudioId(target.value)) return [];
+    const viewer = `left join tesohub_music.listeners viewer on viewer.id = (
+      select listener_id from tesohub_music.auth_tokens where token_hash = $2 limit 1
+    )`;
+    const columns = `artist.status as artist_status, viewer.role as viewer_role,
+      viewer.status as viewer_status, viewer.artist_id as viewer_artist_id`;
+    const songQuery = `select 'song' as kind, song.id, song.status, song.artist_id,
+      song.audio_path, song.legacy_audio_file, ${columns},
+      (song.status = 'published' and artist.status = 'active' and
+        (song.source_release_id is null or (source.status = 'published' and source.public_song_id = song.id))) as is_public
+      from tesohub_music.songs song
+      join tesohub_music.artists artist on artist.id = song.artist_id
+      left join tesohub_music.releases source on source.id = song.source_release_id
+      ${viewer}
+      where ${isObject ? "song.audio_path = $1" : "song.id = $1::bigint"}`;
+    const releaseQuery = `select 'release' as kind, release.id, release.status, release.artist_id,
+      release.audio_path, release.legacy_audio_file, ${columns},
+      (release.status = 'published' and artist.status = 'active' and exists (
+        select 1 from tesohub_music.songs published
+        where published.id = release.public_song_id and published.artist_id = release.artist_id
+          and published.status = 'published'
+          and (published.audio_path = release.audio_path or
+            (nullif(published.legacy_audio_file, '') is not null and published.legacy_audio_file = release.legacy_audio_file))
+      )) as is_public
+      from tesohub_music.releases release
+      join tesohub_music.artists artist on artist.id = release.artist_id
+      ${viewer}
+      where ${isObject ? "release.audio_path = $1" : "release.id = $1::bigint"}`;
+    const query = isObject ? `${songQuery} union all ${releaseQuery}` :
+      target.kind === "song" ? songQuery : releaseQuery;
+    // Deliberately read-only: never call public catalog readers, which publish
+    // scheduled releases as a side effect. Fail closed if bucket privacy changes.
+    const result = await getPool().query(
+      `select candidates.* from (${query}) candidates
+       where exists (select 1 from storage.buckets where id = $3 and public = false)`,
+      [String(target.value), tokenHash, buckets.audio],
+    );
+    return result.rows;
+  }
+
+  async function streamAudio(target, req, res, { tokenHash = "", reviewer = {} } = {}) {
+    res.set("cache-control", "private, no-store");
+    res.set("vary", "Authorization, Cookie");
+    res.set("x-content-type-options", "nosniff");
+    const candidates = await audioCandidates(target, tokenHash);
+    const row = candidates.find((candidate) => canReadAudio(candidate, reviewer));
+    if (!row) return res.status(404).json({ detail: "Media not found." });
+    const objectPath = row.audio_path || storageAudioPath(row.legacy_audio_file, buckets.audio, supabaseUrl);
+    if (objectPath && validObjectPath(objectPath)) {
+      return streamStorageObject({ bucket: buckets.audio, objectPath, req, res });
+    }
+    // Previously public third-party recordings can still play. Never redirect a
+    // private preview, a signed URL, or a Supabase URL outside the guarded proxy.
+    const external = row.is_public && publicExternalAudio(row.legacy_audio_file, supabaseUrl);
+    if (external) return res.redirect(302, external);
+    return res.status(404).json({ detail: "Media not found." });
+  }
+
   async function streamStorageObject({ bucket, objectPath, req, res }) {
     const headers = {
       apikey: secretKey,
@@ -2566,14 +2637,21 @@ export function createSupabasePersistence({
     if (range) headers.range = range;
 
     const response = await recordStorageOperation(() =>
-      fetch(
+      storageFetch(
         `${supabaseUrl}/storage/v1/object/${bucket}/${encodeObjectPath(objectPath)}`,
-        { headers },
+        { headers, redirect: "error" },
       ),
     );
 
     if (!response.ok) {
-      res.status(response.status).json({ detail: "Media not found." });
+      if (response.status === 416) {
+        const contentRange = response.headers.get("content-range");
+        if (contentRange) res.set("content-range", contentRange);
+        res.set("accept-ranges", "bytes");
+        res.status(416).end();
+        return;
+      }
+      res.status(response.status === 404 ? 404 : 502).json({ detail: "Media not found." });
       return;
     }
 
@@ -2588,7 +2666,7 @@ export function createSupabasePersistence({
       "last-modified",
     ]) {
       const value = response.headers.get(header);
-      if (value) res.set(header, value);
+      if (value && !(header === "cache-control" && res.get("cache-control"))) res.set(header, value);
     }
     if (!res.get("cache-control")) {
       res.set("cache-control", "private, max-age=3600");
@@ -2599,13 +2677,19 @@ export function createSupabasePersistence({
       return;
     }
 
-    Readable.fromWeb(response.body).pipe(res);
+    const stream = Readable.fromWeb(response.body);
+    stream.on("error", () => res.destroy());
+    res.on("close", () => stream.destroy());
+    stream.pipe(res);
   }
 
-  async function streamObject(req, res) {
+  async function streamObject(req, res, access = {}) {
     assertConfigured();
     const bucket = cleanText(req.params.bucket);
     const objectPath = req.params[0] || "";
+    if (bucket === buckets.audio) {
+      return streamAudio({ kind: "object", value: objectPath }, req, res, access);
+    }
     const publicMediaBuckets = [buckets.audio, buckets.artwork, buckets.avatars].filter(Boolean);
     if (!publicMediaBuckets.includes(bucket) || !objectPath) {
       res.status(404).json({ detail: "Media not found." });
@@ -2661,6 +2745,7 @@ export function createSupabasePersistence({
     removeSongFromPlaylist,
     saveDb,
     streamObject,
+    streamAudio,
     streamSupportAttachment,
     supportAttachmentForAdmin,
     supportAttachmentForListener,

@@ -1996,11 +1996,23 @@
         loadData().catch((error) => setStatus(error.message));
       });
 
-      document.getElementById("logoutButton").addEventListener("click", () => {
+      document.getElementById("logoutButton").addEventListener("click", async () => {
+        try {
+          await api("/admin-api/audio-preview-session", { method: "DELETE" });
+        } catch {}
         state.token = "";
         localStorage.removeItem("tesoAdminToken");
         showLogin();
       });
+
+      // Native audio controls use an HttpOnly, audio-only cookie, never a token URL.
+      function renewAudioPreview() {
+        if (state.token && document.visibilityState === "visible") {
+          api("/admin-api/me", { suppressForbiddenLogout: true }).catch(() => {});
+        }
+      }
+      setInterval(renewAudioPreview, 5 * 60 * 1000);
+      document.addEventListener("visibilitychange", renewAudioPreview);
 
       if (state.token) {
         loadData().catch((error) => setStatus(error.message));

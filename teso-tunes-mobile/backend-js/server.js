@@ -12,6 +12,8 @@ import { perfMetricsMiddleware } from "./perfMetrics.js";
 import { discoveryOptions, selectDiscovery } from "./discovery.js";
 import { createSupabasePersistence } from "./supabasePersistence.js";
 import { isShareableSong, renderPublicSongPage } from "./songSharing.js";
+import { AUDIO_COOKIE, AUDIO_COOKIE_SECONDS, audioResponseUrl, canReadAudio, makeAudioCookie,
+  normalizeAudioInput, publicExternalAudio, validAudioCookie, validAudioId, validObjectPath } from "./audioAccess.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SUPABASE_SECRET_KEY =
@@ -93,8 +95,8 @@ app.set("trust proxy", true);
 app.use(cors());
 app.use(perfMetricsMiddleware);
 app.use(express.json({ limit: "2mb" }));
-app.use("/uploads", express.static(UPLOADS_DIR));
-app.use("/media", express.static(LEGACY_MEDIA_DIR));
+app.use("/uploads", (req, res, next) => serveLegacyMedia(req, res).catch(next));
+app.use("/media", (req, res, next) => serveLegacyMedia(req, res).catch(next));
 app.use("/app-assets", express.static(path.join(__dirname, "..", "mobile", "assets")));
 app.use("/admin", express.static(path.join(__dirname, "public")));
 
@@ -123,11 +125,110 @@ app.get("/api/storage/:bucket/*", async (req, res, next) => {
     if (!USE_SUPABASE_PERSISTENCE) {
       return res.status(404).json({ detail: "Media not found." });
     }
-    await supabasePersistence.streamObject(req, res);
+    await supabasePersistence.streamObject(req, res, audioAccessFor(req));
   } catch (error) {
     next(error);
   }
 });
+
+app.get("/api/songs/:id/audio/", (req, res) => serveAudio("song", req, res));
+app.get("/api/releases/:id/audio/", (req, res) => serveAudio("release", req, res));
+
+function audioAccessFor(req) {
+  const token = getBearerToken(req);
+  const cookie = String(req.get("cookie") || "").split(";").map((part) => part.trim())
+    .find((part) => part.startsWith(`${AUDIO_COOKIE}=`))?.slice(AUDIO_COOKIE.length + 1);
+  const browserPreview = !token && validAudioCookie(cookie, ADMIN_TOKEN) &&
+    req.get("sec-fetch-site") !== "cross-site";
+  const admin = token === ADMIN_TOKEN || browserPreview ? publicAdminUser() : null;
+  return {
+    tokenHash: token && !admin ? hashToken(token) : "",
+    reviewer: { releases: adminCan(admin, "releases"), catalog: adminCan(admin, "catalog") },
+  };
+}
+
+function setAudioPreviewCookie(req, res) {
+  if (!adminCan(req.adminUser, "releases") && !adminCan(req.adminUser, "catalog")) return;
+  res.cookie(AUDIO_COOKIE, makeAudioCookie(ADMIN_TOKEN), {
+    httpOnly: true, secure: req.secure, sameSite: "strict", path: "/api/",
+    maxAge: AUDIO_COOKIE_SECONDS * 1000,
+  });
+  res.set("cache-control", "no-store");
+}
+
+function mediaPath(value) {
+  try { return decodeURIComponent(new URL(value, "https://local.invalid").pathname); }
+  catch { return ""; }
+}
+
+function audioInput(value) {
+  return normalizeAudioInput(value, { bucket: SUPABASE_BUCKETS.audio,
+    supabaseUrl: process.env.SUPABASE_URL, allowLocal: !USE_SUPABASE_PERSISTENCE });
+}
+
+function legacyAudioRows(db, req) {
+  const listener = findListenerByToken(db, req);
+  return ["song", "release"].flatMap((kind) => (kind === "song" ? db.songs : db.releases).map((item) => {
+    const artist = db.artists.find((entry) => Number(entry.id) === Number(item.artist));
+    const publishedSong = kind === "song" ? item : db.songs.find((song) =>
+      Number(song.id) === Number(item.public_song) && song.audio_file === item.audio_file);
+    return { ...item, kind, artist_id: item.artist, artist_status: artist?.status,
+      viewer_role: listener?.role, viewer_status: listener?.status, viewer_artist_id: listener?.artist_id,
+      is_public: Boolean(publishedSong && isPublicSong(db, publishedSong) &&
+        (kind === "song" || item.status === "published")) };
+  }));
+}
+
+async function sendLocalMedia(value, req, res) {
+  const pathname = mediaPath(value);
+  const prefix = pathname.startsWith("/uploads/") ? "/uploads/" : "/media/";
+  const relative = pathname.slice(prefix.length);
+  if (!pathname.startsWith(prefix) || !validObjectPath(relative)) {
+    return res.status(404).json({ detail: "Media not found." });
+  }
+  const root = prefix === "/uploads/" ? UPLOADS_DIR : LEGACY_MEDIA_DIR;
+  return res.sendFile(relative, { root, dotfiles: "deny", cacheControl: false }, (error) => {
+    if (error && !res.headersSent) res.status(404).json({ detail: "Media not found." });
+  });
+}
+
+async function serveLegacyMedia(req, res) {
+  res.set("cache-control", "private, no-store");
+  if (USE_SUPABASE_PERSISTENCE || !["GET", "HEAD"].includes(req.method)) {
+    return res.status(404).json({ detail: "Media not found." });
+  }
+  const pathname = mediaPath(req.originalUrl);
+  const db = await loadDb();
+  const matching = legacyAudioRows(db, req).filter((row) => mediaPath(row.audio_file) === pathname);
+  if (matching.length) {
+    if (!matching.some((row) => canReadAudio(row, audioAccessFor(req).reviewer))) {
+      return res.status(404).json({ detail: "Media not found." });
+    }
+  } else {
+    const images = [...db.songs, ...db.releases].map((row) => row.cover_image)
+      .concat([...db.artists, ...db.artistApplications].map((row) => row.photo));
+    if (!images.some((value) => value && mediaPath(value) === pathname)) {
+      return res.status(404).json({ detail: "Media not found." });
+    }
+  }
+  return sendLocalMedia(pathname, req, res);
+}
+
+async function serveAudio(kind, req, res) {
+  res.set("cache-control", "private, no-store");
+  if (!validAudioId(req.params.id)) return res.status(404).json({ detail: "Media not found." });
+  const access = audioAccessFor(req);
+  if (USE_SUPABASE_PERSISTENCE) {
+    return supabasePersistence.streamAudio({ kind, value: req.params.id }, req, res, access);
+  }
+  const db = await loadDb();
+  const row = legacyAudioRows(db, req).find((item) => item.kind === kind && Number(item.id) === Number(req.params.id));
+  if (!row || !canReadAudio(row, access.reviewer)) return res.status(404).json({ detail: "Media not found." });
+  if (/^\/(uploads|media)\//.test(row.audio_file)) return sendLocalMedia(row.audio_file, req, res);
+  const external = row.is_public && publicExternalAudio(row.audio_file, process.env.SUPABASE_URL);
+  if (external) return res.redirect(302, external);
+  return res.status(404).json({ detail: "Media not found." });
+}
 
 const MAX_UPLOAD_BYTES = 80 * 1024 * 1024;
 const MAX_SUPPORT_ATTACHMENT_BYTES = 8 * 1024 * 1024;
@@ -645,9 +746,11 @@ function isPublicArtist(artist) {
 }
 
 function isPublicSong(db, song) {
-  if (!song || song.status === "hidden" || song.status === "removed") return false;
+  if (!song || song.status !== "published") return false;
   const artist = db.artists.find((item) => Number(item.id) === Number(song.artist));
-  return isPublicArtist(artist);
+  const source = song.source_release_id && db.releases.find((item) => Number(item.id) === Number(song.source_release_id));
+  return artist?.status === "active" && (!song.source_release_id ||
+    (source?.status === "published" && Number(source.public_song) === Number(song.id)));
 }
 
 function publicSongsFor(db) {
@@ -756,7 +859,7 @@ function serializeSong(db, req, song) {
     artist_name: artist?.name || "",
     artist_category: artist?.category || "",
     title: song.title,
-    audio_file: absoluteUrl(req, song.audio_file),
+    audio_file: audioResponseUrl(req, "song", song, absoluteUrl),
     cover_image: absoluteUrl(req, song.cover_image),
     genre: song.genre || "",
     genre_note: song.genre_note || "",
@@ -960,7 +1063,7 @@ function serializeRelease(db, req, release) {
     songwriter: release.songwriter || "",
     description: release.description || "",
     rights_confirmed: Boolean(release.rights_confirmed),
-    audio_file: absoluteUrl(req, release.audio_file),
+    audio_file: audioResponseUrl(req, "release", release, absoluteUrl),
     cover_image: absoluteUrl(req, release.cover_image),
     status: release.status || "draft",
     rejection_reason: release.rejection_reason || "",
@@ -1681,7 +1784,7 @@ function directSongResponse(req, song) {
   if (!song) return null;
   return {
     ...song,
-    audio_file: absoluteUrl(req, song.audio_file),
+    audio_file: audioResponseUrl(req, "song", song, absoluteUrl),
     cover_image: absoluteUrl(req, song.cover_image),
   };
 }
@@ -3355,7 +3458,13 @@ app.post("/admin-api/login", (req, res) => {
 });
 
 app.get("/admin-api/me", requireAdmin, (req, res) => {
+  setAudioPreviewCookie(req, res);
   res.json({ admin: req.adminUser });
+});
+
+app.delete("/admin-api/audio-preview-session", requireAdmin, (req, res) => {
+  res.clearCookie(AUDIO_COOKIE, { httpOnly: true, secure: req.secure, sameSite: "strict", path: "/api/" });
+  res.status(204).end();
 });
 
 app.get("/admin-api/dashboard", requireAdmin, async (req, res) => {
@@ -4296,6 +4405,8 @@ app.post(
     if (uploadError) {
       return res.status(400).json({ detail: uploadError });
     }
+    const audioUrl = audioInput(req.body.audio_file);
+    if (audioUrl === null) return res.status(400).json({ detail: "Use an audio upload or a public HTTPS audio URL without credentials." });
     const now = new Date().toISOString();
     const genreData = genrePayload(req, db);
     const song = {
@@ -4303,7 +4414,7 @@ app.post(
       artist: Number(req.body.artist),
       title: req.body.title || "Untitled Song",
       audio_file:
-        (await uploadUrlFor(req.files?.audio_upload?.[0])) || req.body.audio_file || "",
+        (await uploadUrlFor(req.files?.audio_upload?.[0])) || audioUrl || "",
       cover_image:
         (await uploadUrlFor(req.files?.cover_upload?.[0])) ||
         req.body.cover_image ||
@@ -4345,6 +4456,9 @@ app.put(
     if (uploadError) {
       return res.status(400).json({ detail: uploadError });
     }
+    const audioUrl = mediaPath(req.body.audio_file) === `/api/songs/${song.id}/audio/`
+      ? "" : audioInput(req.body.audio_file);
+    if (audioUrl === null) return res.status(400).json({ detail: "Use an audio upload or a public HTTPS audio URL without credentials." });
     const genreData = Object.prototype.hasOwnProperty.call(req.body || {}, "genre")
       ? genrePayload(req, db)
       : { genre: song.genre, genre_note: song.genre_note || "" };
@@ -4353,7 +4467,7 @@ app.put(
       title: req.body.title || song.title,
       audio_file:
         (await uploadUrlFor(req.files?.audio_upload?.[0])) ||
-        req.body.audio_file ||
+        audioUrl ||
         song.audio_file,
       cover_image:
         (await uploadUrlFor(req.files?.cover_upload?.[0])) ||

@@ -9,9 +9,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(__dirname, "..");
 
 const databaseUrl = process.env.DATABASE_URL || "";
-const migrationPath =
-  process.env.SUPABASE_SCHEMA_PATH ||
-  path.join(backendRoot, "migrations", "001_supabase_initial.sql");
+const migrationPath = process.env.SUPABASE_SCHEMA_PATH || "";
+const migrationsDir = path.join(backendRoot, "migrations");
 
 if (!databaseUrl) {
   console.error("Set DATABASE_URL before applying the Supabase schema.");
@@ -19,19 +18,28 @@ if (!databaseUrl) {
 }
 
 async function main() {
-  const sql = await fs.readFile(migrationPath, "utf8");
+  const migrationPaths = migrationPath
+    ? [migrationPath]
+    : (await fs.readdir(migrationsDir))
+        .filter((file) => file.endsWith(".sql"))
+        .sort()
+        .map((file) => path.join(migrationsDir, file));
+
   const client = new Client({
     connectionString: databaseUrl,
     ssl: !/localhost|127\.0\.0\.1/.test(databaseUrl) ? { rejectUnauthorized: false } : undefined,
   });
   await client.connect();
   try {
-    await client.query(sql);
+    for (const filePath of migrationPaths) {
+      const sql = await fs.readFile(filePath, "utf8");
+      await client.query(sql);
+    }
     console.log(
       JSON.stringify(
         {
           applied: true,
-          migrationPath,
+          migrationPaths,
           finishedAt: new Date().toISOString(),
         },
         null,
