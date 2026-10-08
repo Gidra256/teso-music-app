@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,7 +18,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { createArtistStudioRelease } from "../api/musicApi";
+import { createArtistStudioRelease, getArtistStudioReleases, updateArtistStudioRelease } from "../api/musicApi";
 import GenreSelector from "../components/GenreSelector";
 import { colors, spacing } from "../theme";
 
@@ -77,7 +77,13 @@ function errorMessage(error) {
   );
 }
 
-export default function ReleaseUploadScreen({ navigation }) {
+export default function ReleaseUploadScreen({ navigation, route }) {
+  const editingId = route?.params?.releaseId;
+  const isEditing = editingId != null;
+  const [existing, setExisting] = useState(null);
+  const [loading, setLoading] = useState(isEditing);
+  const [reloadKey, setReloadKey] = useState(0);
+  const saveLock = useRef(false);
   const [form, setForm] = useState({
     description: "",
     explicit: false,
@@ -96,10 +102,27 @@ export default function ReleaseUploadScreen({ navigation }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (!isEditing) return;
+    let active = true;
+    setLoading(true); setError(""); setExisting(null); setAudio(null); setCover(null);
+    getArtistStudioReleases().then((rows) => {
+      if (!active) return;
+      const release = rows.find((row) => String(row.id) === String(editingId));
+      if (!release) throw new Error("This release is not available in your Artist Studio.");
+      if (!["draft", "rejected"].includes(release.status)) throw new Error("This release is no longer editable. Return to Artist Studio and refresh.");
+      setExisting(release);
+      setForm((current) => Object.fromEntries(Object.keys(current).map((key) =>
+        [key, typeof current[key] === "boolean" ? Boolean(release[key]) : String(release[key] ?? "")])));
+    }).catch((loadError) => {if (active) setError(errorMessage(loadError));})
+      .finally(() => {if (active) setLoading(false);});
+    return () => {active = false;};
+  }, [editingId, isEditing, reloadKey]);
+
   const submitValidation = useMemo(() => {
     if (!form.title.trim()) return "Enter the song title.";
-    if (!audio) return "Choose an audio file.";
-    if (!cover) return "Choose cover artwork.";
+    if (!audio && !existing?.audio_file) return "Choose an audio file.";
+    if (!cover && !existing?.cover_image) return "Choose cover artwork.";
     if (!form.genre.trim()) return "Choose the genre.";
     if (!form.language.trim()) return "Enter the language.";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(form.release_date.trim())) {
@@ -107,20 +130,22 @@ export default function ReleaseUploadScreen({ navigation }) {
     }
     if (!form.rights_confirmed) return "Confirm the music rights.";
     return "";
-  }, [audio, cover, form]);
+  }, [audio, cover, existing, form]);
 
   function updateField(field, value) {
+    if (saveLock.current) return;
     setForm((current) => ({ ...current, [field]: value }));
   }
 
   async function chooseAudio() {
+    if (saveLock.current) return;
     const result = await DocumentPicker.getDocumentAsync({
       copyToCacheDirectory: true,
       multiple: false,
       type: "audio/*",
     });
 
-    if (result.canceled || !result.assets?.[0]) return;
+    if (saveLock.current || result.canceled || !result.assets?.[0]) return;
     if (isTooLarge(result.assets[0])) {
       setError("Audio file is too large. Maximum size is 80 MB.");
       return;
@@ -130,6 +155,7 @@ export default function ReleaseUploadScreen({ navigation }) {
   }
 
   async function chooseCover() {
+    if (saveLock.current) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true,
       aspect: [1, 1],
@@ -137,7 +163,7 @@ export default function ReleaseUploadScreen({ navigation }) {
       quality: 0.9,
     });
 
-    if (result.canceled || !result.assets?.[0]) return;
+    if (saveLock.current || result.canceled || !result.assets?.[0]) return;
     if (isTooLarge(result.assets[0])) {
       setError("Cover image is too large. Maximum size is 80 MB.");
       return;
@@ -153,6 +179,7 @@ export default function ReleaseUploadScreen({ navigation }) {
     });
     body.append("release_type", "Single");
     body.append("submit_for_review", String(submitForReview));
+    if (isEditing && existing?.updated_at) body.append("expected_updated_at", existing.updated_at);
     if (audio) {
       appendPickedFile(
         body,
@@ -173,20 +200,23 @@ export default function ReleaseUploadScreen({ navigation }) {
   }
 
   async function saveRelease(submitForReview) {
-    if (saving) return;
+    if (saveLock.current || loading || (isEditing && !existing)) return;
     if (submitForReview && submitValidation) {
       setError(submitValidation);
       return;
     }
 
+    saveLock.current = true;
     setSaving(true);
     setError("");
     try {
-      await createArtistStudioRelease(await buildFormData(submitForReview));
-      const successTitle = submitForReview ? "Release submitted" : "Draft saved";
+      const body = await buildFormData(submitForReview);
+      if (isEditing) await updateArtistStudioRelease(existing.id, body);
+      else await createArtistStudioRelease(body);
+      const successTitle = submitForReview ? "Release submitted" : isEditing ? "Changes saved" : "Draft saved";
       const successMessage = submitForReview
         ? "Your song is now under admin review."
-        : "Your release draft has been saved.";
+        : isEditing ? "Your release changes have been saved." : "Your release draft has been saved.";
       if (Platform.OS === "web" && typeof window !== "undefined") {
         window.alert(`${successTitle}\n${successMessage}`);
       } else {
@@ -196,9 +226,27 @@ export default function ReleaseUploadScreen({ navigation }) {
     } catch (saveError) {
       setError(errorMessage(saveError));
     } finally {
+      saveLock.current = false;
       setSaving(false);
     }
   }
+
+  if (isEditing && (loading || !existing)) return (
+    <SafeAreaView style={styles.safe}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <TouchableOpacity accessibilityLabel="Back to Artist Studio" style={styles.iconButton} onPress={() => navigation.goBack()}>
+          <Ionicons name="chevron-back" color={colors.softText} size={22} />
+        </TouchableOpacity>
+        <Text style={styles.title}>Edit & Resubmit</Text>
+        {loading ? <ActivityIndicator color={colors.primary} /> : <>
+          <Text accessibilityRole="alert" style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => setReloadKey((value) => value + 1)}>
+            <Text style={styles.secondaryText}>Retry</Text>
+          </TouchableOpacity>
+        </>}
+      </ScrollView>
+    </SafeAreaView>
+  );
 
   return (
     <KeyboardAvoidingView
@@ -214,17 +262,22 @@ export default function ReleaseUploadScreen({ navigation }) {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.topbar}>
-          <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
+          <TouchableOpacity disabled={saving} accessibilityLabel="Back to Artist Studio" style={styles.iconButton} onPress={() => navigation.goBack()}>
             <Ionicons name="chevron-back" color={colors.softText} size={22} />
           </TouchableOpacity>
-          <Text style={styles.title}>Upload Single</Text>
+          <Text style={styles.title}>{isEditing ? "Edit & Resubmit" : "Upload Single"}</Text>
           <View style={styles.iconSpacer} />
         </View>
 
+        {existing ? <View style={styles.reviewReason}>
+          <Text style={styles.rightsTitle}>{existing.status === "rejected" ? "Rejected / Changes requested" : "Draft"}</Text>
+          {existing.review_reason || existing.rejection_reason ? <Text style={styles.rightsText}>{existing.review_reason || existing.rejection_reason}</Text> : null}
+        </View> : null}
+
         <View style={styles.uploadGrid}>
-          <TouchableOpacity style={styles.coverPicker} onPress={chooseCover}>
-            {cover ? (
-              <Image source={{ uri: cover.uri }} style={styles.coverImage} />
+          <TouchableOpacity disabled={saving} accessibilityLabel={isEditing ? "Replace cover artwork" : "Choose cover artwork"} style={styles.coverPicker} onPress={chooseCover}>
+            {cover || existing?.cover_image ? (
+              <Image source={{ uri: cover?.uri || existing.cover_image }} style={styles.coverImage} />
             ) : (
               <View style={styles.coverPlaceholder}>
                 <Ionicons name="image" color={colors.primary} size={34} />
@@ -233,14 +286,14 @@ export default function ReleaseUploadScreen({ navigation }) {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.audioPicker} onPress={chooseAudio}>
+          <TouchableOpacity disabled={saving} accessibilityLabel={isEditing ? "Replace audio file" : "Choose audio file"} style={styles.audioPicker} onPress={chooseAudio}>
             <View style={styles.audioIcon}>
               <Ionicons name="musical-note" color={colors.accent} size={24} />
             </View>
             <View style={styles.audioCopy}>
               <Text style={styles.audioTitle}>Audio file</Text>
               <Text style={styles.audioMeta} numberOfLines={2}>
-                {audio?.name || "Choose MP3, M4A, WAV, AAC, OGG, or FLAC"}
+                {audio?.name || (existing?.audio_file ? "Existing audio retained" : "Choose MP3, M4A, WAV, AAC, OGG, or FLAC")}
               </Text>
             </View>
             <Ionicons name="folder-open" color={colors.primary} size={22} />
@@ -334,14 +387,14 @@ export default function ReleaseUploadScreen({ navigation }) {
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        <View style={styles.actions}>
+        <View style={[styles.actions, isEditing && styles.editActions]}>
           <TouchableOpacity
             disabled={saving}
             style={[styles.secondaryButton, saving && styles.disabledButton]}
             onPress={() => saveRelease(false)}
           >
             <Ionicons name="save" color={colors.primary} size={18} />
-            <Text style={styles.secondaryText}>Save Draft</Text>
+            <Text style={styles.secondaryText}>{isEditing ? "Save Changes" : "Save Draft"}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             disabled={saving}
@@ -353,7 +406,7 @@ export default function ReleaseUploadScreen({ navigation }) {
             ) : (
               <>
                 <Ionicons name="send" color={colors.background} size={18} />
-                <Text style={styles.primaryText}>Submit</Text>
+                <Text style={styles.primaryText}>{isEditing ? "Resubmit for Review" : "Submit"}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -378,6 +431,8 @@ function ReleaseInput({ icon, style, ...props }) {
 }
 
 const styles = StyleSheet.create({
+  editActions: { flexDirection: "column" },
+  reviewReason: { gap: 6 },
   safe: {
     backgroundColor: colors.background,
     flex: 1,
@@ -584,6 +639,8 @@ const styles = StyleSheet.create({
     minHeight: 50,
   },
   primaryText: {
+    flexShrink: 1,
+    textAlign: "center",
     color: colors.background,
     fontSize: 14,
     fontWeight: "950",

@@ -218,6 +218,7 @@ test("P0-C isolated PostgreSQL concurrency and data integrity", {skip:!process.e
   });
 
   await check("approval versus stale Studio edits rejects invalid lifecycle changes", async () => {
+    await sql.exec("update tesohub_music.listeners set role='artist',artist_id=1 where id=1; update tesohub_music.artists set owner_listener_id=1 where id=1;");
     await sql.exec("insert into tesohub_music.releases(artist_id,listener_id,title,status) values (1,1,'Review','under_review');");
     const base = await p.loadDb(), approve = clone(base), stale = clone(base);
     approve.songs.push({id:3,artist:1,title:"Published",status:"published",source_release_id:1});
@@ -357,16 +358,19 @@ test("P0-C isolated PostgreSQL concurrency and data integrity", {skip:!process.e
   });
 
   await check("due publication is scoped, idempotent, and preserves engagement/account records", async () => {
-    await sql.exec("insert into tesohub_music.releases(artist_id,listener_id,title,status,release_date) values (1,1,'Due','scheduled','2000-01-01');");
+    await sql.exec(`update tesohub_music.listeners set role='artist', artist_id=1 where id=1;
+      update tesohub_music.artists set owner_listener_id=1 where id=1;
+      insert into tesohub_music.releases(artist_id,listener_id,title,status,release_date,approved_at,rights_confirmed,genre,language,audio_path,cover_path)
+      values (1,1,'Due','scheduled','2000-01-01',now(),true,'Gospel','Ateso','fixture/due.mp3','fixture/cover.png');`);
     await p.followArtist({artistId:1,listenerId:1});
     await p.likeSong({songId:1,listenerId:1});
-    await Promise.all([p.listPublicSongs(),p.listPublicSongs()]);
+    await Promise.all([p.publishDueReleases(),p.publishDueReleases()]);
     assert.equal((await rows("songs")).length,3);
     assert.equal((await rows("releases"))[0].status,"published");
     assert.equal((await rows("artist_follows")).length,1);
     assert.equal((await rows("song_likes")).length,1);
     assert.equal((await rows("listeners")).length,2);
-    assert.match(persistenceSource,/public_song_id is null\s+for update skip locked/);
+    assert.match(persistenceSource,/r.public_song_id is null[\s\S]*?for update of r skip locked/);
   });
 });
 

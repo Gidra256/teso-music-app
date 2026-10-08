@@ -127,6 +127,7 @@ async function fixture(t, role, gateOnly = false) {
     SUPPORT_TICKET_STATUSES:new Set(["open","in_progress","waiting_on_user","resolved","closed"]), SUPPORT_TICKET_PRIORITIES:new Set(["normal","high"]),
     ARTIST_STATUSES:new Set(["active","suspended","removed"]), SONG_STATUSES:new Set(["published","hidden","removed"]), REPORT_STATUSES:new Set(["open","resolved"]),
     serializeArtist:(_,req,row)=>row, serializeSong:(_,req,row)=>row, serializeRelease:(_,req,row)=>row,
+    serializeReleaseReview:(_,req,row)=>row, releaseLinkageValid:()=>true, releaseReviewIsCurrent:()=>true,
     serializeAdminUser:(_,row)=>({id:row.id,status:row.status,role:row.role}), serializeAuditLog:row=>row,
     serializeReport:(_,row)=>row, serializeArtistApplication:(_,req,row)=>row,
     sortArtists:rows=>rows, sortSongs:rows=>rows, dashboardPayload:()=>({total_users:1}),

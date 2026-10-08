@@ -1081,6 +1081,9 @@ function serializeRelease(db, req, release) {
     status: release.status || "draft",
     rejection_reason: release.rejection_reason || "",
     review_reason: release.review_reason || "",
+    last_review_reason: [...db.adminAuditLogs].filter((row) => row.target_type === "release" && Number(row.target_id) === Number(release.id) &&
+      ["reject_release", "request_release_changes"].includes(row.action))
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")) || Number(b.id) - Number(a.id))[0]?.details?.reason || "",
     public_song: publicSong ? serializeSong(db, req, publicSong) : null,
     submitted_at: release.submitted_at || null,
     approved_at: release.approved_at || null,
@@ -1129,7 +1132,8 @@ function publishRelease(db, release) {
 function publishDueReleases(db) {
   let changed = false;
   for (const release of db.releases) {
-    if (release.status === "scheduled" && !isFutureReleaseDate(release.release_date)) {
+    if (release.status === "scheduled" && release.approved_at && !release.public_song &&
+      !validateReleaseForSubmit(release) && releaseLinkageValid(db, release) && !isFutureReleaseDate(release.release_date)) {
       changed = publishRelease(db, release) || changed;
     }
   }
@@ -1137,12 +1141,51 @@ function publishDueReleases(db) {
 }
 
 async function loadDbWithPublishedReleases() {
-  const db = await loadDb();
-  if (publishDueReleases(db)) {
-    await saveDb(db);
-    if (USE_SUPABASE_PERSISTENCE) return loadDb();
-  }
-  return db;
+  // Compatibility helper: reads never publish. Publication belongs to the worker.
+  return loadDb();
+}
+
+function releaseLinkageValid(db, release) {
+  const artist = db.artists.find((row) => Number(row.id) === Number(release.artist));
+  const listener = db.listeners.find((row) => Number(row.id) === Number(release.listener));
+  return Boolean(artist && listener && artist.status === "active" && listener.status === "active" &&
+    listener.role === "artist" && Number(artist.owner_listener) === Number(listener.id) &&
+    Number(listener.artist_id) === Number(artist.id));
+}
+
+function serializeReleaseReview(db, req, release) {
+  const data = serializeRelease(db, req, release);
+  // Operational linkage only; the review does not require contact details.
+  data.listener = data.listener ? {id:data.listener.id, name:data.listener.name} : null;
+  data.linkage_valid = releaseLinkageValid(db, release);
+  data.publication = releasePublicationInfo(db, release);
+  data.history = db.adminAuditLogs.filter((row) => row.target_type === "release" &&
+    Number(row.target_id) === Number(release.id) &&
+    ["approve_release", "reject_release", "request_release_changes", "publish_release"].includes(row.action))
+    .map((row) => ({action:row.action, at:row.created_at, admin_user:row.admin_user,
+      admin_role:row.admin_role, reason:row.details?.reason || row.details?.review_reason || ""}));
+  return data;
+}
+
+function releasePublicationInfo(db, release) {
+  const candidate = ["approved", "scheduled"].includes(release.status);
+  const date = cleanText(release.release_date);
+  const parsed = new Date(`${date}T00:00:00Z`);
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
+  const timing = !validDate ? "unscheduled" : isFutureReleaseDate(date) ? "future" : "due";
+  let reason = "";
+  if (!candidate) reason = "Not approved or scheduled.";
+  else if (release.status !== "scheduled") reason = "Approved legacy state needs review; only scheduled releases auto-publish.";
+  else if (!release.approved_at) reason = "Approval record is missing.";
+  else if (!releaseLinkageValid(db, release)) reason = "Active artist/account ownership does not match.";
+  else if (release.public_song || db.songs.some((song) => Number(song.source_release_id) === Number(release.id))) reason = "A linked song already exists; inspect linkage before publication.";
+  else reason = validateReleaseForSubmit(release);
+  if (!reason && timing !== "due") reason = "Scheduled date has not arrived (UTC).";
+  return {candidate, timing, eligible:candidate && !reason, reason};
+}
+
+function releaseReviewIsCurrent(req, release) {
+  return !req.body?.expected_updated_at || req.body.expected_updated_at === release.updated_at;
 }
 
 function makeHubSearchDocuments(db, req) {
@@ -1929,6 +1972,10 @@ function validateReleaseForSubmit(release) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanText(release.release_date))) {
     return "Choose a valid release date.";
   }
+  const date = new Date(`${release.release_date}T00:00:00Z`);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== release.release_date) {
+    return "Choose a valid release date.";
+  }
   if (!release.rights_confirmed) {
     return "Confirm that you own or control the rights.";
   }
@@ -1990,6 +2037,7 @@ function submitReleaseForReview(release) {
   release.submitted_at = now;
   release.rejection_reason = "";
   release.review_reason = "";
+  release.approved_at = null;
   release.updated_at = now;
 }
 
@@ -2390,6 +2438,7 @@ app.post(
 );
 
 app.get("/api/artist-studio/dashboard/", async (req, res) => {
+  res.set("Cache-Control", "no-store");
   const db = await loadDbWithPublishedReleases();
   const account = requireArtist(db, req, res);
   if (!account) return;
@@ -2421,6 +2470,7 @@ app.get("/api/artist-studio/dashboard/", async (req, res) => {
 });
 
 app.get("/api/artist-studio/releases/", async (req, res) => {
+  res.set("Cache-Control", "no-store");
   const db = await loadDbWithPublishedReleases();
   const account = requireArtist(db, req, res);
   if (!account) return;
@@ -2528,6 +2578,8 @@ app.put(
         .status(403)
         .json({ detail: "Only draft or rejected releases can be edited." });
     }
+    if (Number(release.listener) !== Number(account.listener.id)) return res.status(404).json({detail:"Release not found."});
+    if (!releaseReviewIsCurrent(req, release)) return res.status(409).json({detail:"This release changed. Reopen the editor before saving."});
 
     assignReleasePayload(release, releasePayload(req, db));
     release.release_type = "Single";
@@ -2569,6 +2621,7 @@ app.post("/api/artist-studio/releases/:id/submit/", async (req, res) => {
       .status(403)
       .json({ detail: "Only draft or rejected releases can be submitted." });
   }
+  if (Number(release.listener) !== Number(account.listener.id)) return res.status(404).json({detail:"Release not found."});
 
   const validationError = validateReleaseForSubmit(release);
   if (validationError) return res.status(400).json({ detail: validationError });
@@ -4238,23 +4291,36 @@ app.post(
 );
 
 app.get("/admin-api/releases", requireAdminPermission("releases"), async (req, res) => {
-  const db = await loadDbWithPublishedReleases();
+  const db = await loadDb();
   const status = cleanText(req.query?.status);
+  if (status && !["draft", "under_review", "approved", "rejected", "scheduled", "published"].includes(status)) {
+    return res.status(400).json({detail:"Unknown release status."});
+  }
+  const search = cleanText(req.query?.search).toLowerCase();
+  const publication = cleanText(req.query?.publication);
+  if (publication && !["approved_scheduled", "due", "future", "eligible"].includes(publication)) {
+    return res.status(400).json({detail:"Unknown publication filter."});
+  }
   const releases = db.releases
     .filter((release) => !status || release.status === status)
-    .sort((first, second) =>
-      String(second.created_at || "").localeCompare(String(first.created_at || "")),
-    );
-  res.json(releases.map((release) => serializeRelease(db, req, release)));
+    .map((release) => serializeReleaseReview(db, req, release))
+    .filter((release) => !publication || (release.publication.candidate &&
+      (publication === "approved_scheduled" || (publication === "eligible" ? release.publication.eligible : release.publication.timing === publication))))
+    .filter((release) => !search || [release.title, release.artist_name].some((value) => value.toLowerCase().includes(search)))
+    .sort((a, b) => Number(b.status === "under_review") - Number(a.status === "under_review") ||
+      String(b.submitted_at || b.created_at || "").localeCompare(String(a.submitted_at || a.created_at || "")) || Number(b.id) - Number(a.id));
+  res.set("Cache-Control", "no-store");
+  res.json(releases);
 });
 
 app.get("/admin-api/releases/:id", requireAdminPermission("releases"), async (req, res) => {
-  const db = await loadDbWithPublishedReleases();
+  const db = await loadDb();
   const release = db.releases.find(
     (item) => Number(item.id) === Number(req.params.id),
   );
   if (!release) return res.status(404).json({ detail: "Release not found." });
-  res.json(serializeRelease(db, req, release));
+  res.set("Cache-Control", "no-store");
+  res.json(serializeReleaseReview(db, req, release));
 });
 
 app.post("/admin-api/releases/:id/approve", requireAdminPermission("releases"), async (req, res) => {
@@ -4263,8 +4329,15 @@ app.post("/admin-api/releases/:id/approve", requireAdminPermission("releases"), 
     (item) => Number(item.id) === Number(req.params.id),
   );
   if (!release) return res.status(404).json({ detail: "Release not found." });
-  if (release.status !== "under_review" && release.status !== "scheduled") {
-    return res.status(400).json({ detail: "Only submitted releases can be approved." });
+  if (["scheduled", "published"].includes(release.status) && release.approved_at) {
+    return res.json(serializeReleaseReview(db, req, release));
+  }
+  if (release.status !== "under_review" || release.public_song || !releaseReviewIsCurrent(req, release) ||
+    db.songs.some((song) => Number(song.source_release_id) === Number(release.id))) {
+    return res.status(409).json({ detail: "This release is no longer the submission you reviewed. Refresh it." });
+  }
+  if (!releaseLinkageValid(db, release)) {
+    return res.status(409).json({detail:"Active artist and submitting account linkage must match before approval."});
   }
 
   const validationError = validateReleaseForSubmit(release);
@@ -4288,8 +4361,19 @@ app.post("/admin-api/releases/:id/approve", requireAdminPermission("releases"), 
     public_song: release.public_song || null,
     review_reason: release.review_reason,
   });
-  await saveDb(db);
-  res.json(serializeRelease(db, req, release));
+  try {
+    await saveDb(db);
+  } catch (error) {
+    if (error.code === "STALE_WRITE") {
+      const fresh = await loadDb();
+      const current = fresh.releases.find((row) => Number(row.id) === Number(release.id));
+      if (current?.approved_at && ["scheduled", "published"].includes(current.status)) {
+        return res.json(serializeReleaseReview(fresh, req, current));
+      }
+    }
+    throw error;
+  }
+  res.json(serializeReleaseReview(db, req, release));
 });
 
 app.post("/admin-api/releases/:id/reject", requireAdminPermission("releases"), async (req, res) => {
@@ -4298,12 +4382,12 @@ app.post("/admin-api/releases/:id/reject", requireAdminPermission("releases"), a
     (item) => Number(item.id) === Number(req.params.id),
   );
   if (!release) return res.status(404).json({ detail: "Release not found." });
-  if (release.status !== "under_review" && release.status !== "scheduled") {
-    return res.status(400).json({ detail: "Only submitted releases can be rejected." });
+  if (!["under_review", "scheduled"].includes(release.status) || release.public_song || !releaseReviewIsCurrent(req, release)) {
+    return res.status(409).json({ detail: "This release changed. Refresh before rejecting it." });
   }
 
   const reason = cleanText(req.body?.reason || req.body?.rejection_reason);
-  if (!reason) return res.status(400).json({ detail: "Enter a rejection reason." });
+  if (reason.length < 5) return res.status(400).json({ detail: "Enter a meaningful rejection reason (at least 5 characters)." });
 
   const now = new Date().toISOString();
   release.status = "rejected";
@@ -4325,12 +4409,12 @@ app.post(
       (item) => Number(item.id) === Number(req.params.id),
     );
     if (!release) return res.status(404).json({ detail: "Release not found." });
-    if (release.status !== "under_review" && release.status !== "scheduled") {
-      return res.status(400).json({ detail: "Only submitted releases can be returned for changes." });
+    if (!["under_review", "scheduled"].includes(release.status) || release.public_song || !releaseReviewIsCurrent(req, release)) {
+      return res.status(409).json({ detail: "This release changed. Refresh before requesting changes." });
     }
 
     const reason = cleanText(req.body?.reason || req.body?.review_reason);
-    if (!reason) return res.status(400).json({ detail: "Enter what needs changing." });
+    if (reason.length < 5) return res.status(400).json({ detail: "Explain what needs changing (at least 5 characters)." });
 
     const now = nowIso();
     release.status = "rejected";
@@ -4706,7 +4790,26 @@ app.use((error, req, res, next) => {
 });
 
 await ensureDb();
+// Publication is an explicit background job, never a side effect of a read.
+// SQL row locks arbitrate multiple Render instances. Failures retry next tick.
+const SCHEDULED_PUBLISHER_ENABLED = process.env.SCHEDULED_PUBLISHER_ENABLED === "true";
+let publicationRunning = false;
+async function runScheduledPublication() {
+  if (!SCHEDULED_PUBLISHER_ENABLED || publicationRunning) return;
+  publicationRunning = true;
+  try {
+    if (USE_SUPABASE_PERSISTENCE) await supabasePersistence.publishDueReleases();
+    else {
+      const db = await loadDb();
+      if (publishDueReleases(db)) await saveDb(db);
+    }
+  } catch {
+    console.error("Scheduled publication failed; will retry on the next worker tick.");
+  } finally { publicationRunning = false; }
+}
+if (SCHEDULED_PUBLISHER_ENABLED) setInterval(runScheduledPublication, 60000).unref();
 app.listen(PORT, "0.0.0.0", () => {
+  if (SCHEDULED_PUBLISHER_ENABLED) void runScheduledPublication();
   console.log(`Teso Tunes JS backend running on http://0.0.0.0:${PORT}`);
   console.log(`Admin dashboard: http://127.0.0.1:${PORT}/admin/`);
 });

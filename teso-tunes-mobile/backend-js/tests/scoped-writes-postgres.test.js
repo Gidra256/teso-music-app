@@ -203,7 +203,10 @@ test("P0-C real PostgreSQL independent-session release gate", {skip:!process.env
   });
 
   await check("G: overlapping scheduled publishers create one public song and consistent release", async () => {
-    await observer.query("insert into tesohub_music.releases(artist_id,listener_id,title,status,release_date,audio_path) values (1,1,'Due fixture','scheduled',current_date,'fixture/due.mp3')");
+    await observer.query(`update tesohub_music.listeners set role='artist', artist_id=1 where id=1;
+      update tesohub_music.artists set owner_listener_id=1 where id=1;
+      insert into tesohub_music.releases(artist_id,listener_id,title,status,release_date,audio_path,cover_path,genre,language,rights_confirmed,approved_at)
+      values (1,1,'Due fixture','scheduled',current_date,'fixture/due.mp3','fixture/art.png','Gospel','Ateso',true,now())`);
     // Hold the first publisher inside its actual SQL statement, after locking
     // the due release. The other real session must SKIP LOCKED, not duplicate it.
     await observer.query(`create function tesohub_music.p0c_publication_barrier() returns trigger language plpgsql as $$
@@ -212,10 +215,10 @@ test("P0-C real PostgreSQL independent-session release gate", {skip:!process.env
     await observer.query("select pg_advisory_lock(18473,921)");
     let first, second;
     try {
-      first = a.p.listPublicSongs({}).then(() => ({ok:true}), error => ({error}));
+      first = a.p.publishDueReleases().then(() => ({ok:true}), error => ({error}));
       await waitLocked(pidA);
       assert.match((await observer.query("select query from pg_stat_activity where pid=$1", [pidA])).rows[0].query, /with due as/);
-      second = b.p.listPublicSongs({}).then(() => ({ok:true}), error => ({error}));
+      second = b.p.publishDueReleases().then(() => ({ok:true}), error => ({error}));
       assert.equal((await second).ok, true);
       assert.equal((await rows("songs")).length, 2);
     } finally {
@@ -229,7 +232,7 @@ test("P0-C real PostgreSQL independent-session release gate", {skip:!process.env
     assert.equal(release.status, "published");
     assert.equal(songs.filter(s => s.source_release_id === release.id).length, 1);
     assert.equal(songs.find(s => s.source_release_id === release.id).id, release.public_song_id);
-    await Promise.all([a.p.listPublicSongs({}), b.p.listPublicSongs({})]);
+    await Promise.all([a.p.publishDueReleases(), b.p.publishDueReleases()]);
     assert.equal((await rows("songs")).length, 3);
   });
 

@@ -257,3 +257,18 @@ test("Content navigation retains review/discovery and Super Admin retains all co
     assert.match(admin.run('songItem({id:1,status:"published",is_featured:true})'), /data-action="unfeature-song"/);
   }
 });
+
+test("release refresh during an older read queues a fresh read and coalesces duplicate refreshes", async () => {
+  let release, reads = 0;
+  const admin = adminHarness(async path => {
+    if (path !== "/admin-api/releases") return {body:bodyFor(path)};
+    if (++reads === 1) {await new Promise(resolve => {release = resolve;}); return {body:[]};}
+    return {body:[{id:1,title:"New submission",status:"under_review"}]};
+  });
+  await admin.run("loadData()");
+  const first = admin.run('loadResource("releases")');
+  await new Promise(resolve => setImmediate(resolve));
+  const refresh = admin.run('Promise.all([loadResource("releases",{force:true}),loadResource("releases",{force:true})])');
+  release();await first;await refresh;
+  assert.equal(reads,2);assert.equal(admin.run("state.releases[0].title"),"New submission");
+});

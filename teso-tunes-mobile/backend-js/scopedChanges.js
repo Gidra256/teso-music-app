@@ -98,6 +98,19 @@ export async function applyScopedChanges(client, before, after, {mediaColumns, b
   });
   if (!plans.some(p => p.inserts.length || p.updates.length || p.deletes.length)) return () => {};
 
+  // An approval depends on the current account/artist relationship as well as
+  // the release. Hold those rows until the scoped transaction has committed.
+  for (const {def, updates} of plans) if (def.collection === "releases") for (const {row, previous} of updates) {
+    if (previous.status === "under_review" && ["scheduled", "published"].includes(row.status)) {
+      const linked = await client.query(`select a.id from tesohub_music.artists a
+        join tesohub_music.listeners l on l.id = a.owner_listener_id
+        where a.id = $1 and l.id = $2 and l.artist_id = a.id
+          and a.status = 'active' and l.status = 'active' and l.role = 'artist'
+        for share of a, l`, [row.artist, row.listener]);
+      if (linked.rowCount !== 1) throw new WriteConflict();
+    }
+  }
+
   // IDs allocated from PostgreSQL sequences cannot collide with concurrent
   // account/catalog/audit inserts. Remap workflow references before any insert.
   const remaps = {};
@@ -145,7 +158,8 @@ export async function applyScopedChanges(client, before, after, {mediaColumns, b
     if (!changed.length) continue;
     // Lifecycle/ownership checks prevent a stale Studio edit from altering an
     // already-submitted release. Independent field edits can still merge.
-    const guards = [...new Set([def.key, ...changed, ...Object.keys(old).filter(k => ["status", "role"].includes(k) || k.endsWith("_id"))])]
+    const lifecycleReview = def.collection === "releases" && row.status !== previous.status;
+    const guards = [...new Set([def.key, ...changed, ...Object.keys(old).filter(k => lifecycleReview || ["status", "role"].includes(k) || k.endsWith("_id"))])]
       .filter(k => !["updated_at", "last_active_at"].includes(k));
     const values = changed.map(k => data[k]);
     const set = changed.map((k, i) => `${k} = ${["updated_at", "last_active_at"].includes(k) ? `greatest(${k}, $${i + 1})` : `$${i + 1}`}`).join(", ");

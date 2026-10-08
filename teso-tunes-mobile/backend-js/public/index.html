@@ -437,6 +437,9 @@
       .application-history { padding-left: 20px; }
       .application-history li { margin-bottom: 10px; overflow-wrap: anywhere; }
       .applications-workspace button { min-height: 44px; }
+      .release-artwork { display: block; width: 180px; max-width: 100%; aspect-ratio: 1; object-fit: contain; }
+      .applications-workspace audio { width: 420px; max-width: 100%; min-width: 0; }
+      .applications-workspace [hidden] { display: none; }
       #clearApplicationFilters[hidden] { display: none; }
       .applications-active .content { align-content: start; }
       .applications-active h1 { font-size: 26px; }
@@ -629,6 +632,10 @@
         applicationDetailState: "idle",
         applicationDetailError: "",
         releases: [],
+        activeReleaseId: null,
+        releaseDetail: null,
+        releaseDetailState: "idle",
+        releaseDetailError: "",
         users: [],
         supportTickets: [],
         activeSupportTicket: null,
@@ -646,6 +653,8 @@
           applicationStatus: "",
           applicationSearch: "",
           releaseStatus: "",
+          releaseSearch: "",
+          releasePublication: "",
           catalogSearch: "",
           catalogStatus: "",
           userSearch: "",
@@ -726,6 +735,8 @@
       }
 
       function showLogin() {
+        state.activeReleaseId = null;
+        state.releaseDetail = null;
         state.activeApplicationId = null;
         state.applicationDetail = null;
         adminPanel.classList.add("hidden");
@@ -815,7 +826,7 @@
         if (pendingLoads.has(pendingKey)) {
           // Refresh requested during an older read must observe submissions made
           // after that read began, without issuing parallel/duplicate refreshes.
-          if (key === "applications" && force) {
+          if (["applications", "releases"].includes(key) && force) {
             if (!pendingApplicationRefreshes.has(pendingKey)) {
               const refresh = pendingLoads.get(pendingKey).then(() => {
                 pendingApplicationRefreshes.delete(pendingKey);
@@ -960,7 +971,8 @@
         state.editingSongId = null;
         state.editingGenreId = null;
         if (view === "applications") state.activeApplicationId = null;
-        loadView(view, { force: view === "applications" }).catch((error) => setStatus(error.message));
+        if (view === "releases") state.activeReleaseId = null;
+        loadView(view, { force: ["applications", "releases"].includes(view) }).catch((error) => setStatus(error.message));
       }
 
       function render() {
@@ -969,7 +981,7 @@
           return;
         }
         showAdmin();
-        adminPanel.classList.toggle("applications-active", state.activeView === "applications");
+        adminPanel.classList.toggle("applications-active", ["applications", "releases"].includes(state.activeView));
         const isBoundedView = boundedViews.has(state.activeView);
         contentEl.classList.toggle("content-bounded", isBoundedView);
         viewEl.classList.toggle("split-view", isBoundedView);
@@ -1212,54 +1224,117 @@
       }
 
       function renderReleases() {
-        const rows = state.releases.filter((release) =>
-          !state.filters.releaseStatus || release.status === state.filters.releaseStatus,
-        );
-        viewEl.innerHTML = `
-          <section class="panel">
-            <div class="toolbar">
-              <h2>Release Review</h2>
-              ${select("releaseStatus", state.filters.releaseStatus, ["", ...releaseStatuses], "All statuses")}
-            </div>
-            <p class="subtitle" style="margin-top: 8px;">Use the audio control to listen to the complete upload before approval.</p>
-            <div class="list" style="margin-top: 12px;">
-              ${rows.length ? rows.map(releaseItem).join("") : '<p class="empty">No releases match this filter.</p>'}
-            </div>
-          </section>`;
+        if (state.activeReleaseId !== null) return renderReleaseDetail();
+        viewEl.innerHTML = `<section class="applications-workspace">
+          <div class="toolbar"><h2>Release Review</h2><div class="actions"><button class="secondary" data-action="refresh-releases" type="button">Refresh</button><button class="ghost" data-action="application-logout" type="button">Logout</button></div></div>
+          <div class="application-filters"><label>Search<input id="releaseSearch" data-filter="releaseSearch" value="${escapeHtml(state.filters.releaseSearch)}" placeholder="Title or artist" /></label>
+          <label>Status<select data-filter="releaseStatus">${["", ...releaseStatuses].map((status) => `<option value="${status}" ${state.filters.releaseStatus === status ? "selected" : ""}>${escapeHtml(status === "under_review" ? "Needs Review" : status ? status.replaceAll("_", " ") : "All statuses")}</option>`).join("")}</select></label>
+          <label>Publication<select data-filter="releasePublication">${[["","All releases"],["approved_scheduled","Approved + Scheduled"],["due","Already due (UTC)"],["future","Future scheduled dates"],["eligible","Eligible if enabled"]].map(([value,label]) => `<option value="${value}" ${state.filters.releasePublication === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+          <button class="ghost" data-action="clear-release-filters" type="button">Clear filters</button></div>
+          <p class="meta" id="releaseCount" aria-live="polite"></p><div class="list" id="releaseResults"></div></section>`;
+        updateReleaseResults();
       }
 
       function releaseItem(release) {
-        const canAct = ["under_review", "scheduled"].includes(release.status);
-        return `
-          <article class="item">
-            <img class="thumb" src="${escapeHtml(release.cover_image)}" alt="" />
-            <div>
-              <div class="item-title">${escapeHtml(release.title || "Untitled release")}</div>
-              <div class="meta">
-                ${escapeHtml(release.artist_name || "Artist")} |
-                ${escapeHtml(release.genre || "Genre")} |
-                Release date: ${escapeHtml(release.release_date || "Not set")}
-              </div>
-              <div class="details">
-                ${badge(release.status)}<br />
-                Featured: ${escapeHtml(release.featured_artist || "None")} |
-                Language: ${escapeHtml(release.language || "Not set")} |
-                Explicit: ${release.explicit ? "Yes" : "No"}<br />
-                Producer: ${escapeHtml(release.producer || "Not set")} |
-                Songwriter: ${escapeHtml(release.songwriter || "Not set")}<br />
-                Rights confirmed: ${release.rights_confirmed ? "Yes" : "No"}<br />
-                ${escapeHtml(release.description || "")}
-                ${release.rejection_reason ? `<br />Reason: ${escapeHtml(release.rejection_reason)}` : ""}
-                ${release.audio_file ? `<br /><audio controls preload="metadata" src="${escapeHtml(release.audio_file)}"></audio>` : "<br />No audio uploaded."}
-              </div>
-            </div>
-            <div class="actions">
-              ${canAct ? `
-                <button data-action="approve-release" data-id="${release.id}" type="button">Approve</button>
-                <button class="secondary" data-action="changes-release" data-id="${release.id}" type="button">Request changes</button>
-                <button class="danger" data-action="reject-release" data-id="${release.id}" type="button">Reject</button>` : ""}
-            </div>
-          </article>`;
+        return `<article class="item">
+          ${release.cover_image ? `<img class="thumb" src="${escapeHtml(release.cover_image)}" alt="" loading="lazy" />` : '<div class="thumb"></div>'}
+          <div><div class="item-title">${escapeHtml(release.title || "Untitled release")}</div><p class="meta">${escapeHtml(release.artist_name)} | ${escapeHtml(release.genre)} | ${escapeHtml(release.language)}</p>
+          <div class="details">${badge(release.status)}<br />Submitted: ${formatDate(release.submitted_at)}<br />Release date (UTC): ${escapeHtml(release.release_date || "Not set")}${publicationSummary(release)}</div></div>
+          <div class="actions"><button class="secondary" data-action="review-release" data-id="${release.id}" type="button">Review</button></div></article>`;
+      }
+
+      function updateReleaseResults() {
+        const results = document.getElementById("releaseResults");
+        if (!results) return;
+        const search = state.filters.releaseSearch.trim().toLowerCase();
+        const publication = state.filters.releasePublication;
+        const rows = state.releases.filter((row) => (!state.filters.releaseStatus || row.status === state.filters.releaseStatus) &&
+          (!publication || (row.publication?.candidate && (publication === "approved_scheduled" || (publication === "eligible" ? row.publication.eligible : row.publication.timing === publication)))) &&
+          (!search || [row.title, row.artist_name].some((value) => String(value || "").toLowerCase().includes(search))))
+          .sort((a,b) => Number(b.status === "under_review") - Number(a.status === "under_review") || String(b.submitted_at || b.created_at || "").localeCompare(String(a.submitted_at || a.created_at || "")));
+        results.innerHTML = rows.length ? rows.map(releaseItem).join("") : `<p class="empty" role="status">${state.releases.length ? "No releases match your search or status filter." : "No releases have been submitted yet."}</p>`;
+        document.getElementById("releaseCount").textContent = `${rows.length} of ${state.releases.length} releases`;
+      }
+
+      function publicationSummary(row) {
+        if (!row.publication?.candidate) return "";
+        return `<p class="details">Publication: ${row.publication.eligible ? "Eligible when publisher is enabled" : "Not currently eligible"}<br />${escapeHtml(row.publication.reason || "Due date reached; metadata and ownership checks passed.")}</p>`;
+      }
+
+      let releaseDetailRequest = 0;
+      const pendingReleaseReviews = new Set();
+      async function openRelease(id) {
+        const request = ++releaseDetailRequest, token = state.token;
+        state.activeReleaseId = String(id); state.releaseDetailState = "loading";
+        renderPreservingScroll();
+        try {
+          const data = await api(`/admin-api/releases/${encodeURIComponent(id)}`, {cache:"no-store", signal:AbortSignal.timeout(45000)});
+          if (token !== state.token || request !== releaseDetailRequest) return;
+          if (!data || String(data.id) !== String(id) || !Array.isArray(data.history)) throw new Error("Unexpected release response. Please retry.");
+          state.releaseDetail = data; state.releaseDetailState = "ready";
+        } catch (error) {
+          if (token !== state.token || request !== releaseDetailRequest) return;
+          state.releaseDetailState = error.status === 403 ? "forbidden" : "error"; state.releaseDetailError = error.message;
+        }
+        if (state.activeView === "releases" && state.activeReleaseId === String(id)) renderPreservingScroll();
+      }
+
+      function renderReleaseDetail() {
+        const busy = pendingReleaseReviews.has(String(state.activeReleaseId));
+        const header = `<div class="actions"><button class="ghost" data-action="back-releases" type="button">Back to releases</button><button class="secondary" data-action="review-release" data-id="${state.activeReleaseId}" ${busy || state.releaseDetailState === "loading" ? "disabled" : ""} type="button">Refresh</button></div>`;
+        if (state.releaseDetailState !== "ready") {
+          const loading = state.releaseDetailState === "loading";
+          viewEl.innerHTML = `<section class="applications-workspace">${header}<div role="${loading ? "status" : "alert"}"><h2>${loading ? "Loading release..." : state.releaseDetailState === "forbidden" ? "Permission denied" : "Could not load release"}</h2>${loading ? "" : `<p>${escapeHtml(state.releaseDetailError)}</p><button data-action="review-release" data-id="${state.activeReleaseId}" type="button">Retry</button>`}</div></section>`;
+          return;
+        }
+        const row = state.releaseDetail;
+        const field = (label,value) => `<div><dt>${label}</dt><dd>${escapeHtml(value || "Not provided")}</dd></div>`;
+        viewEl.innerHTML = `<section class="applications-workspace">${header}<h2>${escapeHtml(row.title)}</h2><p class="details">${escapeHtml(row.artist_name)} ${badge(row.status)}</p>
+          ${row.cover_image ? `<img class="release-artwork" src="${escapeHtml(row.cover_image)}" alt="Submitted artwork" />` : ""}
+          ${row.audio_file ? `<div><audio id="releaseAudio" controls preload="metadata" src="${escapeHtml(row.audio_file)}"></audio><p id="releaseAudioStatus" class="meta" role="status">Ready to preview</p><button class="secondary" data-action="retry-release-audio" type="button" hidden>Retry audio</button></div>` : '<p class="details">No audio uploaded.</p>'}
+          <dl class="application-fields">${field("Type",row.release_type)}${field("Featured artist",row.featured_artist)}${field("Genre",row.genre)}${field("Genre note",row.genre_note)}${field("Language",row.language)}${field("Explicit",row.explicit ? "Yes" : "No")}${field("Release date (UTC)",row.release_date)}${field("Submitted",row.submitted_at)}${field("Producer",row.producer)}${field("Songwriter",row.songwriter)}${field("Description",row.description)}${field("Rights confirmed",row.rights_confirmed ? "Yes" : "No")}${field("Artist linkage",`${row.artist_name} (#${row.artist})`)}${field("Submitting account",row.listener ? `${row.listener.name} (#${row.listener.id})` : "Account unavailable")}${field("Active ownership linkage",row.linkage_valid ? "Verified" : "Needs attention")}${field("Approved",row.approved_at)}${field("Published",row.published_at)}${field("Last updated",row.updated_at)}${field("Review reason",row.review_reason || row.rejection_reason)}</dl>
+          ${publicationSummary(row)}<h3>Review history</h3><ol class="application-history details">${row.history.map((entry) => `<li>${escapeHtml(entry.action.replaceAll("_", " "))}: ${escapeHtml(entry.at)}<br />${escapeHtml(entry.admin_user)}${entry.reason ? `<br />${escapeHtml(entry.reason)}` : ""}</li>`).join("") || "<li>No review decisions yet.</li>"}</ol>
+          ${["under_review","scheduled"].includes(row.status) ? `<label>Review reason (required for rejection or changes)<textarea id="releaseReviewReason" ${busy ? "disabled" : ""}></textarea></label><div class="actions" style="margin-top:12px;">
+          ${row.status === "under_review" ? `<button data-action="approve-release" data-id="${row.id}" ${busy || !row.linkage_valid ? "disabled" : ""} type="button">Approve</button>` : ""}
+          <button class="secondary" data-action="changes-release" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Request changes</button><button class="danger" data-action="reject-release" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Reject</button></div><p id="releaseSaving" role="status">${busy ? "Saving review..." : ""}</p>` : ""}</section>`;
+        const audio = document.getElementById("releaseAudio");
+        if (audio) for (const [event, message] of Object.entries({loadstart:"Loading audio...",waiting:"Buffering...",stalled:"Buffering...",canplay:"Ready to preview",playing:"Playing",pause:"Paused",ended:"Preview ended",error:"Audio could not load. Retry or refresh your Admin session."})) {
+          audio.addEventListener(event, () => {
+            if (!audio.isConnected) return;
+            const failed = event === "error" || Boolean(audio.error);
+            document.getElementById("releaseAudioStatus").textContent = failed ? "Audio could not load. Retry or refresh your Admin session." : message;
+            document.querySelector('[data-action="retry-release-audio"]').hidden = !failed;
+          });
+        }
+      }
+
+      async function reviewRelease(action,id) {
+        const key = String(id), row = state.releaseDetail;
+        if (pendingReleaseReviews.has(key) || state.releaseDetailState !== "ready" || String(row?.id) !== key) return;
+        const reason = (document.getElementById("releaseReviewReason")?.value || "").trim();
+        if (action !== "approve-release" && reason.length < 5) throw new Error("Enter a meaningful review reason (at least 5 characters).");
+        if (action === "approve-release" && !confirm("Approve this release after reviewing the audio and metadata?")) return;
+        pendingReleaseReviews.add(key);
+        document.querySelectorAll('[data-action$="-release"]').forEach((button) => {if (String(button.dataset.id) === key) button.disabled = true;});
+        const saving = document.getElementById("releaseSaving"); if (saving) saving.textContent = "Saving review...";
+        const token = state.token;
+        try {
+          const endpoint = {"approve-release":"approve","reject-release":"reject","changes-release":"request-changes"}[action];
+          await api(`/admin-api/releases/${encodeURIComponent(key)}/${endpoint}`, {method:"POST",signal:AbortSignal.timeout(45000),body:JSON.stringify({reason,review_reason:reason,expected_updated_at:row.updated_at})});
+          if (token !== state.token) return;
+          state.loads.dashboard = {status:"idle"}; state.loads.songs = {status:"idle"};
+          await loadResource("releases",{force:true});
+          if (state.activeView === "releases" && state.activeReleaseId === key) await openRelease(key);
+        } catch (error) {
+          if (error.status === 409 && token === state.token && state.activeView === "releases" && state.activeReleaseId === key) await openRelease(key);
+          throw error;
+        } finally {
+          pendingReleaseReviews.delete(key);
+          if (token === state.token && state.activeView === "releases" && state.activeReleaseId === key) {
+            document.querySelectorAll('[data-action$="-release"]').forEach((button) => {if (String(button.dataset.id) === key) button.disabled = button.dataset.action === "approve-release" && !state.releaseDetail?.linkage_valid;});
+            const saving = document.getElementById("releaseSaving"); if (saving) saving.textContent = "";
+          }
+        }
       }
 
       function artistOptions(selectedId) {
@@ -1980,7 +2055,6 @@
 
       async function runAction(action, id, extra = {}) {
         const pathMap = {
-          "approve-release": [`/admin-api/releases/${id}/approve`, {}],
           "hide-song": [`/admin-api/songs/${id}/hide`, {}],
           "restore-song": [`/admin-api/songs/${id}/restore`, {}],
           "feature-song": [`/admin-api/songs/${id}/feature`, {}],
@@ -2001,6 +2075,16 @@
 
       async function handleAction(action, button) {
         const id = button.dataset.id;
+        if (["approve-release", "reject-release", "changes-release"].includes(action)) return reviewRelease(action, id);
+        if (action === "review-release") return openRelease(id);
+        if (action === "back-releases") { state.activeReleaseId = null; return loadView("releases", {force:true}); }
+        if (action === "refresh-releases") return loadView("releases", {force:true});
+        if (action === "clear-release-filters") { state.filters.releaseSearch = ""; state.filters.releaseStatus = ""; state.filters.releasePublication = ""; return renderReleases(); }
+        if (action === "retry-release-audio") {
+          await api("/admin-api/me");
+          document.getElementById("releaseAudio")?.load();
+          return;
+        }
         if (["approve-application", "reject-application", "changes-application"].includes(action)) return reviewApplication(action, id);
         if (action === "review-application") return openApplication(id);
         if (action === "back-applications") { state.activeApplicationId = null; return loadView("applications", {force:true}); }
@@ -2052,16 +2136,6 @@
         if (action === "download-support-attachment") {
           return downloadSupportAttachment(button.dataset.url, button.dataset.name);
         }
-        if (action === "reject-release" || action === "changes-release") {
-          const reason = prompt(action === "reject-release" ? "Why is this release rejected?" : "What should the artist change?");
-          if (!reason) return;
-          const endpoint = action === "reject-release" ? "reject" : "request-changes";
-          await api(`/admin-api/releases/${id}/${endpoint}`, {
-            method: "POST",
-            body: JSON.stringify({ reason }),
-          });
-          return loadData();
-        }
         if (action === "remove-song") {
           const reason = prompt("Why should this song be removed from public availability?");
           if (!reason) return;
@@ -2092,7 +2166,6 @@
         if (action === "refresh-audit") {
           return loadView("audit", { force: true });
         }
-        if (action === "approve-release" && !confirm("Approve this release after listening?")) return;
         await runAction(action, id);
       }
 
@@ -2144,6 +2217,7 @@
         if (!filter) return;
         state.filters[filter] = event.target.value;
         if (["applicationSearch", "applicationStatus"].includes(filter)) return updateApplicationResults();
+        if (["releaseSearch", "releaseStatus", "releasePublication"].includes(filter)) return updateReleaseResults();
         renderPreservingScroll();
       });
 
@@ -2152,6 +2226,7 @@
         if (!filter) return;
         state.filters[filter] = event.target.value;
         if (["applicationSearch", "applicationStatus"].includes(filter)) return updateApplicationResults();
+        if (["releaseSearch", "releaseStatus", "releasePublication"].includes(filter)) return updateReleaseResults();
         renderPreservingScroll();
       });
 
@@ -2173,6 +2248,7 @@
       document.getElementById("refreshButton").addEventListener("click", () => {
         loadData().then(() => {
           if (state.activeView === "applications" && state.activeApplicationId !== null) return openApplication(state.activeApplicationId);
+          if (state.activeView === "releases" && state.activeReleaseId !== null) return openRelease(state.activeReleaseId);
         }).catch((error) => setStatus(error.message));
       });
 

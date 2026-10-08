@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -58,9 +58,11 @@ export default function ArtistStudioScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const loadRequest = useRef(0);
 
   const loadStudio = useCallback(
     async ({ refresh = false } = {}) => {
+      const request = ++loadRequest.current;
       try {
         if (refresh) {
           setRefreshing(true);
@@ -72,13 +74,17 @@ export default function ArtistStudioScreen({ navigation }) {
           getArtistStudioDashboard(),
           getArtistStudioReleases(activeFilter),
         ]);
+        if (request !== loadRequest.current) return;
         setDashboard(nextDashboard);
         setReleases(nextReleases);
       } catch (loadError) {
+        if (request !== loadRequest.current) return;
         setError(loadError?.detail || loadError?.message || BACKEND_CONNECTION_ERROR);
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (request === loadRequest.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
     [activeFilter]
@@ -87,6 +93,7 @@ export default function ArtistStudioScreen({ navigation }) {
   useFocusEffect(
     useCallback(() => {
       loadStudio();
+      return () => { loadRequest.current += 1; };
     }, [loadStudio])
   );
 
@@ -172,7 +179,7 @@ export default function ArtistStudioScreen({ navigation }) {
             {latestRelease ? (
               <View style={styles.latestPanel}>
                 <Text style={styles.sectionTitle}>Latest release</Text>
-                <ReleaseCard release={latestRelease} />
+                <ReleaseCard release={latestRelease} navigation={navigation} />
               </View>
             ) : null}
 
@@ -213,7 +220,7 @@ export default function ArtistStudioScreen({ navigation }) {
             <View style={styles.releaseList}>
               {visibleReleases.length > 0 ? (
                 visibleReleases.map((release) => (
-                  <ReleaseCard key={release.id} release={release} />
+                  <ReleaseCard key={release.id} release={release} navigation={navigation} />
                 ))
               ) : (
                 <View style={styles.empty}>
@@ -242,7 +249,7 @@ function StatTile({ icon, label, value }) {
   );
 }
 
-function ReleaseCard({ release }) {
+function ReleaseCard({ release, navigation }) {
   const [shareVisible, setShareVisible] = useState(false);
   const canShare = release.status === "published" && release.public_song?.status === "published";
   return (
@@ -269,9 +276,16 @@ function ReleaseCard({ release }) {
         <Text style={styles.releaseMeta} numberOfLines={1}>
           {release.release_date || "No release date"}
         </Text>
-        {release.rejection_reason ? (
-          <Text style={styles.reasonText}>{release.rejection_reason}</Text>
-        ) : null}
+        {release.review_reason || release.rejection_reason ? (
+          <Text style={styles.reasonText}>{release.review_reason || release.rejection_reason}</Text>
+        ) : release.last_review_reason ? <Text style={styles.releaseMeta}>Previous review: {release.last_review_reason}</Text> : null}
+        {release.status === "rejected" ? <TouchableOpacity
+          style={styles.editReleaseButton}
+          onPress={() => navigation.navigate("ReleaseUpload", { releaseId: release.id })}
+        >
+          <Ionicons name="create-outline" color={colors.primary} size={18} />
+          <Text style={styles.editReleaseText}>Edit & Resubmit</Text>
+        </TouchableOpacity> : null}
       </View>
       {canShare ? <TouchableOpacity accessibilityLabel={`Share ${release.title}`} style={styles.shareButton} onPress={() => setShareVisible(true)}>
         <Ionicons name="share-social-outline" color={colors.primary} size={22} />
@@ -282,6 +296,8 @@ function ReleaseCard({ release }) {
 }
 
 const styles = StyleSheet.create({
+  editReleaseButton: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 },
+  editReleaseText: { color: colors.primary, fontSize: 13, fontWeight: "700", flexShrink: 1 },
   shareButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   safe: {
     backgroundColor: colors.background,

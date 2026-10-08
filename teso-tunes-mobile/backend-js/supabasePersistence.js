@@ -38,7 +38,9 @@ function toIso(value) {
 
 function toDateOnly(value) {
   if (!value) return "";
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  // pg represents a DATE at local midnight, not a UTC timestamp. Converting
+  // through ISO shifts the calendar day on hosts east of UTC.
+  if (value instanceof Date) return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
   return String(value).slice(0, 10);
 }
 
@@ -183,19 +185,29 @@ export function createSupabasePersistence({
          select 1
          from tesohub_music.releases
          where status = 'scheduled'
-           and (release_date is null or release_date <= current_date)
+           and release_date <= (now() at time zone 'UTC')::date
        ) as has_due_release`,
     );
     if (!dueResult.rows[0]?.has_due_release) return;
 
     await pool.query(
       `with due as (
-         select *
-         from tesohub_music.releases
-         where status = 'scheduled'
-           and (release_date is null or release_date <= current_date)
-           and public_song_id is null
-         for update skip locked
+         select r.*
+         from tesohub_music.releases r
+         join tesohub_music.artists a on a.id = r.artist_id
+         join tesohub_music.listeners l on l.id = r.listener_id
+         where r.status = 'scheduled'
+           and r.release_date <= (now() at time zone 'UTC')::date
+           and r.public_song_id is null and r.approved_at is not null
+           and r.rights_confirmed and btrim(r.title) <> ''
+           and btrim(r.genre) <> '' and btrim(r.language) <> ''
+           and coalesce(nullif(r.audio_path, ''), nullif(r.legacy_audio_file, '')) is not null
+           and coalesce(nullif(r.cover_path, ''), nullif(r.legacy_cover_image, '')) is not null
+           and a.owner_listener_id = l.id and l.artist_id = a.id
+           and a.status = 'active' and l.status = 'active' and l.role = 'artist'
+           and not exists (select 1 from tesohub_music.songs s where s.source_release_id = r.id)
+         for update of r skip locked
+         for share of a, l skip locked
        ),
        inserted as (
          insert into tesohub_music.songs
@@ -221,23 +233,19 @@ export function createSupabasePersistence({
            now()
          from due
          returning id, source_release_id
-       )
-       update tesohub_music.releases release
+       ),
+       published as (update tesohub_music.releases release
        set public_song_id = inserted.id,
            status = 'published',
            published_at = coalesce(release.published_at, now()),
            updated_at = now()
        from inserted
-       where release.id = inserted.source_release_id`,
-    );
-    await pool.query(
-      `update tesohub_music.releases
-       set status = 'published',
-           published_at = coalesce(published_at, now()),
-           updated_at = now()
-       where status = 'scheduled'
-         and (release_date is null or release_date <= current_date)
-         and public_song_id is not null`,
+       where release.id = inserted.source_release_id
+       returning release.id, release.public_song_id)
+       insert into tesohub_music.admin_audit_logs
+         (admin_user, admin_role, action, target_type, target_id, details, created_at)
+       select 'publication-worker', 'system', 'publish_release', 'release', id,
+         jsonb_build_object('public_song', public_song_id), now() from published`,
     );
   }
 
@@ -660,7 +668,6 @@ export function createSupabasePersistence({
   }
 
   async function listPublicArtists({ category = "", search = "", ...options } = {}) {
-    await publishDueReleases();
     const params = [];
     const filters = ["artist.status <> 'removed'"];
     if (category) {
@@ -704,7 +711,6 @@ export function createSupabasePersistence({
   }
 
   async function getPublicArtist(artistId, { includeSongs = false } = {}) {
-    await publishDueReleases();
     const result = await getPool().query(
       `select
          artist.*,
@@ -737,7 +743,6 @@ export function createSupabasePersistence({
   }
 
   async function listPublicSongs({ artistId = null, category = "", search = "", ...options } = {}) {
-    await publishDueReleases();
     const params = [];
     const filters = [
       "song.status = 'published'",
@@ -783,7 +788,6 @@ export function createSupabasePersistence({
   }
 
   async function getPublicSong(songId) {
-    await publishDueReleases();
     const result = await getPool().query(
       `select
          song.*,
@@ -1998,7 +2002,6 @@ export function createSupabasePersistence({
   }
 
   async function recordSongPlay(songId) {
-    await publishDueReleases();
     const result = await getPool().query(
       `update tesohub_music.songs song set play_count = song.play_count + 1
        from tesohub_music.artists artist
@@ -2259,6 +2262,7 @@ export function createSupabasePersistence({
     loadDb,
     loginExists,
     platformSettings,
+    publishDueReleases,
     recordAdminAuditLog,
     removeSongFromPlaylist,
     saveChanges,
