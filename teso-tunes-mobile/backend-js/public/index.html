@@ -425,6 +425,36 @@
         display: none;
       }
 
+      .applications-workspace { min-width: 0; align-self: start; }
+      .application-filters { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; margin: 16px 0; }
+      .applications-workspace .item { margin: 0; }
+      .applications-workspace .details, .applications-workspace .meta,
+      .applications-workspace .item-title, .application-fields dd { overflow-wrap: anywhere; }
+      .application-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+      .application-fields div { min-width: 0; }
+      .application-fields dt { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+      .application-fields dd { margin: 0; white-space: pre-wrap; }
+      .application-history { padding-left: 20px; }
+      .application-history li { margin-bottom: 10px; overflow-wrap: anywhere; }
+      .applications-workspace button { min-height: 44px; }
+      #clearApplicationFilters[hidden] { display: none; }
+      .applications-active .content { align-content: start; }
+      .applications-active h1 { font-size: 26px; }
+      @media (max-width: 980px) {
+        .applications-active .sidebar { min-width: 0; gap: 8px; }
+        .applications-active .nav { display: flex; overflow-x: auto; max-width: 100%; gap: 8px; padding-bottom: 4px; }
+        .applications-active .nav-title { display: none; }
+        .applications-active .nav button { width: auto; flex: 0 0 auto; min-height: 44px; }
+        .applications-active .sidebar > #refreshButton,
+        .applications-active .sidebar > #logoutButton { display: none; }
+        .applications-active .sidebar .brand { min-width: 0; }
+      }
+      @media (max-width: 680px) {
+        .application-filters, .application-fields { grid-template-columns: minmax(0, 1fr); }
+        .applications-workspace .toolbar { gap: 12px; }
+        .applications-active .shell { min-width: 0; }
+      }
+
       @media (max-width: 980px) {
         .content.content-bounded {
           display: grid;
@@ -594,6 +624,10 @@
         artists: [],
         songs: [],
         applications: [],
+        activeApplicationId: null,
+        applicationDetail: null,
+        applicationDetailState: "idle",
+        applicationDetailError: "",
         releases: [],
         users: [],
         supportTickets: [],
@@ -610,6 +644,7 @@
         editingGenreId: null,
         filters: {
           applicationStatus: "",
+          applicationSearch: "",
           releaseStatus: "",
           catalogSearch: "",
           catalogStatus: "",
@@ -691,6 +726,8 @@
       }
 
       function showLogin() {
+        state.activeApplicationId = null;
+        state.applicationDetail = null;
         adminPanel.classList.add("hidden");
         loginPanel.classList.remove("hidden");
       }
@@ -769,12 +806,27 @@
         "supportTickets", "reports", "genres", "audit",
       ]);
       const pendingLoads = new Map();
+      const pendingApplicationRefreshes = new Map();
       let readQueue = Promise.resolve();
 
       function loadResource(key, { force = false } = {}) {
         const requestedToken = state.token;
         const pendingKey = `${requestedToken}:${key}`;
-        if (pendingLoads.has(pendingKey)) return pendingLoads.get(pendingKey);
+        if (pendingLoads.has(pendingKey)) {
+          // Refresh requested during an older read must observe submissions made
+          // after that read began, without issuing parallel/duplicate refreshes.
+          if (key === "applications" && force) {
+            if (!pendingApplicationRefreshes.has(pendingKey)) {
+              const refresh = pendingLoads.get(pendingKey).then(() => {
+                pendingApplicationRefreshes.delete(pendingKey);
+                if (requestedToken === state.token) return loadResource(key, {force:true});
+              });
+              pendingApplicationRefreshes.set(pendingKey, refresh);
+            }
+            return pendingApplicationRefreshes.get(pendingKey);
+          }
+          return pendingLoads.get(pendingKey);
+        }
         if (!force && state.loads[key]?.status === "ready") return Promise.resolve();
         state.loads[key] = { status: "loading" };
         // Serialize reads across views, including rapid navigation and retries.
@@ -785,6 +837,7 @@
           }
           try {
             const data = await api(dataSources[key], {
+              cache: "no-store",
               suppressForbiddenLogout: true,
               signal: AbortSignal.timeout(45000),
             });
@@ -814,6 +867,7 @@
             }
             state.loads[key] = {
               status: "error",
+              forbidden: error.status === 403,
               message: error.status === 403 ? "Your account does not have access to this section." : error.message,
             };
           } finally {
@@ -859,9 +913,10 @@
         const loading = keys.some((key) => ["idle", "loading"].includes(state.loads[key]?.status || "idle"));
         const busy = keys.some((key) => state.loads[key]?.status === "loading");
         if (failed.length) {
+          const forbidden = failed.some((key) => state.loads[key].forbidden);
           setStatus("Could not load this section.");
           viewEl.innerHTML = `<section class="panel" role="alert">
-            <h2>Could not load ${escapeHtml(viewTitleEl.textContent)}</h2>
+            <h2>${forbidden ? "Permission denied" : `Could not load ${escapeHtml(viewTitleEl.textContent)}`}</h2>
             <p class="details">${failed.map((key) => escapeHtml(state.loads[key].message)).join("<br />")}</p>
             <button data-action="retry-data" type="button" ${busy ? "disabled" : ""}>Retry</button>
           </section>`;
@@ -904,7 +959,8 @@
         state.editingArtistId = null;
         state.editingSongId = null;
         state.editingGenreId = null;
-        loadView(view).catch((error) => setStatus(error.message));
+        if (view === "applications") state.activeApplicationId = null;
+        loadView(view, { force: view === "applications" }).catch((error) => setStatus(error.message));
       }
 
       function render() {
@@ -913,6 +969,7 @@
           return;
         }
         showAdmin();
+        adminPanel.classList.toggle("applications-active", state.activeView === "applications");
         const isBoundedView = boundedViews.has(state.activeView);
         contentEl.classList.toggle("content-bounded", isBoundedView);
         viewEl.classList.toggle("split-view", isBoundedView);
@@ -1021,48 +1078,137 @@
       }
 
       function renderApplications() {
-        const rows = state.applications.filter((application) =>
-          !state.filters.applicationStatus || application.status === state.filters.applicationStatus,
-        );
+        if (state.activeApplicationId !== null) return renderApplicationDetail();
         viewEl.innerHTML = `
-          <section class="panel">
+          <section class="applications-workspace">
             <div class="toolbar">
-              <h2>Artist Applications</h2>
-              ${select("applicationStatus", state.filters.applicationStatus, ["", ...applicationStatuses], "All statuses")}
+              <h2>Applications</h2>
+              <div class="actions"><button class="secondary" data-action="refresh-applications" type="button">Refresh</button>
+              <button class="ghost" data-action="application-logout" type="button">Logout</button></div>
             </div>
-            <div class="list" style="margin-top: 12px;">
-              ${rows.length ? rows.map(applicationItem).join("") : '<p class="empty">No artist applications match this filter.</p>'}
+            <div class="application-filters">
+              <label>Search applications<input id="applicationSearch" type="search" data-filter="applicationSearch" value="${escapeHtml(state.filters.applicationSearch)}" placeholder="Artist, applicant or account" /></label>
+              <label>Status<select data-filter="applicationStatus">${["", ...applicationStatuses].map((status) => `<option value="${status}" ${state.filters.applicationStatus === status ? "selected" : ""}>${escapeHtml(applicationStatusLabel(status))}</option>`).join("")}</select></label>
+              <button class="ghost" id="clearApplicationFilters" data-action="clear-application-filters" type="button" ${state.filters.applicationStatus || state.filters.applicationSearch ? "" : "hidden"}>Clear filters</button>
             </div>
+            <p class="meta" id="applicationCount" aria-live="polite">${applicationRows().length} of ${state.applications.length} applications</p>
+            <div class="list" id="applicationResults" style="margin-top: 12px;">${applicationResultsHtml()}</div>
           </section>`;
       }
 
+      function applicationStatusLabel(status) {
+        return ({pending:"Pending / Under Review", approved:"Approved", rejected:"Rejected", changes_requested:"Changes requested"})[status] || "All statuses";
+      }
+
+      function applicationRows() {
+        const search = state.filters.applicationSearch.trim().toLowerCase();
+        return state.applications.filter((row) => (!state.filters.applicationStatus || row.status === state.filters.applicationStatus) &&
+          (!search || [row.artist_name, row.contact_name, row.applicant?.name, row.applicant?.email, row.email, row.listener]
+            .some((value) => String(value ?? "").toLowerCase().includes(search))))
+          .sort((a, b) => {
+            const rank = (row) => ["pending", "changes_requested"].includes(row.status) ? 0 : 1;
+            return rank(a) - rank(b) || String(b.created_at || "").localeCompare(String(a.created_at || "")) || Number(b.id) - Number(a.id);
+          });
+      }
+
+      function applicationResultsHtml() {
+        const rows = applicationRows();
+        return rows.length ? rows.map(applicationItem).join("") : `<p class="empty" role="status">${state.applications.length ? "No applications match your search or status filter." : "No artist applications have been submitted yet."}</p>`;
+      }
+
+      function updateApplicationResults() {
+        const results = document.getElementById("applicationResults");
+        if (!results) return;
+        results.innerHTML = applicationResultsHtml();
+        document.getElementById("applicationCount").textContent = `${applicationRows().length} of ${state.applications.length} applications`;
+        document.getElementById("clearApplicationFilters").hidden = !state.filters.applicationStatus && !state.filters.applicationSearch;
+      }
+
       function applicationItem(application) {
-        const canAct = ["pending", "changes_requested"].includes(application.status);
         return `
           <article class="item">
-            <img class="thumb" src="${escapeHtml(application.photo)}" alt="" />
+            ${application.photo ? `<img class="thumb" src="${escapeHtml(application.photo)}" alt="" loading="lazy" />` : '<div class="thumb" aria-hidden="true"></div>'}
             <div>
               <div class="item-title">${escapeHtml(application.artist_name || "Unnamed artist")}</div>
-              <div class="meta">
-                Applicant: ${escapeHtml(application.applicant?.name || "Listener")} |
-                ${escapeHtml(application.genre || "Genre")} |
-                ${escapeHtml([application.region, application.country].filter(Boolean).join(", "))}
-              </div>
-              <div class="details">
-                ${badge(application.status)}<br />
-                Contact: ${escapeHtml(application.contact_name)} | ${escapeHtml(application.email)} | ${escapeHtml(application.phone)}<br />
-                Applied: ${formatDate(application.created_at)}<br />
-                ${escapeHtml(application.bio)}
-                ${application.review_reason || application.rejection_reason ? `<br />Reason: ${escapeHtml(application.review_reason || application.rejection_reason)}` : ""}
-              </div>
+              <p class="meta">Applicant: ${escapeHtml(application.applicant?.name || application.contact_name || "Account unavailable")}<br />${escapeHtml(application.applicant?.email || application.email)}</p>
+              <div class="details">${badge(application.status)}<br />Submitted: ${formatDate(application.created_at)} | Updated: ${formatDate(application.updated_at || application.created_at)}<br />${escapeHtml(application.genre)} | ${escapeHtml([application.region, application.country].filter(Boolean).join(", "))}<br />${escapeHtml((application.bio || "").slice(0, 180))}</div>
             </div>
-            <div class="actions">
-              ${canAct ? `
-                <button data-action="approve-application" data-id="${application.id}" type="button">Approve</button>
-                <button class="secondary" data-action="changes-application" data-id="${application.id}" type="button">Request changes</button>
-                <button class="danger" data-action="reject-application" data-id="${application.id}" type="button">Reject</button>` : ""}
-            </div>
+            <div class="actions"><button class="secondary" data-action="review-application" data-id="${application.id}" type="button">Review</button></div>
           </article>`;
+      }
+
+      let applicationDetailRequest = 0;
+      const pendingApplicationReviews = new Set();
+
+      async function openApplication(id) {
+        const request = ++applicationDetailRequest, token = state.token;
+        state.activeApplicationId = String(id);
+        state.applicationDetailState = "loading";
+        renderPreservingScroll();
+        try {
+          const data = await api(`/admin-api/artist-applications/${encodeURIComponent(id)}`, { cache:"no-store", signal:AbortSignal.timeout(45000) });
+          if (token !== state.token || request !== applicationDetailRequest) return;
+          if (!data || String(data.id) !== String(id) || !Array.isArray(data.history)) throw new Error("Unexpected application response. Please retry.");
+          state.applicationDetail = data; state.applicationDetailState = "ready";
+        } catch (error) {
+          if (token !== state.token || request !== applicationDetailRequest) return;
+          state.applicationDetailState = error.status === 403 ? "forbidden" : "error";
+          state.applicationDetailError = error.message;
+        }
+        if (state.activeView === "applications" && state.activeApplicationId === String(id)) renderPreservingScroll();
+      }
+
+      function renderApplicationDetail() {
+        const header = `<div class="actions"><button class="ghost" data-action="back-applications" type="button">Back to applications</button><button class="secondary" data-action="review-application" data-id="${state.activeApplicationId}" ${state.applicationDetailState === "loading" || pendingApplicationReviews.has(String(state.activeApplicationId)) ? "disabled" : ""} type="button">Refresh</button></div>`;
+        if (state.applicationDetailState !== "ready") {
+          const loading = state.applicationDetailState === "loading";
+          viewEl.innerHTML = `<section class="applications-workspace">${header}<div role="${loading ? "status" : "alert"}" class="details"><h2>${loading ? "Loading application..." : state.applicationDetailState === "forbidden" ? "Permission denied" : "Could not load application"}</h2>${loading ? "" : `<p>${escapeHtml(state.applicationDetailError)}</p><button data-action="review-application" data-id="${state.activeApplicationId}" type="button">Retry</button>`}</div></section>`;
+          return;
+        }
+        const row = state.applicationDetail;
+        const field = (label, value) => `<div><dt>${label}</dt><dd>${escapeHtml(value || "Not provided")}</dd></div>`;
+        const canAct = ["pending", "changes_requested"].includes(row.status);
+        const busy = pendingApplicationReviews.has(String(row.id));
+        viewEl.innerHTML = `<section class="applications-workspace">${header}
+          <h2 style="margin-top:16px;">${escapeHtml(row.artist_name)}</h2><p class="details">${badge(row.status)}</p>
+          ${row.photo ? `<img class="thumb" src="${escapeHtml(row.photo)}" alt="Submitted artist photo" />` : ""}
+          <dl class="application-fields">
+          ${field("Applicant", row.applicant?.name || row.contact_name)}${field("Account", row.applicant ? `${row.applicant.email || "Account"} (#${row.listener})` : "Account unavailable")}
+          ${field("Contact name", row.contact_name)}${field("Contact email", row.email)}${field("Phone", row.phone)}${field("Location", [row.region, row.country].filter(Boolean).join(", "))}
+          ${field("Genre", row.genre)}${field("Genre note", row.genre_note)}${field("Biography", row.bio)}${field("Social link", row.social_link)}
+          ${field("Information confirmed genuine", row.genuine_confirmed ? "Yes" : "No")}${field("Linked artist", row.artist ? `${row.artist.name} (#${row.artist.id})` : "Not linked")}
+          ${field("Submitted", row.created_at)}${field("Last updated", row.updated_at || row.created_at)}${field("Last reviewed", row.reviewed_at)}${field("Reviewed by", row.reviewed_by)}${field("Review reason", row.review_reason || row.rejection_reason)}
+          </dl><h3>Review history</h3><ol class="application-history details"><li>Submitted: ${escapeHtml(row.created_at)}</li>
+          ${row.history.map((entry) => `<li>${escapeHtml(entry.action.replaceAll("_", " "))}: ${escapeHtml(entry.at)}<br />${escapeHtml(entry.admin_user || "Configured Admin")} (${escapeHtml(entry.admin_role || "Role not recorded")})${entry.reason ? `<br />${escapeHtml(entry.reason)}` : ""}</li>`).join("")}</ol>
+          ${canAct ? `<label>Review reason (required for rejection or changes)<textarea id="applicationReviewReason" ${busy ? "disabled" : ""}></textarea></label><div class="actions" style="margin-top:12px;">
+          <button data-action="approve-application" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Approve</button>
+          <button class="secondary" data-action="changes-application" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Request changes</button>
+          <button class="danger" data-action="reject-application" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Reject</button></div>` : ""}</section>`;
+      }
+
+      async function reviewApplication(action, id) {
+        const key = String(id);
+        if (pendingApplicationReviews.has(key)) return;
+        const reason = (document.getElementById("applicationReviewReason")?.value || "").trim();
+        if (action !== "approve-application" && !reason) throw new Error("Enter a clear review reason.");
+        if (action === "approve-application" && !confirm("Approve this artist application?")) return;
+        pendingApplicationReviews.add(key);
+        document.querySelectorAll('[data-action$="-application"]').forEach((button) => { if (String(button.dataset.id) === key) button.disabled = true; });
+        const token = state.token;
+        try {
+          const endpoint = {"approve-application":"approve", "reject-application":"reject", "changes-application":"request-changes"}[action];
+          await api(`/admin-api/artist-applications/${encodeURIComponent(key)}/${endpoint}`, {method:"POST", signal:AbortSignal.timeout(45000), body:JSON.stringify({reason, review_reason:reason})});
+          if (token !== state.token) return;
+          state.loads.dashboard = {status:"idle"};
+          await loadResource("applications", {force:true});
+          if (state.activeView === "applications" && state.activeApplicationId === key) await openApplication(key);
+        } catch (error) {
+          if (error.status === 409 && token === state.token && state.activeView === "applications" && state.activeApplicationId === key) await openApplication(key);
+          throw error;
+        } finally {
+          pendingApplicationReviews.delete(key);
+          document.querySelectorAll('[data-action$="-application"]').forEach((button) => { if (String(button.dataset.id) === key) button.disabled = false; });
+        }
       }
 
       function renderReleases() {
@@ -1834,7 +1980,6 @@
 
       async function runAction(action, id, extra = {}) {
         const pathMap = {
-          "approve-application": [`/admin-api/artist-applications/${id}/approve`, {}],
           "approve-release": [`/admin-api/releases/${id}/approve`, {}],
           "hide-song": [`/admin-api/songs/${id}/hide`, {}],
           "restore-song": [`/admin-api/songs/${id}/restore`, {}],
@@ -1856,6 +2001,14 @@
 
       async function handleAction(action, button) {
         const id = button.dataset.id;
+        if (["approve-application", "reject-application", "changes-application"].includes(action)) return reviewApplication(action, id);
+        if (action === "review-application") return openApplication(id);
+        if (action === "back-applications") { state.activeApplicationId = null; return loadView("applications", {force:true}); }
+        if (action === "refresh-applications") return loadView("applications", {force:true});
+        if (action === "application-logout") return document.getElementById("logoutButton").click();
+        if (action === "clear-application-filters") {
+          state.filters.applicationSearch = ""; state.filters.applicationStatus = ""; return renderApplications();
+        }
         if (action === "retry-data") {
           return state.loads.admin?.status === "ready"
             ? loadView(state.activeView, { force: true })
@@ -1899,16 +2052,6 @@
         if (action === "download-support-attachment") {
           return downloadSupportAttachment(button.dataset.url, button.dataset.name);
         }
-        if (action === "reject-application" || action === "changes-application") {
-          const reason = prompt(action === "reject-application" ? "Why is this application rejected?" : "What should the applicant change?");
-          if (!reason) return;
-          const endpoint = action === "reject-application" ? "reject" : "request-changes";
-          await api(`/admin-api/artist-applications/${id}/${endpoint}`, {
-            method: "POST",
-            body: JSON.stringify({ reason }),
-          });
-          return loadData();
-        }
         if (action === "reject-release" || action === "changes-release") {
           const reason = prompt(action === "reject-release" ? "Why is this release rejected?" : "What should the artist change?");
           if (!reason) return;
@@ -1949,7 +2092,6 @@
         if (action === "refresh-audit") {
           return loadView("audit", { force: true });
         }
-        if (action === "approve-application" && !confirm("Approve this artist application?")) return;
         if (action === "approve-release" && !confirm("Approve this release after listening?")) return;
         await runAction(action, id);
       }
@@ -2001,6 +2143,7 @@
         const filter = event.target.dataset.filter;
         if (!filter) return;
         state.filters[filter] = event.target.value;
+        if (["applicationSearch", "applicationStatus"].includes(filter)) return updateApplicationResults();
         renderPreservingScroll();
       });
 
@@ -2008,6 +2151,7 @@
         const filter = event.target.dataset.filter;
         if (!filter) return;
         state.filters[filter] = event.target.value;
+        if (["applicationSearch", "applicationStatus"].includes(filter)) return updateApplicationResults();
         renderPreservingScroll();
       });
 
@@ -2027,7 +2171,9 @@
       });
 
       document.getElementById("refreshButton").addEventListener("click", () => {
-        loadData().catch((error) => setStatus(error.message));
+        loadData().then(() => {
+          if (state.activeView === "applications" && state.activeApplicationId !== null) return openApplication(state.activeApplicationId);
+        }).catch((error) => setStatus(error.message));
       });
 
       document.getElementById("logoutButton").addEventListener("click", async () => {

@@ -92,7 +92,7 @@ test("only a successful empty array displays the empty applications message", as
   const admin = adminHarness(async path => ({ body: path === "/admin-api/artist-applications" ? [] : bodyFor(path) }));
   await admin.run("loadData()");
   await admin.run('state.activeView = "applications"; loadView("applications")');
-  assert.match(admin.view(), /No artist applications match this filter/);
+  assert.match(admin.view(), /No artist applications have been submitted yet/);
   assert.doesNotMatch(admin.view(), /Could not load/);
 });
 
@@ -174,6 +174,21 @@ test("refresh invalidates other views; old-session responses are ignored", async
   await loading;
   assert.equal(admin.run("state.applications.length"), 0);
   assert.equal(admin.run("pendingLoads.size"), 0);
+});
+
+test("application refresh during an older read performs one fresh read after it completes", async () => {
+  let release, reads = 0;
+  const admin = adminHarness(async path => {
+    if (path !== "/admin-api/artist-applications") return {body:bodyFor(path)};
+    if (++reads === 1) { await new Promise(resolve => { release = resolve; }); return {body:[]}; }
+    return {body:[pending]};
+  });
+  await admin.run("loadData()");
+  const first = admin.run('state.activeView="applications"; loadView("applications")');
+  await new Promise(resolve => setImmediate(resolve));
+  const refresh = admin.run('Promise.all([loadView("applications", {force:true}), loadView("applications", {force:true})])');
+  release();await first;await refresh;
+  assert.equal(reads,2);assert.match(admin.view(),/Test Applicant/);
 });
 
 test("Support startup opens only Support and hides account/infrastructure navigation", async () => {

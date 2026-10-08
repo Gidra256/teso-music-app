@@ -50,6 +50,7 @@ const policy = [
   ["post", "/admin-api/supabase-migration/migrate", ["*"]],
   ["post", "/admin-api/supabase-migration/validate", ["*"]],
   ["get", "/admin-api/artist-applications", ["applications"]],
+  ["get", "/admin-api/artist-applications/:id", ["applications"]],
   ["post", "/admin-api/artist-applications/:id/approve", ["applications"]],
   ["post", "/admin-api/artist-applications/:id/reject", ["applications"]],
   ["post", "/admin-api/artist-applications/:id/request-changes", ["applications"]],

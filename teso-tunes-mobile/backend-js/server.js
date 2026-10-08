@@ -4048,16 +4048,37 @@ app.post("/admin-api/supabase-migration/validate", requireSuperAdmin, (req, res)
 app.get("/admin-api/artist-applications", requireAdminPermission("applications"), async (req, res) => {
   const db = await loadDb();
   const status = cleanText(req.query?.status);
+  if (status && !["pending", "approved", "rejected", "changes_requested"].includes(status)) {
+    return res.status(400).json({ detail: "Unknown application status." });
+  }
+  const search = cleanText(req.query?.search).toLowerCase();
   const applications = db.artistApplications
+    .map((application) => serializeArtistApplication(db, req, application))
     .filter((application) => !status || application.status === status)
-    .sort((first, second) =>
-      String(second.created_at || "").localeCompare(String(first.created_at || "")),
-    );
-  res.json(
-    applications.map((application) =>
-      serializeArtistApplication(db, req, application),
-    ),
-  );
+    .filter((application) => !search || [application.artist_name, application.contact_name,
+      application.applicant?.name, application.applicant?.email, application.email, application.listener]
+      .some((value) => String(value ?? "").toLowerCase().includes(search)))
+    .sort((first, second) => {
+      const attention = (row) => ["pending", "changes_requested"].includes(row.status) ? 0 : 1;
+      return attention(first) - attention(second) ||
+        String(second.created_at || "").localeCompare(String(first.created_at || "")) || Number(second.id) - Number(first.id);
+    });
+  res.set("Cache-Control", "no-store").json(applications);
+});
+
+app.get("/admin-api/artist-applications/:id", requireAdminPermission("applications"), async (req, res) => {
+  const db = await loadDb();
+  const application = db.artistApplications.find((row) => Number(row.id) === Number(req.params.id));
+  if (!application) return res.status(404).json({ detail: "Application not found." });
+  const reviewActions = ["approve_artist_application", "reject_artist_application", "request_artist_application_changes"];
+  // Only this application's review history, not the privileged global audit log.
+  const history = db.adminAuditLogs.filter((entry) => entry.target_type === "artist_application" &&
+    Number(entry.target_id) === Number(application.id) && reviewActions.includes(entry.action))
+    .map((entry) => ({action:entry.action, at:entry.created_at, admin_user:entry.admin_user,
+      admin_role:entry.admin_role, reason:entry.reason || entry.details?.review_reason || ""}))
+    .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  res.set("Cache-Control", "no-store").json({...serializeArtistApplication(db, req, application),
+    reviewed_by:application.reviewed_by || "", history});
 });
 
 app.post(
@@ -4081,6 +4102,18 @@ app.post(
     if (!listener) {
       return res.status(404).json({ detail: "Applicant account not found." });
     }
+    if (!["pending", "changes_requested"].includes(application.status) ||
+        Number(latestApplicationForListener(db, listener.id)?.id) !== Number(application.id) ||
+        listener.role === "artist" || listener.artist_id || listener.status === "suspended") {
+      return res.status(409).json({ detail: "This application or account is no longer eligible for approval. Refresh before reviewing." });
+    }
+    if (application.artist) {
+      const linked = db.artists.find((row) => Number(row.id) === Number(application.artist));
+      if (!linked || Number(linked.owner_listener) !== Number(listener.id) ||
+          Number(linked.source_application_id) !== Number(application.id) || linked.status !== "active") {
+        return res.status(409).json({ detail: "The existing artist linkage needs review before this application can be approved." });
+      }
+    }
 
     const artist = createArtistFromApplication(db, application);
     const now = new Date().toISOString();
@@ -4099,7 +4132,17 @@ app.post(
       artist_id: artist.id,
       review_reason: application.review_reason,
     });
-    await saveDb(db);
+    try {
+      await saveDb(db);
+    } catch (error) {
+      if (error?.code !== "STALE_WRITE") throw error;
+      // A duplicate approval racing on another instance can return the committed
+      // result. Other conflicts still fail closed and require a fresh review.
+      const current = await loadDb();
+      const approved = current.artistApplications.find((row) => Number(row.id) === Number(application.id));
+      if (approved?.status !== "approved") throw error;
+      return res.json(serializeArtistApplication(current, req, approved));
+    }
     res.json(serializeArtistApplication(db, req, application));
   },
 );
@@ -4118,6 +4161,13 @@ app.post(
 
     const reason = cleanText(req.body?.reason || req.body?.rejection_reason);
     if (!reason) return res.status(400).json({ detail: "Enter a rejection reason." });
+    if (application.status === "rejected" && application.rejection_reason === reason) {
+      return res.json(serializeArtistApplication(db, req, application));
+    }
+    if (!["pending", "changes_requested"].includes(application.status) ||
+        Number(latestApplicationForListener(db, application.listener)?.id) !== Number(application.id)) {
+      return res.status(409).json({ detail: "This application has already been reviewed or replaced. Refresh before reviewing." });
+    }
 
     const listener = db.listeners.find(
       (item) => Number(item.id) === Number(application.listener),
@@ -4156,6 +4206,13 @@ app.post(
 
     const reason = cleanText(req.body?.reason || req.body?.review_reason);
     if (!reason) return res.status(400).json({ detail: "Enter what needs changing." });
+    if (application.status === "changes_requested" && application.review_reason === reason) {
+      return res.json(serializeArtistApplication(db, req, application));
+    }
+    if (!["pending", "changes_requested"].includes(application.status) ||
+        Number(latestApplicationForListener(db, application.listener)?.id) !== Number(application.id)) {
+      return res.status(409).json({ detail: "This application has already been reviewed or replaced. Refresh before reviewing." });
+    }
 
     const listener = db.listeners.find(
       (item) => Number(item.id) === Number(application.listener),
