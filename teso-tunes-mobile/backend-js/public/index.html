@@ -400,6 +400,8 @@
         admins: [],
         dashboard: null,
         artists: [],
+        artistPage: {items: [], page: 1, page_size: 25, total: 0, total_pages: 0, has_next: false},
+        editingArtist: null,
         songs: [],
         applications: [],
         activeApplicationId: null,
@@ -439,6 +441,8 @@
           supportSearch: "",
           supportStatus: "",
           reportStatus: "",
+          artistSearch: "",
+          artistStatus: "",
         },
       };
 
@@ -596,7 +600,14 @@
       const dataSources = {
         admin: "/admin-api/me",
         dashboard: "/admin-api/dashboard",
-        artists: "/admin-api/artists",
+        artists: "/admin-api/artists?compat=array",
+        artistPage: () => {
+          const page = state.artistPage?.page || 1;
+          const params = new URLSearchParams({page, page_size: 25, sort: "name", direction: "asc"});
+          if (state.filters.artistSearch?.trim()) params.set("search", state.filters.artistSearch.trim());
+          if (state.filters.artistStatus) params.set("status", state.filters.artistStatus);
+          return `/admin-api/artists?${params}`;
+        },
         songs: "/admin-api/songs",
         applications: "/admin-api/artist-applications",
         releases: "/admin-api/releases",
@@ -615,7 +626,7 @@
         applications: ["applications"],
         releases: ["releases"],
         catalog: ["songs", "artists", "genres"],
-        artists: ["artists"],
+        artists: ["artistPage"],
         users: ["users"],
         support: ["supportTickets"],
         reports: ["reports"],
@@ -640,7 +651,7 @@
         if (pendingLoads.has(pendingKey)) {
           // Refresh requested during an older read must observe submissions made
           // after that read began, without issuing parallel/duplicate refreshes.
-          if (["applications", "releases"].includes(key) && force) {
+          if (["applications", "releases", "artistPage"].includes(key) && force) {
             if (!pendingApplicationRefreshes.has(pendingKey)) {
               const refresh = pendingLoads.get(pendingKey).then(() => {
                 pendingApplicationRefreshes.delete(pendingKey);
@@ -661,7 +672,8 @@
             return;
           }
           try {
-            const data = await api(dataSources[key], {
+            const source = typeof dataSources[key] === "function" ? dataSources[key]() : dataSources[key];
+            const data = await api(source, {
               cache: "no-store",
               suppressForbiddenLogout: true,
               signal: AbortSignal.timeout(45000),
@@ -798,6 +810,7 @@
         if (!canView(view)) return setStatus("You do not have permission to open this section.");
         state.activeView = view;
         state.editingArtistId = null;
+        state.editingArtist = null;
         state.editingSongId = null;
         state.editingGenreId = null;
         if (view === "applications") state.activeApplicationId = null;
@@ -1287,7 +1300,7 @@
       }
 
       function renderArtists() {
-        const editing = state.artists.find((artist) => Number(artist.id) === Number(state.editingArtistId)) || {
+        const editing = state.editingArtist || {
           name: "",
           category: categories[0],
           bio: "",
@@ -1319,12 +1332,12 @@
             </section>
             <section class="panel split-panel split-list-panel">
               <div class="split-list-header">
-                <h2 id="artistListCount">Artists - ${artistRows().length}</h2>
+                <h2 id="artistListCount">Artists - ${number(state.artistPage.total)}</h2>
                 <label>Search artists<input data-filter="artistSearch" value="${escapeHtml(state.filters.artistSearch || "")}" placeholder="Artist name" /></label>
                 <label>Status${select("artistStatus", state.filters.artistStatus || "", ["", "active", "suspended", "removed"], "All statuses")}</label>
               </div>
               <div id="artistResults" class="list scroll-region" data-scroll-key="artists-list">
-                ${state.artists.length ? pagedList("artists", artistRows(), artistItem) : '<p class="empty">No artists yet.</p>'}
+                ${artistPageContents()}
               </div>
             </section>
           </div>`;
@@ -1714,6 +1727,33 @@
           (!search || String(artist.name || "").toLowerCase().includes(search)));
       }
 
+      function artistPageContents() {
+        const page = state.artistPage || {items: [], page: 1, page_size: 25, total: 0, total_pages: 0, has_next: false};
+        if (!page.items.length) {
+          return `<p class="empty">${page.total ? "No artists are available on this page." : "No artists match this search or status."}</p>`;
+        }
+        const start = (page.page - 1) * page.page_size + 1;
+        const end = start + page.items.length - 1;
+        return `<div class="paged-collection" data-server-page-list="artists">
+          <nav class="page-controls page-controls-top" aria-label="artist pages">
+            <p class="meta" role="status">${start}-${end} of ${number(page.total)} | Page ${page.page} of ${number(page.total_pages)}</p>
+            <button class="secondary" type="button" data-artist-page="${page.page - 1}" ${page.page <= 1 ? "disabled" : ""}>Previous</button>
+            <button class="secondary" type="button" data-artist-page="${page.page + 1}" ${!page.has_next ? "disabled" : ""}>Next</button>
+          </nav>
+          ${page.items.map(artistItem).join("")}
+        </div>`;
+      }
+
+      let artistFilterTimer = null;
+      function reloadArtistPage({page = 1, immediate = false} = {}) {
+        state.artistPage.page = page;
+        state.loads.artistPage = {status: "idle"};
+        clearTimeout(artistFilterTimer);
+        const run = () => loadResource("artistPage", {force: true}).catch((error) => setStatus(error.message));
+        if (immediate) run();
+        else artistFilterTimer = setTimeout(run, 250);
+      }
+
       function catalogRows() {
         const query = state.filters.catalogSearch.toLowerCase();
         return state.songs
@@ -1873,6 +1913,8 @@
           body: new FormData(form),
         });
         state.editingArtistId = null;
+        state.editingArtist = null;
+        state.editingArtist = null;
         await loadData();
         setStatus("Artist saved.");
       }
@@ -2079,6 +2121,7 @@
         }
         if (action === "cancel-artist") {
           state.editingArtistId = null;
+          state.editingArtist = null;
           return renderPreservingScroll();
         }
         if (action === "cancel-song") {
@@ -2092,7 +2135,11 @@
         if (action === "edit-artist") {
           state.editingArtistId = Number(id);
           state.activeView = "artists";
-          return renderPreservingScroll();
+          setStatus("Loading artist...");
+          state.editingArtist = await api(`/admin-api/artists/${id}`, {cache: "no-store"});
+          renderPreservingScroll();
+          setStatus("");
+          return;
         }
         if (action === "edit-song") {
           state.editingSongId = Number(id);
@@ -2191,6 +2238,11 @@
           changeListPage(pageButton);
           return;
         }
+        const artistPageButton = event.target.closest("[data-artist-page]");
+        if (artistPageButton) {
+          reloadArtistPage({page: Number(artistPageButton.dataset.artistPage), immediate: true});
+          return;
+        }
         const viewButton = event.target.closest("[data-view]");
         if (viewButton) {
           setView(viewButton.dataset.view);
@@ -2227,7 +2279,7 @@
         state.filters[filter] = event.target.value;
         if (["applicationSearch", "applicationStatus"].includes(filter)) return updateApplicationResults();
         if (["releaseSearch", "releaseStatus", "releasePublication"].includes(filter)) return updateReleaseResults();
-        if (["artistSearch", "artistStatus"].includes(filter)) return updateCollectionResults("artist");
+        if (["artistSearch", "artistStatus"].includes(filter)) return reloadArtistPage({page: 1});
         if (["catalogSearch", "catalogStatus"].includes(filter)) return updateCollectionResults("catalog");
         renderPreservingScroll();
       });
@@ -2246,7 +2298,7 @@
         state.filters[filter] = event.target.value;
         if (["applicationSearch", "applicationStatus"].includes(filter)) return updateApplicationResults();
         if (["releaseSearch", "releaseStatus", "releasePublication"].includes(filter)) return updateReleaseResults();
-        if (["artistSearch", "artistStatus"].includes(filter)) return updateCollectionResults("artist");
+        if (["artistSearch", "artistStatus"].includes(filter)) return reloadArtistPage({page: 1, immediate: true});
         if (["catalogSearch", "catalogStatus"].includes(filter)) return updateCollectionResults("catalog");
         renderPreservingScroll();
       });

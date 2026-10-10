@@ -5,6 +5,7 @@ import { once } from "node:events";
 import { test } from "node:test";
 import express from "express";
 import { AUDIO_COOKIE, canReadAudio, makeAudioCookie, validAudioCookie } from "../audioAccess.js";
+import { adminArtistPage, paginateAdminArtists, parseAdminArtistListQuery } from "../adminArtistPagination.js";
 
 const source = fs.readFileSync(new URL("../server.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const roles = {
@@ -59,6 +60,7 @@ const policy = [
   ["post", "/admin-api/releases/:id/reject", ["releases"]],
   ["post", "/admin-api/releases/:id/request-changes", ["releases"]],
   ["get", "/admin-api/artists", ["artists"]],
+  ["get", "/admin-api/artists/:id", ["artists"]],
   ["post", "/admin-api/artists", ["artists"]],
   ["put", "/admin-api/artists/:id", ["artists"]],
   ["delete", "/admin-api/artists/:id", ["artists"]],
@@ -115,7 +117,7 @@ async function fixture(t, role, gateOnly = false) {
   const ctx = vm.createContext({
     app: registrationApp, process: {env:role === undefined ? {} : {ADMIN_ROLE:role}}, ADMIN_TOKEN: "fixture-admin-token", ADMIN_USERNAME:"fixture-admin", ADMIN_PASSWORD:"fixture-password",
     createAdminAccounts:()=>({install(){},revokePreview:async()=>{},recordAction:async()=>record("audit")}),
-    hashToken:()=>"fixture-listener-token-hash",
+    hashToken:()=>"fixture-listener-token-hash", absoluteUrl:(req,value)=>value||"",
     cleanText: value=>String(value||"").trim(), boolValue: value=>[true,"true","1",1,"on"].includes(value),
     USE_SUPABASE_PERSISTENCE:true, PERSISTENCE_BACKEND:"supabase", AUDIO_COOKIE:"tesohub_audio_preview", upload:{single:()=>noop,fields:()=>noop},
     loadDb: async()=>{record("load");return db;}, loadDbWithPublishedReleases:async()=>{record("publicationRead");return db;},
@@ -124,7 +126,7 @@ async function fixture(t, role, gateOnly = false) {
     startMigrationJob:(kind)=>{record("migration");return {kind,status:"fixture"};},
     migrationJobSnapshot:job=>job, nowIso:()=>"2026-10-08T00:00:00.000Z",
     appendAuditLog:()=>record("audit"), auditSupportAction:async()=>record("supportAudit"),
-    supabasePersistence:support, supportTicketListPayload:rows=>rows, attachSupportUrls:row=>row,
+    supabasePersistence:{...support,listAdminArtists:async()=>({rows:db.artists,total:db.artists.length}),getAdminArtist:async id=>db.artists.find(row=>row.id===id)||null}, supportTicketListPayload:rows=>rows, attachSupportUrls:row=>row,
     SUPPORT_TICKET_STATUSES:new Set(["open","in_progress","waiting_on_user","resolved","closed"]), SUPPORT_TICKET_PRIORITIES:new Set(["normal","high"]),
     ARTIST_STATUSES:new Set(["active","suspended","removed"]), SONG_STATUSES:new Set(["published","hidden","removed"]), REPORT_STATUSES:new Set(["open","resolved"]),
     serializeArtist:(_,req,row)=>row, serializeSong:(_,req,row)=>row, serializeRelease:(_,req,row)=>row,
@@ -134,6 +136,7 @@ async function fixture(t, role, gateOnly = false) {
     sortArtists:rows=>rows, sortSongs:rows=>rows, dashboardPayload:()=>({total_users:1}),
     platformSettingsFor:db=>db.platformSettings, featureFlagsFor:db=>db.platformSettings.feature_flags,
     normalizePlatformSettings:settings=>settings, settingsPayloadFromBody:(req,current)=>({...current,...req.body}),
+    adminArtistPage, paginateAdminArtists, parseAdminArtistListQuery,
     validateReleaseForSubmit:()=>null, isFutureReleaseDate:()=>true, publishRelease:()=>{throw new Error("Unexpected publication");},
     validateUploadSettings:()=>null, uploadUrlFor:async()=>"", audioInput:value=>value||"", mediaPath:value=>value||"",
     genrePayload:req=>({genre:req.body.genre||"Gospel",genre_note:""}), numberOrZero:value=>Number(value||0),
@@ -337,6 +340,15 @@ test("Moderator genre dependency is a minimal active lookup, never genre managem
   assert.equal((await f.request("post","/admin-api/songs/1/hide")).json.status,"hidden");
   assert.equal((await f.request("delete","/admin-api/songs/1")).json.removed,true);
   assert.ok(!f.calls.includes("error"));
+});
+
+test("Music Catalog and Discovery retain the explicit legacy Artist array contract",async t=>{
+  const f=await fixture(t,"content_admin");
+  const response=await f.request("get","/admin-api/artists?compat=array");
+  assert.equal(response.status,200);
+  assert.ok(Array.isArray(response.json));
+  assert.equal(response.json.length,f.db.artists.length);
+  assert.ok(f.calls.includes("publicationRead"));
 });
 
 test("Moderator cannot bypass Discovery via create/edit; ordinary edits preserve existing Featured flags",async t=>{

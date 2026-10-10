@@ -266,6 +266,113 @@ export function createSupabasePersistence({
     };
   }
 
+  function adminArtistListFromRow(row) {
+    return {
+      id: Number(row.id),
+      name: row.name || "",
+      category: row.category || "",
+      photo: row.photo_path ? storageUrlFor(buckets.avatars, row.photo_path) : row.legacy_photo || "",
+      is_featured: Boolean(row.is_featured),
+      status: row.status || "active",
+      follower_count: Number(row.follower_count || 0),
+      stream_count: Number(row.stream_count || 0),
+    };
+  }
+
+  async function listAdminArtists({ page, pageSize, search, status, sort, direction }) {
+    const sortColumns = {
+      name: "artist.name",
+      created_at: "artist.created_at",
+      updated_at: "artist.updated_at",
+      id: "artist.id",
+    };
+    const orderColumn = sortColumns[sort];
+    if (!orderColumn || !["asc", "desc"].includes(direction)) {
+      throw new Error("Invalid Admin artist ordering.");
+    }
+
+    const filters = [];
+    const values = [];
+    if (search) {
+      values.push(`%${search}%`);
+      filters.push(`artist.name ilike $${values.length}`);
+    }
+    if (status) {
+      values.push(status);
+      filters.push(`artist.status = $${values.length}`);
+    }
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+    const countResult = await getPool().query(
+      `select count(*)::int as total
+       from tesohub_music.artists artist
+       ${where}`,
+      values,
+    );
+    const total = Number(countResult.rows[0]?.total || 0);
+    values.push(pageSize, (page - 1) * pageSize);
+    const limitParameter = `$${values.length - 1}`;
+    const offsetParameter = `$${values.length}`;
+    const result = await getPool().query(
+      `with artist_page as (
+         select artist.id, artist.name, artist.category, artist.photo_path,
+                artist.legacy_photo, artist.is_featured, artist.status,
+                artist.created_at, artist.updated_at
+         from tesohub_music.artists artist
+         ${where}
+         order by ${orderColumn} ${direction}, artist.id ${direction}
+         limit ${limitParameter} offset ${offsetParameter}
+       )
+       select artist_page.*,
+              coalesce(follow_counts.follower_count, 0)::int as follower_count,
+              coalesce(song_counts.stream_count, 0)::bigint as stream_count
+       from artist_page
+       left join (
+         select artist_id, count(*) as follower_count
+         from tesohub_music.artist_follows
+         where artist_id in (select id from artist_page)
+         group by artist_id
+       ) follow_counts on follow_counts.artist_id = artist_page.id
+       left join (
+         select artist_id, sum(play_count) as stream_count
+         from tesohub_music.songs
+         where artist_id in (select id from artist_page)
+         group by artist_id
+       ) song_counts on song_counts.artist_id = artist_page.id
+       order by ${orderColumn.replace("artist.", "artist_page.")} ${direction}, artist_page.id ${direction}`,
+      values,
+    );
+    return { rows: result.rows.map(adminArtistListFromRow), total };
+  }
+
+  async function getAdminArtist(artistId) {
+    const result = await getPool().query(
+      `select artist.id, artist.name, artist.category, artist.bio,
+              artist.photo_path, artist.legacy_photo, artist.location,
+              artist.is_featured, artist.status, artist.created_at, artist.updated_at,
+              (select count(*)::int from tesohub_music.artist_follows follow where follow.artist_id = artist.id) as follower_count,
+              (select coalesce(sum(song.play_count), 0)::bigint from tesohub_music.songs song where song.artist_id = artist.id) as stream_count
+       from tesohub_music.artists artist
+       where artist.id = $1`,
+      [artistId],
+    );
+    if (!result.rows[0]) return null;
+    const artist = artistFromRow(result.rows[0]);
+    return {
+      id: artist.id,
+      name: artist.name,
+      category: artist.category,
+      bio: artist.bio,
+      photo: artist.photo,
+      location: artist.location,
+      is_featured: artist.is_featured,
+      status: artist.status,
+      follower_count: Number(result.rows[0].follower_count || 0),
+      stream_count: Number(result.rows[0].stream_count || 0),
+      created_at: artist.created_at,
+      updated_at: artist.updated_at,
+    };
+  }
+
   function songFromRow(row) {
     return {
       id: Number(row.id),
@@ -2247,6 +2354,7 @@ export function createSupabasePersistence({
     deletePlaylist,
     followArtist,
     getPlaylist,
+    getAdminArtist,
     getPublicArtist,
     getPublicSong,
     getSupportTicketForAdmin,
@@ -2256,6 +2364,7 @@ export function createSupabasePersistence({
     listenerByTokenHash,
     listenerProfile,
     listPlaylists,
+    listAdminArtists,
     listPublicArtists,
     listPublicGenres,
     listPublicSongs,

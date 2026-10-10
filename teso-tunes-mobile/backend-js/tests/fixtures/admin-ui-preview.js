@@ -19,7 +19,7 @@ const release = {id:1,title:"Local Fixture Release",artist:1,artist_name:artist.
 const ticket = {id:1,reference:"TSH-PREVIEW",subject:"Local fixture playback question",category:"Playback",status:"open",priority:"normal",user_id:1,account_email:"preview@example.invalid",message:"Synthetic support request.",created_at:date,updated_at:date,messages:[{id:1,author_type:"user",message:"Please help with this preview question.",created_at:date,attachments:[]}],internal_notes:[],attachments:[],user:{name:"Preview Listener",email:"preview@example.invalid",role:"listener"}};
 const numbered=(prefix,id)=>`${prefix} ${String(id).padStart(4,"0")}`;
 const large = {
-  artists:Array.from({length:500},(_,i)=>({...artist,id:i+1,name:numbered("Scale Artist",i+1)})),
+  artists:Array.from({length:500},(_,i)=>({...artist,id:i+1,name:numbered("Scale Artist",i+1),status:i%3===0?"suspended":"active"})),
   songs:Array.from({length:2000},(_,i)=>({...song,id:i+1,title:numbered("Scale Song",i+1),artist:i%500+1,artist_name:numbered("Scale Artist",i%500+1),release_date:"2026-10-09"})),
   applications:Array.from({length:250},(_,i)=>({...application,id:i+1,artist_name:numbered("Scale Application",i+1)})),
   releases:Array.from({length:250},(_,i)=>({...release,id:i+1,title:numbered("Scale Release",i+1)})),
@@ -60,6 +60,9 @@ export async function startPreview(port=0) {
     const permissions=roles[role] || [];
     const isLarge=req.headers.cookie?.includes("fixture_large=1");
     const allowed=permission=>permissions.includes("*") || permissions.includes(permission);
+    if((url.pathname==="/admin-api/artists" || /^\/admin-api\/artists\/\d+$/.test(url.pathname)) && !allowed("artists")) {
+      res.writeHead(403);return res.end(JSON.stringify({detail:"Fixture role does not have access."}));
+    }
     const resources={
       "/admin-api/me":{admin:{id:1,username:"local-preview",display_name:"Preview Operator",role,permissions,auth_type:"individual"}},
       "/admin-api/dashboard":{total_users:24,total_approved_artists:4,pending_artist_applications:1,total_published_songs:12,releases_under_review:1,total_streams:320,new_users_7d:3,new_releases_7d:2,reports_requiring_attention:0},
@@ -93,6 +96,22 @@ export async function startPreview(port=0) {
         const row=(detail[1]==="releases"?large.releases:large.applications).find(r=>r.id===Number(detail[2]));
         if(row)resources[url.pathname]={...row,history};
       }
+    }
+    if(url.pathname==="/admin-api/artists" && url.searchParams.get("compat")!=="array") {
+      const source=isLarge?large.artists:[artist];
+      const search=(url.searchParams.get("search")||"").trim().toLowerCase();
+      const status=url.searchParams.get("status")||"";
+      const page=Math.max(1,Number(url.searchParams.get("page")||1));
+      const pageSize=Math.min(100,Math.max(1,Number(url.searchParams.get("page_size")||25)));
+      const filtered=source.filter(row=>(!search||row.name.toLowerCase().includes(search))&&(!status||row.status===status));
+      const start=(page-1)*pageSize;
+      return res.end(JSON.stringify({items:filtered.slice(start,start+pageSize),page,page_size:pageSize,total:filtered.length,total_pages:Math.ceil(filtered.length/pageSize),has_next:start+pageSize<filtered.length}));
+    }
+    const artistDetail=url.pathname.match(/^\/admin-api\/artists\/(\d+)$/);
+    if(artistDetail) {
+      const row=(isLarge?large.artists:[artist]).find(item=>item.id===Number(artistDetail[1]));
+      if(!row){res.writeHead(404);return res.end(JSON.stringify({detail:"Artist not found."}));}
+      return res.end(JSON.stringify(row));
     }
     const required={"admin-accounts":"*","platform-health":"*","audit-log":"*","platform-settings":"settings","feature-flags":"settings","artist-applications":"applications",releases:"releases",support:"support:view",users:"users",reports:"reports",songs:"catalog",artists:"artists",genres:"genres"}[url.pathname.split("/")[2]];
     // Catalog also reads the genre list under the existing backend contract.

@@ -113,7 +113,7 @@ test("Admin UI polish: role-aware responsive workflows", {skip:!process.env.TESO
       for(const [key,list,total] of [["artists","artists",500],["catalog","catalog",2000],["applications","applications",250],["releases","releases",250],["support","support",500],["audit","audit",100]]) {
         const started=Date.now();
         await open(key);
-        const region=page.locator(`[data-page-list="${list}"]`);
+        const region=key==="artists" ? page.locator('[data-server-page-list="artists"]') : page.locator(`[data-page-list="${list}"]`);
         assert.equal(await region.locator(":scope > .item").count(),25,`Unbounded ${key}`);
         assert.match(await region.locator(".page-controls").innerText(),new RegExp(`of ${total.toLocaleString()}`));
         assert.ok(await page.locator("#view *").count()<2500,`Excess DOM in ${key}`);
@@ -126,11 +126,11 @@ test("Admin UI polish: role-aware responsive workflows", {skip:!process.env.TESO
         }
         const first=await region.locator(".item-title").first().textContent();
         if(key==="catalog")await page.locator('#songForm input[name="title"]').fill("Unsaved draft");
-        await region.locator('[data-page-step="1"]').click();
+        await region.locator(key==="artists"?'[data-artist-page="2"]':'[data-page-step="1"]').click();
         assert.notEqual(await region.locator(".item-title").first().textContent(),first);
         assert.equal(await region.locator(":scope > .item").count(),25);
         if(key==="catalog")assert.equal(await page.locator('#songForm input[name="title"]').inputValue(),"Unsaved draft");
-        await region.locator('[data-page-step="-1"]').click();
+        await region.locator(key==="artists"?'[data-artist-page="1"]':'[data-page-step="-1"]').click();
         assert.equal(await region.locator(".item-title").first().textContent(),first);
         const elapsed=Date.now()-started;
         assert.ok(elapsed<5000,`Slow navigation/page interaction: ${key}/${width} ${elapsed}ms`);
@@ -142,14 +142,22 @@ test("Admin UI polish: role-aware responsive workflows", {skip:!process.env.TESO
   });
   await t.test("large-list search finds distant records, resets pages, and bounds the artist picker",async()=>{
     await open("artists");
-    await page.locator('[data-page-key="artists"][data-page-step="1"]').click();
+    await page.locator('[data-artist-page="2"]').click();
+    const artistSearchResponse=page.waitForResponse(response=>new URL(response.url()).pathname==="/admin-api/artists" && new URL(response.url()).searchParams.get("search")==="Scale Artist 0500");
     await page.locator('[data-filter="artistSearch"]').fill("Scale Artist 0500");
+    await artistSearchResponse;
     assert.equal(await page.locator('[data-page-list="artists"] > .item').count(),1);
+    let artistFilterResponse=page.waitForResponse(response=>new URL(response.url()).pathname==="/admin-api/artists" && new URL(response.url()).searchParams.get("status")==="suspended");
     await page.locator('[data-filter="artistStatus"]').selectOption("suspended");
+    await artistFilterResponse;
     assert.equal(await page.locator('[data-page-list="artists"] > .item').count(),0);
+    artistFilterResponse=page.waitForResponse(response=>new URL(response.url()).pathname==="/admin-api/artists" && !new URL(response.url()).searchParams.get("status"));
     await page.locator('[data-filter="artistStatus"]').selectOption("");
+    await artistFilterResponse;
+    const artistResetResponse=page.waitForResponse(response=>new URL(response.url()).pathname==="/admin-api/artists" && !new URL(response.url()).searchParams.get("search"));
     await page.locator('[data-filter="artistSearch"]').fill("");
-    assert.match(await page.locator('[data-page-list="artists"] .page-controls').innerText(),/1-25 of 500/);
+    await artistResetResponse;
+    assert.match(await page.locator('[data-server-page-list="artists"] .page-controls').innerText(),/1-25 of 500/);
     await open("catalog");
     assert.ok(await page.locator('#songForm select[name="artist"] option').count()<=27);
     await page.locator("[data-artist-options]").fill("Scale Artist 0500");

@@ -12,6 +12,7 @@ import { perfMetricsMiddleware } from "./perfMetrics.js";
 import { discoveryOptions, selectDiscovery } from "./discovery.js";
 import { createSupabasePersistence } from "./supabasePersistence.js";
 import { createAdminAccounts } from "./adminAccounts.js";
+import { adminArtistPage, paginateAdminArtists, parseAdminArtistListQuery } from "./adminArtistPagination.js";
 import { isShareableSong, renderPublicSongPage } from "./songSharing.js";
 import { AUDIO_COOKIE, AUDIO_COOKIE_SECONDS, audioResponseUrl, canReadAudio, makeAudioCookie,
   normalizeAudioInput, publicExternalAudio, validAudioCookie, validAudioId, validObjectPath } from "./audioAccess.js";
@@ -4423,11 +4424,62 @@ app.post(
   },
 );
 
+function compactAdminArtist(db, req, artist) {
+  const serialized = serializeArtist(db, req, artist);
+  return {
+    id: serialized.id,
+    name: serialized.name,
+    category: serialized.category,
+    photo: serialized.photo,
+    is_featured: serialized.is_featured,
+    status: serialized.status,
+    follower_count: serialized.follower_count,
+    stream_count: serialized.stream_count,
+  };
+}
+
 app.get("/admin-api/artists", requireAdminPermission("artists"), async (req, res) => {
+  // Music Catalog and Discovery still consume the historical array contract.
+  // Their explicit compatibility mode will be removed when those views receive
+  // their own bounded read paths in later Catalog Management phases.
+  if (req.query.compat === "array") {
+    const db = await loadDbWithPublishedReleases();
+    return res.json(sortArtists(db.artists).map((artist) => serializeArtist(db, req, artist)));
+  }
+
+  let options;
+  try {
+    options = parseAdminArtistListQuery(req.query);
+  } catch (error) {
+    return res.status(400).json({ detail: error.message });
+  }
+
+  if (USE_SUPABASE_PERSISTENCE) {
+    const result = await supabasePersistence.listAdminArtists(options);
+    const items = result.rows.map((artist) => ({ ...artist, photo: absoluteUrl(req, artist.photo) }));
+    return res.json(adminArtistPage(items, options, result.total));
+  }
+
   const db = await loadDbWithPublishedReleases();
-  res.json(
-    sortArtists(db.artists).map((artist) => serializeArtist(db, req, artist)),
-  );
+  const result = paginateAdminArtists(db.artists, options);
+  const items = result.rows.map((artist) => compactAdminArtist(db, req, artist));
+  return res.json(adminArtistPage(items, options, result.total));
+});
+
+app.get("/admin-api/artists/:id", requireAdminPermission("artists"), async (req, res) => {
+  const artistId = Number(req.params.id);
+  if (!Number.isInteger(artistId) || artistId < 1) {
+    return res.status(404).json({ detail: "Artist not found." });
+  }
+  if (USE_SUPABASE_PERSISTENCE) {
+    const artist = await supabasePersistence.getAdminArtist(artistId);
+    if (!artist) return res.status(404).json({ detail: "Artist not found." });
+    return res.json({ ...artist, photo: absoluteUrl(req, artist.photo) });
+  }
+  const db = await loadDbWithPublishedReleases();
+  const artist = db.artists.find((item) => Number(item.id) === artistId);
+  if (!artist) return res.status(404).json({ detail: "Artist not found." });
+  return res.json(serializeArtist(db, req, artist));
 });
 
 app.post(
