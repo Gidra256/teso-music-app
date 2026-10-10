@@ -76,11 +76,13 @@ export async function startPreview(port=0) {
       "/admin-api/users":[{id:1,name:"Preview Listener",email:"preview@example.invalid",role:"listener",status:"active",created_at:date}],
       "/admin-api/reports":[],
       "/admin-api/audit-log":[],
-      "/admin-api/platform-settings":{},
+      "/admin-api/platform-settings":{registration_enabled:true,artist_applications_enabled:true,music_uploads_enabled:true,maintenance_mode:false,max_audio_upload_mb:80,max_artwork_upload_mb:10,supported_audio_formats:["mp3","wav","m4a"],minimum_supported_app_version:"1.0.6",maintenance_message:"We'll be back shortly. Thank you for your patience.",app_announcement:"",feature_flags:{playlists_enabled:true,artist_studio_enabled:true,sharing_enabled:true,offline_downloads_enabled:false}},
       "/admin-api/feature-flags":{},
       "/admin-api/admin-accounts":Object.entries(roles).map(([accountRole,accountPermissions],index)=>({id:index+1,display_name:`Preview ${accountRole.replaceAll("_"," ")}`,login_identifier:`preview-${index+1}@example.invalid`,role:accountRole,permissions:accountPermissions,active:index!==3,created_at:date,updated_at:date,last_login_at:index===0?date:null})),
     };
     if(isLarge) {
+      const accountRoles=Object.keys(roles);
+      resources["/admin-api/admin-accounts"]=Array.from({length:125},(_,i)=>({id:i+1,display_name:numbered("Preview Admin",i+1),login_identifier:`preview-${String(i+1).padStart(3,"0")}@example.invalid`,role:accountRoles[i%4],permissions:roles[accountRoles[i%4]],active:i%5!==4,created_at:date,updated_at:date,last_login_at:i%3===0?date:null}));
       Object.assign(resources,{
         "/admin-api/artists":large.artists,"/admin-api/songs":large.songs,
         "/admin-api/artist-applications":large.applications,"/admin-api/releases":large.releases,

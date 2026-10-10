@@ -1,6 +1,6 @@
 # Admin UI Polish V1 - Local Review
 
-Status: release preparation in progress. Scalability extension must pass the final gate before committing. No deployment authorized.
+Status: final Admin UI implementation prepared locally. No deployment authorized.
 
 Branch: `codex/admin-ui-polish-v1`.
 Base: `9b968d4a2a7fa69006c4259618e9e815604c18d7`.
@@ -34,7 +34,8 @@ Prepared for one focused local commit after the final gate. No push, deployment,
 1. `backend-js/public/index.html` - Admin presentation and search/navigation focus behavior only.
 2. `backend-js/tests/admin-ui-browser.test.js` - role-aware responsive browser regression coverage.
 3. `backend-js/tests/fixtures/admin-ui-preview.js` - loopback-only synthetic read-only fixture server; not served by the production application.
-4. `ADMIN_UI_POLISH_V1_REVIEW_2026-10-09.md` - this report.
+4. `backend-js/tests/admin-ui-density.test.js` - focused Settings, Admin Management, mobile navigation and paging checks.
+5. `ADMIN_UI_POLISH_V1_REVIEW_2026-10-09.md` - this report.
 
 ## Verification
 
@@ -53,6 +54,7 @@ Prepared for one focused local commit after the final gate. No push, deployment,
 - Admin Management: local real-database account/session workflows passed; new browser checks cover layout, labels, disabled badge, expanded reset and save/revoke distinction.
 - Syntax checks, `git diff --check`, and secret-pattern scan passed.
 - AST/source comparison against the base confirmed non-presentation JavaScript units unchanged, including auth, permissions, data sources, HTTP calls, mutation handlers, session renewal, and login/logout listeners.
+- Final visual-density pass: **6 passed / 0 failed / 0 skipped** at 320, 390 and 1440px. It verifies complete selected mobile navigation labels, synchronized top/bottom Admin pagination, closed-by-default Add Admin, one expanded account, search/filters, and retained drafts. The full backend/mobile suites were intentionally not rerun for this UI-only finalization.
 
 ## Local preview and evidence
 
@@ -83,6 +85,7 @@ Test dependencies are supplied through existing `TESO_PLAYWRIGHT_MODULE`, `TESO_
 ## Scalability extension
 
 - All record collections render at most 25 entries per list page: artists, songs, applications, releases, users, tickets, reports, discovery lists, genres, Admin accounts, and audit logs.
+- Admin Management presents compact summary rows with search and role/status filters. Security controls expand for one Admin at a time, Add Admin opens only on request, and both top and bottom controls operate the same 25-record page state.
 - Review histories, support messages and internal notes also page in groups of 25. Paging replaces only its own region and preserves unsaved form/review text.
 - Artist rows use 40px thumbnails, concise identity/status/engagement metadata and expandable contextual actions. No profile-sized artist cards.
 - Catalog rows use small artwork, title/artist/genre, status, counts and release date when available. Actions/audio preview expand on demand; list audio uses preload=none.

@@ -70,9 +70,10 @@ test("Admin UI polish: role-aware responsive workflows", {skip:!process.env.TESO
         if([390,1440].includes(width))await screenshot(`${key}-${width}`);
       }
       await open("admins");
-      await page.locator('.admin-account details').filter({has:page.locator('summary', {hasText:"Reset password"})}).first().locator("summary").click();
+      await page.locator('[data-manage-admin]').first().click();
+      await page.locator('.admin-detail details').filter({has:page.locator('summary', {hasText:"Reset password"})}).first().locator("summary").click();
       await fits(`Admin Management ${width}`);
-      assert.equal(await page.locator('.admin-account .badge.danger').count(),1);
+      assert.equal(await page.locator('.admin-row .badge.danger').count(),1);
       assert.ok(await page.getByText("Role and status changes take effect after Update access.",{exact:false}).first().isVisible());
       assert.ok(await page.getByText("Revoke signs this Admin out",{exact:false}).first().isVisible());
       if([390,1440].includes(width))await screenshot(`admin-management-${width}`);
