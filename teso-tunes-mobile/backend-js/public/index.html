@@ -7,530 +7,221 @@
     <style>
       :root {
         color-scheme: dark;
-        --bg: #050506;
-        --surface: #0b0b10;
-        --card: #111116;
-        --elevated: #1b1b23;
-        --border: #2b2638;
+        --bg: #08090b;
+        --surface: #101114;
+        --card: #15161b;
+        --elevated: #202228;
+        --border: #303139;
         --primary: #20e6f3;
         --accent: #f427c8;
-        --success: #36f2a5;
-        --danger: #ff4d6d;
-        --warning: #ffca4a;
-        --text: #ffffff;
+        --success: #6cdeb0;
+        --danger: #ff8196;
+        --warning: #ffcf70;
+        --text: #f5f5f7;
         --soft: #d8d8e2;
-        --muted: #8b8798;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        background: var(--bg);
-        color: var(--text);
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        margin: 0;
-      }
-
-      button,
-      input,
-      select,
-      textarea {
-        font: inherit;
-      }
-
-      button {
-        align-items: center;
-        background: var(--primary);
-        border: 1px solid transparent;
-        border-radius: 8px;
-        color: #031013;
-        cursor: pointer;
-        display: inline-flex;
-        font-size: 13px;
-        font-weight: 900;
-        justify-content: center;
-        min-height: 40px;
-        padding: 0 13px;
-      }
-
-      button.secondary {
-        background: var(--elevated);
-        border-color: var(--border);
-        color: var(--soft);
-      }
-
-      button.ghost {
-        background: transparent;
-        border-color: var(--border);
-        color: var(--soft);
-      }
-
-      button.danger {
-        background: var(--danger);
-        color: #180107;
-      }
-
-      button.active {
-        background: var(--primary);
-        color: #031013;
-      }
-
-      button:disabled {
-        cursor: wait;
-        opacity: 0.58;
-      }
-
-      input,
-      select,
-      textarea {
-        background: #09090d;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        color: var(--text);
-        min-height: 40px;
-        padding: 10px;
-        width: 100%;
-      }
-
-      input[type="checkbox"] {
-        min-height: auto;
-        width: auto;
-      }
-
-      label {
-        color: var(--soft);
-        display: grid;
-        font-size: 12px;
-        font-weight: 900;
-        gap: 6px;
-      }
-
-      textarea {
-        min-height: 96px;
-        resize: vertical;
-      }
-
-      h1,
-      h2,
-      h3,
-      p {
-        margin: 0;
-      }
-
-      h1 {
-        font-size: clamp(26px, 4vw, 38px);
-        font-weight: 950;
-        line-height: 1;
-      }
-
-      h2 {
-        font-size: 19px;
-      }
-
-      h3 {
-        font-size: 15px;
-      }
-
-      .login {
-        margin: 12vh auto 0;
-        max-width: 430px;
-        padding: 20px;
-      }
-
-      .login .panel {
-        padding: 22px;
-      }
-
-      .shell {
-        display: grid;
-        gap: 20px;
-        grid-template-columns: 260px minmax(0, 1fr);
-        min-height: 100vh;
-        padding: 18px;
-      }
-
-      .sidebar {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
-        padding: 14px;
-        position: sticky;
-        top: 18px;
-        height: calc(100vh - 36px);
-      }
-
-      .brand {
-        align-items: center;
-        display: flex;
-        gap: 10px;
-      }
-
-      .logo {
-        background: #000;
-        border-radius: 8px;
-        height: 44px;
-        object-fit: cover;
-        width: 44px;
-      }
-
-      .brand-title {
-        font-size: 16px;
-        font-weight: 950;
-      }
-
-      .muted,
-      .subtitle {
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.45;
-      }
-
-      .nav {
-        display: grid;
-        gap: 6px;
-        overflow: auto;
-      }
-
-      .nav-title {
-        color: var(--muted);
-        font-size: 11px;
-        font-weight: 900;
-        margin: 12px 0 3px;
-        text-transform: uppercase;
-      }
-
-      .nav button {
-        justify-content: flex-start;
-        min-height: 38px;
-        width: 100%;
-      }
-
-      .content {
-        display: grid;
-        gap: 18px;
-        min-width: 0;
-      }
-
-      .content.content-bounded {
-        grid-template-rows: auto minmax(0, 1fr);
-        height: calc(100vh - 36px);
-        overflow: hidden;
-      }
-
-      .topbar {
-        align-items: flex-start;
-        display: flex;
-        gap: 12px;
-        justify-content: space-between;
-      }
-
-      .panel {
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 16px;
-      }
-
-      .grid {
-        display: grid;
-        gap: 14px;
-      }
-
-      .grid.two {
-        grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.45fr);
-      }
-
-      .grid.three {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-
-      .stats {
-        display: grid;
-        gap: 12px;
-        grid-template-columns: repeat(4, minmax(140px, 1fr));
-      }
-
-      .stat {
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 14px;
-      }
-
-      .stat-value {
-        font-size: 28px;
-        font-weight: 950;
-        margin-top: 8px;
-      }
-
-      .form {
-        display: grid;
-        gap: 12px;
-      }
-
-      .form-row {
-        display: grid;
-        gap: 10px;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .toolbar,
-      .actions {
-        align-items: center;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-
-      .toolbar {
-        justify-content: space-between;
-      }
-
-      .list {
-        display: grid;
-        gap: 10px;
-      }
-
-      .content.content-bounded #view,
-      .split-dashboard,
-      .split-panel {
-        min-height: 0;
-      }
-
-      .split-dashboard {
-        height: 100%;
-      }
-
-      .split-panel {
-        display: flex;
-        flex-direction: column;
-        max-height: 100%;
-        overflow: hidden;
-      }
-
-      .split-form-panel {
-        overflow: auto;
-        overscroll-behavior: contain;
-      }
-
-      .split-list-header {
-        background: var(--card);
-        flex: 0 0 auto;
-        padding-bottom: 12px;
-      }
-
-      .split-list-header + .scroll-region {
-        border-top: 1px solid var(--border);
-        padding-top: 12px;
-      }
-
-      .scroll-region {
-        min-height: 0;
-        overflow: auto;
-        overscroll-behavior: contain;
-        padding-right: 4px;
-      }
-
-      .item {
-        align-items: start;
-        background: #09090d;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        display: grid;
-        gap: 12px;
-        grid-template-columns: 72px minmax(0, 1fr) auto;
-        padding: 10px;
-      }
-
-      .thumb {
-        background: var(--elevated);
-        border-radius: 8px;
-        height: 72px;
-        object-fit: cover;
-        width: 72px;
-      }
-
-      .item-title {
-        font-weight: 950;
-      }
-
-      .meta {
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.5;
-        margin-top: 4px;
-      }
-
-      .details {
-        color: var(--soft);
-        font-size: 13px;
-        line-height: 1.55;
-        margin-top: 8px;
-      }
-
-      .badge {
-        background: rgba(32, 230, 243, 0.12);
-        border: 1px solid rgba(32, 230, 243, 0.32);
-        border-radius: 999px;
-        color: var(--primary);
-        display: inline-flex;
-        font-size: 11px;
-        font-weight: 950;
-        padding: 4px 8px;
-        text-transform: uppercase;
-      }
-
-      .badge.warn {
-        background: rgba(255, 202, 74, 0.1);
-        border-color: rgba(255, 202, 74, 0.32);
-        color: var(--warning);
-      }
-
-      .badge.danger {
-        background: rgba(255, 77, 109, 0.1);
-        border-color: rgba(255, 77, 109, 0.32);
-        color: var(--danger);
-      }
-
-      .badge.ok {
-        background: rgba(54, 242, 165, 0.1);
-        border-color: rgba(54, 242, 165, 0.32);
-        color: var(--success);
-      }
-
-      .status-line {
-        color: var(--accent);
-        font-size: 13px;
-        font-weight: 900;
-        min-height: 18px;
-      }
-
-      .empty {
-        color: var(--muted);
-        padding: 10px 0;
-      }
-
-      audio {
-        margin-top: 10px;
-        max-width: 100%;
-        width: 420px;
-      }
-
-      .hidden {
-        display: none;
-      }
-
+        --muted: #a4a5b1;
+      }
+      * { box-sizing: border-box; letter-spacing: 0; }
+      body { background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; font-size: 14px; line-height: 1.5; }
+      button, input, select, textarea { font: inherit; min-width: 0; }
+      button { align-items: center; background: var(--primary); border: 1px solid transparent; border-radius: 6px; color: #031013; cursor: pointer; display: inline-flex; font-size: 13px; font-weight: 650; justify-content: center; min-height: 44px; padding: 10px 14px; max-width: 100%; overflow-wrap: anywhere; line-height: 1.4; }
+      button.secondary { background: var(--elevated); border-color: var(--border); color: var(--soft); }
+      button.ghost { background: transparent; border-color: var(--border); color: var(--soft); }
+      button.danger { background: #361a23; border-color: #743544; color: var(--danger); }
+      button.active { background: var(--primary); color: #031013; }
+      button:hover:not(:disabled) { filter: brightness(1.12); }
+      button:disabled { cursor: not-allowed; opacity: 0.55; }
+      :focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+      input, select, textarea { background: var(--bg); border: 1px solid #45464f; border-radius: 6px; color: var(--text); min-height: 44px; padding: 10px 12px; width: 100%; }
+      input[type="checkbox"] { min-height: 20px; width: 20px; accent-color: var(--primary); }
+      input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
+      input[type="file"] { padding: 8px; }
+      label { color: var(--soft); display: grid; font-size: 13px; font-weight: 550; gap: 7px; min-width: 0; }
+      label:has(input[type="checkbox"]) { display: flex; align-items: center; min-height: 44px; }
+      textarea { min-height: 112px; resize: vertical; }
+      h1, h2, h3, p { margin: 0; overflow-wrap: anywhere; }
+      h1 { font-size: 26px; font-weight: 700; line-height: 1.2; }
+      h2 { font-size: 18px; font-weight: 650; line-height: 1.4; }
+      h3 { font-size: 14px; font-weight: 650; }
+      a { color: var(--primary); }
+      .login { margin: 8vh auto 0; max-width: 460px; padding: 24px; }
+      .login .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 24px; }
+      .login h1 { font-size: 23px; }
+      .login .brand { margin-bottom: 12px; }
+      .shell { display: grid; grid-template-columns: 238px minmax(0, 1fr); min-height: 100vh; }
+      .sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 16px; padding: 20px 12px; position: sticky; top: 0; height: 100vh; height: 100dvh; min-width: 0; }
+      .brand { align-items: center; display: flex; gap: 10px; min-width: 0; }
+      .brand > div { min-width: 0; }
+      .sidebar .brand { padding: 0 4px; }
+      .logo { background: #000; border-radius: 6px; height: 44px; object-fit: cover; width: 44px; flex: 0 0 44px; }
+      .brand-title { font-size: 15px; font-weight: 700; }
+      .muted, .subtitle { color: var(--muted); font-size: 13px; line-height: 1.55; }
+      .admin-identity { display: grid; gap: 6px; padding: 14px 8px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); min-width: 0; }
+      .admin-name { font-size: 13px; font-weight: 650; color: var(--text); overflow-wrap: anywhere; }
+      .role-badge { color: var(--primary); font-size: 12px; }
+      .nav { display: grid; align-content: start; gap: 4px; overflow: auto; min-height: 0; flex: 1; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+      .nav-title { color: var(--muted); font-size: 11px; font-weight: 600; margin: 14px 10px 5px; text-transform: uppercase; }
+      .nav-title:first-child { margin-top: 0; }
+      .nav button { justify-content: flex-start; min-height: 44px; width: 100%; font-weight: 500; background: transparent; border-color: transparent; color: var(--muted); text-align: left; }
+      .nav button.active { background: #143034; color: var(--primary); border-color: #235158; box-shadow: inset 3px 0 var(--primary); font-weight: 650; }
+      .sidebar-actions { display: grid; grid-template-columns: 1fr auto; gap: 6px; border-top: 1px solid var(--border); padding-top: 12px; }
+      .sidebar-actions button { padding: 8px 10px; font-size: 12px; }
+      .content { display: grid; align-content: start; grid-template-rows: auto 1fr; gap: 24px; min-width: 0; padding: 28px 28px 32px; }
+      .content.content-bounded { grid-template-rows: auto minmax(0, 1fr); height: 100vh; height: 100dvh; overflow: hidden; }
+      .topbar { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; border-bottom: 1px solid var(--border); padding-bottom: 20px; }
+      .topbar .subtitle { margin-top: 6px; }
+      .topbar #status { max-width: 420px; }
+      #view { min-width: 0; display: grid; align-content: start; gap: 24px; }
+      .panel { min-width: 0; padding: 0; background: transparent; border: 0; border-radius: 0; }
+      .panel > h2, .panel > .toolbar { margin-bottom: 16px; }
+      .panel .panel { border-top: 1px solid var(--border); padding-top: 20px; }
+      .grid { display: grid; gap: 24px; min-width: 0; }
+      .grid.two { grid-template-columns: minmax(240px, 0.85fr) minmax(0, 1.45fr); }
+      .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .stats { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .stat { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 18px; min-width: 0; }
+      .stat-value { font-size: 30px; font-weight: 650; line-height: 1.3; margin-top: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+      .shortcut { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--soft); justify-content: space-between; text-align: left; min-height: 60px; gap: 16px; padding: 16px; }
+      .shortcut span:last-child { color: var(--primary); }
+      .section-heading { margin-bottom: 12px; }
+      .form { display: grid; gap: 16px; min-width: 0; }
+      .form-row { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .toolbar, .actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+      .toolbar { justify-content: space-between; }
+      .toolbar > input { flex: 1 1 180px; }
+      .toolbar > select { flex: 1 1 130px; width: auto; }
+      .list { display: grid; align-content: start; gap: 0; min-width: 0; }
+      .paged-collection { min-width: 0; }
+      .page-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--border); }
+      .page-controls .meta { margin: 0; flex: 1 1 140px; }
+      .item .meta, .item .item-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+      .item .details { margin-top: 5px; }
+      .item { padding: 10px 0; gap: 10px; }
+      .item audio { width: 280px; }
+      .item details { grid-column: 1 / -1; }
+      .item details .actions { padding-bottom: 4px; }
+      .split-panel .item { grid-template-columns: 40px minmax(0, 1fr); }
+      .split-panel .thumb { width: 40px; height: 40px; }
+      .content.content-bounded #view, .split-dashboard, .split-panel { min-height: 0; }
+      .split-dashboard { height: 100%; }
+      .split-panel { display: flex; flex-direction: column; max-height: 100%; overflow: hidden; }
+      .split-form-panel { overflow: auto; overscroll-behavior: contain; padding-right: 12px; }
+      .split-list-header { flex: 0 0 auto; padding-bottom: 16px; }
+      .split-list-header + .scroll-region { border-top: 1px solid var(--border); }
+      .scroll-region { min-height: 0; overflow: auto; overscroll-behavior: contain; padding-right: 8px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+      .item { align-items: start; border-bottom: 1px solid var(--border); display: grid; gap: 14px; grid-template-columns: 56px minmax(0, 1fr) auto; padding: 18px 0; min-width: 0; }
+      .thumb { background: var(--elevated); border-radius: 6px; height: 56px; object-fit: cover; width: 56px; }
+      .item-title { font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+      .split-panel .item { grid-template-columns: 56px minmax(0, 1fr); }
+      .split-panel .item .actions { grid-column: 2; }
+      .meta { color: var(--muted); font-size: 12px; line-height: 1.6; margin-top: 5px; overflow-wrap: anywhere; }
+      .details { color: var(--soft); font-size: 13px; line-height: 1.65; margin-top: 10px; overflow-wrap: anywhere; }
+      .badge { background: #163137; border: 1px solid #28515a; border-radius: 4px; color: var(--primary); display: inline-flex; font-size: 11px; font-weight: 600; padding: 3px 7px; text-transform: capitalize; max-width: 100%; overflow-wrap: anywhere; }
+      .badge.warn { background: #302819; border-color: #64502b; color: var(--warning); }
+      .badge.danger { background: #361a23; border-color: #743544; color: var(--danger); }
+      .badge.ok { background: #143025; border-color: #2a5845; color: var(--success); }
+      .status-line { color: var(--accent); font-size: 13px; font-weight: 550; min-height: 0; overflow-wrap: anywhere; }
+      .status-line:empty { display: none; }
+      .empty { color: var(--muted); padding: 32px 12px; border: 1px dashed var(--border); border-radius: 6px; margin: 12px 0; text-align: center; }
+      [role="alert"] { border-left: 3px solid var(--danger); padding: 16px; background: #24141a; }
+      [role="alert"] button { margin-top: 12px; }
+      audio { margin-top: 10px; max-width: 100%; width: 420px; min-width: 0; }
+      .hidden, [hidden] { display: none !important; }
       .applications-workspace { min-width: 0; align-self: start; }
-      .application-filters { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; margin: 16px 0; }
-      .applications-workspace .item { margin: 0; }
-      .applications-workspace .details, .applications-workspace .meta,
-      .applications-workspace .item-title, .application-fields dd { overflow-wrap: anywhere; }
-      .application-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
-      .application-fields div { min-width: 0; }
-      .application-fields dt { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
-      .application-fields dd { margin: 0; white-space: pre-wrap; }
-      .application-history { padding-left: 20px; }
-      .application-history li { margin-bottom: 10px; overflow-wrap: anywhere; }
-      .applications-workspace button { min-height: 44px; }
-      .release-artwork { display: block; width: 180px; max-width: 100%; aspect-ratio: 1; object-fit: contain; }
-      .applications-workspace audio { width: 420px; max-width: 100%; min-width: 0; }
-      .applications-workspace [hidden] { display: none; }
-      #clearApplicationFilters[hidden] { display: none; }
-      .applications-active .content { align-content: start; }
-      .applications-active h1 { font-size: 26px; }
+      .application-filters { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; margin: 20px 0; }
+      .application-filters:has([data-filter="releasePublication"]) { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto; }
+      .application-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 28px; margin: 24px 0; border-top: 1px solid var(--border); }
+      .application-fields div { min-width: 0; border-bottom: 1px solid var(--border); padding: 14px 0; }
+      .application-fields dt { color: var(--muted); font-size: 12px; margin-bottom: 5px; }
+      .application-fields dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+      .application-history { padding-left: 20px; margin-bottom: 28px; }
+      .application-history li { margin-bottom: 14px; overflow-wrap: anywhere; padding-left: 8px; }
+      .application-history li::marker { color: var(--primary); }
+      .review-identity { display: flex; align-items: center; gap: 20px; padding: 24px 0; flex-wrap: wrap; }
+      .review-identity > div { min-width: 0; flex: 1 1 180px; }
+      .review-identity h2 { font-size: 22px; }
+      .review-identity .thumb, .release-artwork { display: block; width: 112px; height: 112px; max-width: 100%; aspect-ratio: 1; border-radius: 6px; object-fit: contain; background: #000; }
+      .review-decision { border-top: 1px solid var(--border); padding-top: 24px; margin-top: 24px; }
+      .review-decision h3 { margin-bottom: 12px; }
+      .admin-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(240px, 0.8fr); gap: 28px; align-items: start; }
+      .admin-create { grid-column: 2; grid-row: 1; }
+      .admin-list { grid-column: 1; grid-row: 1; display: grid; gap: 24px; min-width: 0; }
+      .admin-account { border: 1px solid var(--border); border-radius: 6px; padding: 20px; background: var(--surface); min-width: 0; }
+      .admin-account > .toolbar { align-items: start; }
+      .admin-account .account-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+      .account-dates dt { font-size: 12px; color: var(--muted); }
+      .account-dates dd { margin: 4px 0 0; font-size: 13px; }
+      .account-access { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 20px; }
+      .account-access button { justify-self: start; }
+      .security-actions { border-top: 1px solid #54313f; padding-top: 18px; margin-top: 20px; display: grid; gap: 14px; }
+      .security-actions h3 { color: var(--danger); }
+      details { min-width: 0; }
+      summary { cursor: pointer; min-height: 44px; padding: 10px 0; color: var(--soft); }
+      details[open] > summary { margin-bottom: 10px; }
+      .security-form { max-width: 540px; }
+      .support-public, .support-internal { padding-top: 20px; border-top: 1px solid var(--border); margin-top: 20px; }
+      .support-internal { border-color: #6a385e; }
+      .support-internal h3 { color: #ff98e6; }
+      .application-history { padding-left: 0; }
+      .item { padding: 10px 0; gap: 10px; }
+      .history-entry { padding: 12px 0 12px 16px; border-left: 2px solid var(--border); border-bottom: 1px solid var(--border); }
+      .split-panel .item { grid-template-columns: 40px minmax(0, 1fr) auto; }
+      .split-panel .item .thumb { width: 40px; height: 40px; }
+      .item .row-menu { grid-column: 3; width: 82px; }
+      .row-menu summary { font-size: 12px; }
+      .item .row-menu[open] { grid-column: 1 / -1; width: auto; }
+      .row-menu[open] summary { color: var(--primary); }
+      .page-controls button { min-width: 72px; }
+      @media (min-width: 981px) and (max-width: 1199px) {
+        .content { padding: 24px 20px; }
+        .shell { grid-template-columns: 218px minmax(0, 1fr); }
+        .thumb { height: 48px; width: 48px; }
+        .admin-layout { grid-template-columns: minmax(0, 1fr); }
+        .admin-create, .admin-list { grid-column: auto; grid-row: auto; }
+        .application-filters:has([data-filter="releasePublication"]) { grid-template-columns: 1fr 1fr; }
+      }
       @media (max-width: 980px) {
-        .applications-active .sidebar { min-width: 0; gap: 8px; }
-        .applications-active .nav { display: flex; overflow-x: auto; max-width: 100%; gap: 8px; padding-bottom: 4px; }
-        .applications-active .nav-title { display: none; }
-        .applications-active .nav button { width: auto; flex: 0 0 auto; min-height: 44px; }
-        .applications-active .sidebar > #refreshButton,
-        .applications-active .sidebar > #logoutButton { display: none; }
-        .applications-active .sidebar .brand { min-width: 0; }
+        .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+        .sidebar { height: auto; position: static; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; border-right: 0; border-bottom: 1px solid var(--border); padding: 16px; }
+        .admin-identity { border: 0; padding: 0; align-self: center; text-align: right; max-width: 240px; gap: 2px; }
+        .sidebar-actions { grid-column: 1 / -1; display: flex; border: 0; padding: 0; order: 1; }
+        .sidebar-actions button { min-height: 44px; }
+        .nav { grid-column: 1 / -1; display: flex; overflow-x: auto; max-width: 100%; gap: 6px; padding: 3px 3px 7px; order: 2; }
+        .nav-title { display: none; }
+        .nav button { width: auto; flex: 0 0 auto; }
+        .content, .content.content-bounded { height: auto; overflow: visible; padding: 24px; }
+        .content.content-bounded #view, .split-dashboard { height: auto; overflow: visible; }
+        .split-panel { max-height: none; overflow: visible; }
+        .split-form-panel, .scroll-region { overflow: visible; padding-right: 0; }
+        .grid.two { grid-template-columns: minmax(0, 1fr); }
+        .grid.two > .panel + .panel { border-top: 1px solid var(--border); padding-top: 24px; }
+        .admin-layout { grid-template-columns: minmax(0, 1fr); }
+        .admin-create, .admin-list { grid-column: auto; grid-row: auto; }
       }
       @media (max-width: 680px) {
-        .application-filters, .application-fields { grid-template-columns: minmax(0, 1fr); }
-        .applications-workspace .toolbar { gap: 12px; }
-        .applications-active .shell { min-width: 0; }
+        .content, .content.content-bounded { padding: 20px 16px 32px; gap: 20px; }
+        h1 { font-size: 23px; }
+        .topbar, .toolbar { align-items: stretch; flex-direction: column; }
+        .topbar { gap: 8px; padding-bottom: 16px; }
+        .toolbar > input, .toolbar > select { flex: auto; width: 100%; }
+        .sidebar .brand-title { font-size: 13px; }
+        .sidebar .logo { width: 36px; height: 36px; flex-basis: 36px; }
+        .admin-identity { max-width: 124px; }
+        .admin-name { font-size: 12px; }
+        .role-badge { font-size: 11px; }
+        .item { grid-template-columns: 48px minmax(0, 1fr); gap: 12px; }
+        .thumb { height: 48px; width: 48px; }
+        .item .actions { grid-column: 1 / -1; }
+        .form-row, .application-filters, .application-filters:has([data-filter="releasePublication"]), .application-fields { grid-template-columns: minmax(0, 1fr); }
+        .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+        .stat { padding: 14px; }
+        .stat-value { font-size: 26px; }
+        .grid.three { grid-template-columns: minmax(0, 1fr); }
+        .admin-account { padding: 16px; }
+        .admin-account .account-dates { grid-template-columns: minmax(0, 1fr); }
+        input, select, textarea { font-size: 16px; }
       }
-
-      @media (max-width: 980px) {
-        .content.content-bounded {
-          display: grid;
-          height: auto;
-          overflow: visible;
-        }
-
-        .content.content-bounded #view,
-        .split-dashboard {
-          height: auto;
-          overflow: visible;
-        }
-
-        .split-panel {
-          max-height: none;
-          overflow: visible;
-        }
-
-        .split-form-panel,
-        .scroll-region {
-          overflow: visible;
-          padding-right: 0;
-        }
-
-        .shell {
-          grid-template-columns: 1fr;
-        }
-
-        .sidebar {
-          height: auto;
-          position: static;
-        }
-
-        .nav {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .stats,
-        .grid.three,
-        .grid.two {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      @media (max-width: 680px) {
-        .shell {
-          padding: 12px;
-        }
-
-        .topbar,
-        .toolbar {
-          align-items: stretch;
-          flex-direction: column;
-        }
-
-        .item {
-          grid-template-columns: 56px minmax(0, 1fr);
-        }
-
-        .thumb {
-          height: 56px;
-          width: 56px;
-        }
-
-        .item .actions {
-          grid-column: 1 / -1;
-        }
-
-        .form-row,
-        .nav {
-          grid-template-columns: 1fr;
-        }
-      }
+      @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
     </style>
   </head>
   <body>
@@ -548,7 +239,7 @@
           <label>Password<input id="loginPassword" type="password" autocomplete="current-password" /></label>
           <label><input id="recoveryLogin" type="checkbox" /> Emergency break-glass recovery</label>
           <button type="submit">Sign in</button>
-          <p id="loginStatus" class="status-line"></p>
+          <p id="loginStatus" class="status-line" role="status" aria-live="polite"></p>
         </form>
       </section>
     </main>
@@ -559,12 +250,15 @@
           <img class="logo" src="/app-assets/images/tesohub-music.png" alt="" />
           <div>
             <div class="brand-title">TesoHub Music</div>
-            <p id="adminRole" class="muted">Admin Console V1</p>
+            <p class="muted">Admin Console</p>
           </div>
         </div>
-        <nav class="nav" id="nav"></nav>
+        <div id="adminRole" class="admin-identity">Admin Console V1</div>
+        <nav class="nav" id="nav" aria-label="Admin sections"></nav>
+        <div class="sidebar-actions">
         <button id="refreshButton" class="secondary" type="button">Refresh data</button>
         <button id="logoutButton" class="ghost" type="button">Logout</button>
+        </div>
       </aside>
 
       <section class="content">
@@ -573,7 +267,7 @@
             <h1 id="viewTitle">Dashboard</h1>
             <p id="viewSubtitle" class="subtitle">Real backend data only</p>
           </div>
-          <p id="status" class="status-line"></p>
+          <p id="status" class="status-line" role="status" aria-live="polite"></p>
         </div>
         <section id="view"></section>
       </section>
@@ -684,6 +378,41 @@
       const adminRoleEl = document.getElementById("adminRole");
       const boundedViews = new Set(["artists", "catalog", "discovery", "genres"]);
       const scrollMemory = {};
+      const listPages = new Map();
+      const listPageSize = 25;
+
+      function pagedList(key, rows, item, empty = '<p class="empty">No records yet.</p>', signature = JSON.stringify(state.filters)) {
+        const previous = listPages.get(key);
+        const page = previous?.signature === signature ? previous.page : 0;
+        const entry = {rows, item, empty, signature, page: Math.min(page, Math.max(0, Math.ceil(rows.length / listPageSize) - 1))};
+        listPages.set(key, entry);
+        return `<div class="paged-collection" data-page-list="${key}">${pageContents(key, entry)}</div>`;
+      }
+
+      function pageContents(key, entry) {
+        const {rows, item, empty, page} = entry;
+        if (!rows.length) return empty;
+        const start = page * listPageSize, end = Math.min(start + listPageSize, rows.length);
+        const controls = rows.length > listPageSize ? `<nav class="page-controls" aria-label="${key.replaceAll("-", " ")} pages">
+          <p class="meta" role="status">${start + 1}-${end} of ${number(rows.length)}</p>
+          <button class="secondary" type="button" data-page-key="${key}" data-page-step="-1" ${page === 0 ? "disabled" : ""}>Previous</button>
+          <button class="secondary" type="button" data-page-key="${key}" data-page-step="1" ${end >= rows.length ? "disabled" : ""}>Next</button>
+          </nav>` : "";
+        return controls + rows.slice(start, end).map(item).join("");
+      }
+
+      function changeListPage(button) {
+        const key = button.dataset.pageKey, entry = listPages.get(key);
+        if (!entry) return;
+        entry.page = Math.max(0, Math.min(entry.page + Number(button.dataset.pageStep), Math.ceil(entry.rows.length / listPageSize) - 1));
+        const region = document.querySelector(`[data-page-list="${key}"]`);
+        if (!region) return;
+        region.innerHTML = pageContents(key, entry);
+        region.closest(".scroll-region")?.scrollTo({top: 0});
+        const controls = region.querySelector(".page-controls");
+        controls?.scrollIntoView({block:"nearest"});
+        (region.querySelector(`[data-page-step="${button.dataset.pageStep}"]:not(:disabled)`) || region.querySelector(".page-controls button:not(:disabled)"))?.focus({preventScroll:true});
+      }
       const viewPermissions = {
         dashboard: ["artists", "catalog", "releases", "reports"],
         applications: ["applications"], releases: ["releases"], catalog: ["catalog"],
@@ -732,7 +461,7 @@
         const status = String(value || "unknown");
         const tone = ["approved", "published", "active", "resolved"].includes(status)
           ? "ok"
-          : ["rejected", "removed", "suspended", "dismissed"].includes(status)
+          : ["rejected", "removed", "suspended", "dismissed", "disabled"].includes(status)
             ? "danger"
             : ["pending", "under_review", "scheduled", "reviewing", "hidden"].includes(status)
               ? "warn"
@@ -953,6 +682,10 @@
       }
 
       function renderNav() {
+        const scrollTop = navEl.scrollTop || 0, scrollLeft = navEl.scrollLeft || 0;
+        if (state.admin) {
+          adminRoleEl.innerHTML = `<span class="admin-name">${escapeHtml(state.admin.display_name || state.admin.username)}</span><span class="role-badge">${escapeHtml(adminRoleLabel(state.admin.role))}</span>`;
+        }
         navEl.innerHTML = views
           .filter(([key]) => canView(key))
           .map(([key, label], index) => {
@@ -967,9 +700,20 @@
                     : key === "settings"
                       ? '<div class="nav-title">System</div>'
                       : "";
-            return `${title}${sectionTitle}<button class="${state.activeView === key ? "active" : "secondary"}" data-view="${key}" type="button">${label}</button>`;
+            return `${title}${sectionTitle}<button class="${state.activeView === key ? "active" : "secondary"}" ${state.activeView === key ? 'aria-current="page"' : ""} data-view="${key}" type="button">${label}</button>`;
           })
           .join("");
+        navEl.scrollTop = scrollTop;
+        navEl.scrollLeft = scrollLeft;
+        const active = navEl.querySelector?.('[aria-current="page"]');
+        if (active) {
+          // Scroll only the navigation region, never the review/form underneath it.
+          const item = active.getBoundingClientRect(), region = navEl.getBoundingClientRect();
+          if (item.top < region.top) navEl.scrollTop += item.top - region.top;
+          else if (item.bottom > region.bottom) navEl.scrollTop += item.bottom - region.bottom;
+          if (item.left < region.left) navEl.scrollLeft += item.left - region.left;
+          else if (item.right > region.right) navEl.scrollLeft += item.right - region.right;
+        }
       }
 
       function setView(view) {
@@ -1041,9 +785,17 @@
       }
 
       function renderPreservingScroll() {
+        const focused = document.activeElement;
+        const filter = focused?.dataset?.filter;
+        const selection = filter ? [focused.selectionStart, focused.selectionEnd] : null;
         rememberScrollPositions();
         render();
         restoreScrollPositions();
+        if (filter) {
+          const replacement = document.querySelector(`[data-filter="${filter}"]`);
+          replacement?.focus({ preventScroll: true });
+          if (selection[0] !== null && typeof selection[0] === "number") replacement?.setSelectionRange(...selection);
+        }
       }
 
       function renderDashboard() {
@@ -1070,7 +822,7 @@
                 </div>`)
               .join("")}
           </div>
-          <div class="grid three">
+          <section><h2 class="section-heading">Quick access</h2><div class="grid three">
             ${quickCard("Review Artist Applications", "applications")}
             ${quickCard("Review Releases", "releases")}
             ${quickCard("Manage Catalog", "catalog")}
@@ -1078,7 +830,7 @@
             ${quickCard("Support Tickets", "support")}
             ${quickCard("Platform Settings", "settings")}
             ${quickCard("Platform Health", "health")}
-          </div>
+          </div></section>
           ${state.health?.warnings?.length ? `
             <section class="panel">
               <h2>Storage Warning</h2>
@@ -1090,13 +842,11 @@
       function quickCard(label, view) {
         if (!canView(view)) return "";
         return `
-          <section class="panel">
-            <h2>${label}</h2>
-            <p class="subtitle">Open this operational area.</p>
-            <div class="actions" style="margin-top: 12px;">
-              <button data-view="${view}" type="button">Open</button>
-            </div>
-          </section>`;
+          <button class="shortcut" data-view="${view}" type="button"><span>${label}</span><span aria-hidden="true">&rarr;</span></button>`;
+      }
+
+      function adminRoleLabel(role) {
+        return {super_admin:"Super Admin", content_admin:"Content Admin", moderator:"Moderator", support_admin:"Support Admin"}[role] || "Unknown role";
       }
 
       function renderApplications() {
@@ -1135,7 +885,7 @@
 
       function applicationResultsHtml() {
         const rows = applicationRows();
-        return rows.length ? rows.map(applicationItem).join("") : `<p class="empty" role="status">${state.applications.length ? "No applications match your search or status filter." : "No artist applications have been submitted yet."}</p>`;
+        return rows.length ? pagedList("applications", rows, applicationItem) : `<p class="empty" role="status">${state.applications.length ? "No applications match your search or status filter." : "No artist applications have been submitted yet."}</p>`;
       }
 
       function updateApplicationResults() {
@@ -1152,8 +902,8 @@
             ${application.photo ? `<img class="thumb" src="${escapeHtml(application.photo)}" alt="" loading="lazy" />` : '<div class="thumb" aria-hidden="true"></div>'}
             <div>
               <div class="item-title">${escapeHtml(application.artist_name || "Unnamed artist")}</div>
-              <p class="meta">Applicant: ${escapeHtml(application.applicant?.name || application.contact_name || "Account unavailable")}<br />${escapeHtml(application.applicant?.email || application.email)}</p>
-              <div class="details">${badge(application.status)}<br />Submitted: ${formatDate(application.created_at)} | Updated: ${formatDate(application.updated_at || application.created_at)}<br />${escapeHtml(application.genre)} | ${escapeHtml([application.region, application.country].filter(Boolean).join(", "))}<br />${escapeHtml((application.bio || "").slice(0, 180))}</div>
+              <p class="meta">Applicant: ${escapeHtml(application.applicant?.name || application.contact_name || "Account unavailable")} | ${escapeHtml(application.genre)}</p>
+              <div class="details">${badge(application.status)} <span class="meta">Submitted ${formatDate(application.created_at)}</span></div>
             </div>
             <div class="actions"><button class="secondary" data-action="review-application" data-id="${application.id}" type="button">Review</button></div>
           </article>`;
@@ -1192,20 +942,22 @@
         const canAct = ["pending", "changes_requested"].includes(row.status);
         const busy = pendingApplicationReviews.has(String(row.id));
         viewEl.innerHTML = `<section class="applications-workspace">${header}
-          <h2 style="margin-top:16px;">${escapeHtml(row.artist_name)}</h2><p class="details">${badge(row.status)}</p>
+          <div class="review-identity">
           ${row.photo ? `<img class="thumb" src="${escapeHtml(row.photo)}" alt="Submitted artist photo" />` : ""}
+          <div><h2>${escapeHtml(row.artist_name)}</h2><p class="details">${badge(row.status)}</p></div></div>
+          <h3>Application details</h3>
           <dl class="application-fields">
           ${field("Applicant", row.applicant?.name || row.contact_name)}${field("Account", row.applicant ? `${row.applicant.email || "Account"} (#${row.listener})` : "Account unavailable")}
           ${field("Contact name", row.contact_name)}${field("Contact email", row.email)}${field("Phone", row.phone)}${field("Location", [row.region, row.country].filter(Boolean).join(", "))}
           ${field("Genre", row.genre)}${field("Genre note", row.genre_note)}${field("Biography", row.bio)}${field("Social link", row.social_link)}
           ${field("Information confirmed genuine", row.genuine_confirmed ? "Yes" : "No")}${field("Linked artist", row.artist ? `${row.artist.name} (#${row.artist.id})` : "Not linked")}
           ${field("Submitted", row.created_at)}${field("Last updated", row.updated_at || row.created_at)}${field("Last reviewed", row.reviewed_at)}${field("Reviewed by", row.reviewed_by)}${field("Review reason", row.review_reason || row.rejection_reason)}
-          </dl><h3>Review history</h3><ol class="application-history details"><li>Submitted: ${escapeHtml(row.created_at)}</li>
-          ${row.history.map((entry) => `<li>${escapeHtml(entry.action.replaceAll("_", " "))}: ${escapeHtml(entry.at)}<br />${escapeHtml(entry.admin_user || "Configured Admin")} (${escapeHtml(entry.admin_role || "Role not recorded")})${entry.reason ? `<br />${escapeHtml(entry.reason)}` : ""}</li>`).join("")}</ol>
-          ${canAct ? `<label>Review reason (required for rejection or changes)<textarea id="applicationReviewReason" ${busy ? "disabled" : ""}></textarea></label><div class="actions" style="margin-top:12px;">
+          </dl><h3>Review history</h3><div class="application-history details"><p>Submitted: ${escapeHtml(row.created_at)}</p>
+          ${pagedList(`application-history-${row.id}`, row.history, (entry) => `<div class="history-entry">${escapeHtml(entry.action.replaceAll("_", " "))}: ${escapeHtml(entry.at)}<br />${escapeHtml(entry.admin_user || "Configured Admin")} (${escapeHtml(entry.admin_role || "Role not recorded")})${entry.reason ? `<br />${escapeHtml(entry.reason)}` : ""}</div>`)}</div>
+          ${canAct ? `<section class="review-decision"><h3>Review decision</h3><label>Review reason (required for rejection or changes)<textarea id="applicationReviewReason" ${busy ? "disabled" : ""}></textarea></label><div class="actions" style="margin-top:12px;">
           <button data-action="approve-application" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Approve</button>
           <button class="secondary" data-action="changes-application" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Request changes</button>
-          <button class="danger" data-action="reject-application" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Reject</button></div>` : ""}</section>`;
+          <button class="danger" data-action="reject-application" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Reject</button></div></section>` : ""}</section>`;
       }
 
       async function reviewApplication(action, id) {
@@ -1262,7 +1014,7 @@
           (!publication || (row.publication?.candidate && (publication === "approved_scheduled" || (publication === "eligible" ? row.publication.eligible : row.publication.timing === publication)))) &&
           (!search || [row.title, row.artist_name].some((value) => String(value || "").toLowerCase().includes(search))))
           .sort((a,b) => Number(b.status === "under_review") - Number(a.status === "under_review") || String(b.submitted_at || b.created_at || "").localeCompare(String(a.submitted_at || a.created_at || "")));
-        results.innerHTML = rows.length ? rows.map(releaseItem).join("") : `<p class="empty" role="status">${state.releases.length ? "No releases match your search or status filter." : "No releases have been submitted yet."}</p>`;
+        results.innerHTML = rows.length ? pagedList("releases", rows, releaseItem) : `<p class="empty" role="status">${state.releases.length ? "No releases match your search or status filter." : "No releases have been submitted yet."}</p>`;
         document.getElementById("releaseCount").textContent = `${rows.length} of ${state.releases.length} releases`;
       }
 
@@ -1299,14 +1051,16 @@
         }
         const row = state.releaseDetail;
         const field = (label,value) => `<div><dt>${label}</dt><dd>${escapeHtml(value || "Not provided")}</dd></div>`;
-        viewEl.innerHTML = `<section class="applications-workspace">${header}<h2>${escapeHtml(row.title)}</h2><p class="details">${escapeHtml(row.artist_name)} ${badge(row.status)}</p>
+        viewEl.innerHTML = `<section class="applications-workspace">${header}<div class="review-identity">
           ${row.cover_image ? `<img class="release-artwork" src="${escapeHtml(row.cover_image)}" alt="Submitted artwork" />` : ""}
+          <div><h2>${escapeHtml(row.title)}</h2><p class="details">${escapeHtml(row.artist_name)} ${badge(row.status)}</p></div></div>
+          <h3>Audio preview</h3>
           ${row.audio_file ? `<div><audio id="releaseAudio" controls preload="metadata" src="${escapeHtml(row.audio_file)}"></audio><p id="releaseAudioStatus" class="meta" role="status">Ready to preview</p><button class="secondary" data-action="retry-release-audio" type="button" hidden>Retry audio</button></div>` : '<p class="details">No audio uploaded.</p>'}
           <dl class="application-fields">${field("Type",row.release_type)}${field("Featured artist",row.featured_artist)}${field("Genre",row.genre)}${field("Genre note",row.genre_note)}${field("Language",row.language)}${field("Explicit",row.explicit ? "Yes" : "No")}${field("Release date (UTC)",row.release_date)}${field("Submitted",row.submitted_at)}${field("Producer",row.producer)}${field("Songwriter",row.songwriter)}${field("Description",row.description)}${field("Rights confirmed",row.rights_confirmed ? "Yes" : "No")}${field("Artist linkage",`${row.artist_name} (#${row.artist})`)}${field("Submitting account",row.listener ? `${row.listener.name} (#${row.listener.id})` : "Account unavailable")}${field("Active ownership linkage",row.linkage_valid ? "Verified" : "Needs attention")}${field("Approved",row.approved_at)}${field("Published",row.published_at)}${field("Last updated",row.updated_at)}${field("Review reason",row.review_reason || row.rejection_reason)}</dl>
-          ${publicationSummary(row)}<h3>Review history</h3><ol class="application-history details">${row.history.map((entry) => `<li>${escapeHtml(entry.action.replaceAll("_", " "))}: ${escapeHtml(entry.at)}<br />${escapeHtml(entry.admin_user)}${entry.reason ? `<br />${escapeHtml(entry.reason)}` : ""}</li>`).join("") || "<li>No review decisions yet.</li>"}</ol>
-          ${["under_review","scheduled"].includes(row.status) ? `<label>Review reason (required for rejection or changes)<textarea id="releaseReviewReason" ${busy ? "disabled" : ""}></textarea></label><div class="actions" style="margin-top:12px;">
+          ${publicationSummary(row)}<h3>Review history</h3><div class="application-history details">${pagedList(`release-history-${row.id}`, row.history, (entry) => `<div class="history-entry">${escapeHtml(entry.action.replaceAll("_", " "))}: ${escapeHtml(entry.at)}<br />${escapeHtml(entry.admin_user)}${entry.reason ? `<br />${escapeHtml(entry.reason)}` : ""}</div>`, '<p>No review decisions yet.</p>')}</div>
+          ${["under_review","scheduled"].includes(row.status) ? `<section class="review-decision"><h3>Review decision</h3><label>Review reason (required for rejection or changes)<textarea id="releaseReviewReason" ${busy ? "disabled" : ""}></textarea></label><div class="actions" style="margin-top:12px;">
           ${row.status === "under_review" ? `<button data-action="approve-release" data-id="${row.id}" ${busy || !row.linkage_valid ? "disabled" : ""} type="button">Approve</button>` : ""}
-          <button class="secondary" data-action="changes-release" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Request changes</button><button class="danger" data-action="reject-release" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Reject</button></div><p id="releaseSaving" role="status">${busy ? "Saving review..." : ""}</p>` : ""}</section>`;
+          <button class="secondary" data-action="changes-release" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Request changes</button><button class="danger" data-action="reject-release" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Reject</button></div><p id="releaseSaving" role="status">${busy ? "Saving review..." : ""}</p></section>` : ""}</section>`;
         const audio = document.getElementById("releaseAudio");
         if (audio) for (const [event, message] of Object.entries({loadstart:"Loading audio...",waiting:"Buffering...",stalled:"Buffering...",canplay:"Ready to preview",playing:"Playing",pause:"Paused",ended:"Preview ended",error:"Audio could not load. Retry or refresh your Admin session."})) {
           audio.addEventListener(event, () => {
@@ -1348,12 +1102,16 @@
       }
 
       function artistOptions(selectedId) {
-        return [
-          '<option value="">Choose artist</option>',
-          ...state.artists
-            .filter((artist) => artist.status !== "removed")
-            .map((artist) => `<option value="${artist.id}" ${String(artist.id) === String(selectedId) ? "selected" : ""}>${escapeHtml(artist.name)}</option>`),
-        ].join("");
+        return artistChoiceOptions(selectedId, "");
+      }
+
+      function artistChoiceOptions(selectedId, query) {
+        const eligible = state.artists.filter(artist => artist.status !== "removed");
+        const matches = eligible.filter(artist => artist.name.toLowerCase().includes(query.trim().toLowerCase()));
+        const choices = matches.slice(0, listPageSize);
+        const selected = eligible.find(artist => String(artist.id) === String(selectedId));
+        if (selected && !choices.includes(selected)) choices.push(selected);
+        return '<option value="">Choose artist</option>' + choices.map(artist => `<option value="${artist.id}" ${String(artist.id) === String(selectedId) ? "selected" : ""}>${escapeHtml(artist.name)}</option>`).join("");
       }
 
       function genreOptions(selectedGenre) {
@@ -1376,10 +1134,7 @@
           is_featured: false,
           status: "published",
         };
-        const query = state.filters.catalogSearch.toLowerCase();
-        const rows = state.songs
-          .filter((song) => !state.filters.catalogStatus || song.status === state.filters.catalogStatus)
-          .filter((song) => !query || [song.title, song.artist_name, song.genre].join(" ").toLowerCase().includes(query));
+        const rows = catalogRows();
 
         viewEl.innerHTML = `
           <div class="grid two split-dashboard">
@@ -1387,7 +1142,9 @@
               <form id="songForm" class="form">
                 <h2>${state.editingSongId ? "Edit song" : "Add song"}</h2>
                 <label>Title<input name="title" value="${escapeHtml(editing.title)}" required /></label>
+                <label>Find artist<input type="search" data-artist-options placeholder="Search artist names" /></label>
                 <label>Artist<select name="artist" required>${artistOptions(editing.artist)}</select></label>
+                <p class="muted">Up to 25 matching artists, plus the current selection.</p>
                 <div class="form-row">
                   <label>Genre<select name="genre">${genreOptions(editing.genre)}</select></label>
                   <label>Status<select name="status">${songStatuses.map((status) => `<option ${editing.status === status ? "selected" : ""}>${status}</option>`).join("")}</select></label>
@@ -1411,15 +1168,15 @@
             <section class="panel split-panel split-list-panel">
               <div class="split-list-header">
                 <div class="toolbar">
-                  <h2>Songs - ${rows.length}</h2>
+                  <h2 id="catalogListCount">Songs - ${rows.length}</h2>
                   <div class="actions">
-                    <input data-filter="catalogSearch" placeholder="Search songs, artists, genres" value="${escapeHtml(state.filters.catalogSearch)}" />
+                    <input aria-label="Search catalog" data-filter="catalogSearch" placeholder="Search songs, artists, genres" value="${escapeHtml(state.filters.catalogSearch)}" />
                     ${select("catalogStatus", state.filters.catalogStatus, ["", ...songStatuses], "All statuses")}
                   </div>
                 </div>
               </div>
-              <div class="list scroll-region" data-scroll-key="catalog-list">
-                ${rows.length ? rows.map(songItem).join("") : '<p class="empty">No songs match this filter.</p>'}
+              <div id="catalogResults" class="list scroll-region" data-scroll-key="catalog-list">
+                ${rows.length ? pagedList("catalog", rows, songItem) : '<p class="empty">No songs match this filter.</p>'}
               </div>
             </section>
           </div>`;
@@ -1438,14 +1195,16 @@
                 ${number(song.like_count)} likes
               </div>
               <div class="details">${badge(song.status)} ${song.is_featured ? badge("featured") : ""}</div>
-              ${song.audio_file ? `<audio controls preload="metadata" src="${escapeHtml(song.audio_file)}"></audio>` : ""}
+              ${song.release_date ? `<p class="meta">Released ${formatDate(song.release_date)}</p>` : ""}
             </div>
+            <details class="row-menu"><summary>Actions / preview</summary>
+            ${song.audio_file ? `<audio controls preload="none" src="${escapeHtml(song.audio_file)}"></audio>` : ""}
             <div class="actions">
               <button class="secondary" data-action="edit-song" data-id="${song.id}" type="button">Edit</button>
               ${can("discovery") ? (song.is_featured ? `<button class="secondary" data-action="unfeature-song" data-id="${song.id}" type="button">Unfeature</button>` : `<button data-action="feature-song" data-id="${song.id}" type="button">Feature</button>`) : ""}
               ${song.status === "published" ? `<button class="secondary" data-action="hide-song" data-id="${song.id}" type="button">Hide</button>` : `<button class="secondary" data-action="restore-song" data-id="${song.id}" type="button">Restore</button>`}
               <button class="danger" data-action="remove-song" data-id="${song.id}" type="button">Remove</button>
-            </div>
+            </div></details>
           </article>`;
       }
 
@@ -1482,10 +1241,12 @@
             </section>
             <section class="panel split-panel split-list-panel">
               <div class="split-list-header">
-                <h2>Artists - ${state.artists.length}</h2>
+                <h2 id="artistListCount">Artists - ${artistRows().length}</h2>
+                <label>Search artists<input data-filter="artistSearch" value="${escapeHtml(state.filters.artistSearch || "")}" placeholder="Artist name" /></label>
+                <label>Status${select("artistStatus", state.filters.artistStatus || "", ["", "active", "suspended", "removed"], "All statuses")}</label>
               </div>
-              <div class="list scroll-region" data-scroll-key="artists-list">
-                ${state.artists.length ? state.artists.map(artistItem).join("") : '<p class="empty">No artists yet.</p>'}
+              <div id="artistResults" class="list scroll-region" data-scroll-key="artists-list">
+                ${state.artists.length ? pagedList("artists", artistRows(), artistItem) : '<p class="empty">No artists yet.</p>'}
               </div>
             </section>
           </div>`;
@@ -1504,11 +1265,11 @@
               </div>
               <div class="details">${badge(artist.status)} ${artist.is_featured ? badge("featured") : ""}</div>
             </div>
-            <div class="actions">
+            <details class="row-menu"><summary>Actions</summary><div class="actions">
               <button class="secondary" data-action="edit-artist" data-id="${artist.id}" type="button">Edit</button>
               ${can("discovery") ? (artist.is_featured ? `<button class="secondary" data-action="unfeature-artist" data-id="${artist.id}" type="button">Unfeature</button>` : `<button data-action="feature-artist" data-id="${artist.id}" type="button">Feature</button>`) : ""}
               ${artist.status === "suspended" || artist.status === "removed" ? `<button class="secondary" data-action="restore-artist" data-id="${artist.id}" type="button">Restore</button>` : `<button class="danger" data-action="suspend-artist" data-id="${artist.id}" type="button">Suspend</button>`}
-            </div>
+            </div></details>
           </article>`;
       }
 
@@ -1523,13 +1284,13 @@
             <div class="toolbar">
               <h2>Users</h2>
               <div class="actions">
-                <input data-filter="userSearch" placeholder="Search name, email, phone, ID" value="${escapeHtml(state.filters.userSearch)}" />
+                <input aria-label="Search users" data-filter="userSearch" placeholder="Search name, email, phone, ID" value="${escapeHtml(state.filters.userSearch)}" />
                 ${select("userRole", state.filters.userRole, ["", "listener", "artist_pending", "artist"], "All roles")}
                 ${select("userStatus", state.filters.userStatus, ["", ...userStatuses], "All statuses")}
               </div>
             </div>
             <div class="list" style="margin-top: 12px;">
-              ${rows.length ? rows.map(userItem).join("") : '<p class="empty">No users match this filter.</p>'}
+              ${rows.length ? pagedList("users", rows, userItem) : '<p class="empty">No users match this filter.</p>'}
             </div>
           </section>`;
       }
@@ -1587,13 +1348,13 @@
                   <button class="secondary" data-action="refresh-support" type="button">Refresh</button>
                 </div>
                 <div class="actions" style="margin-top: 10px;">
-                  <input data-filter="supportSearch" placeholder="Search tickets, users, subjects" value="${escapeHtml(state.filters.supportSearch)}" />
+                  <input aria-label="Search support tickets" data-filter="supportSearch" placeholder="Search tickets, users, subjects" value="${escapeHtml(state.filters.supportSearch)}" />
                   ${select("supportStatus", state.filters.supportStatus, ["", ...supportStatuses], "All statuses")}
                   ${select("supportCategory", state.filters.supportCategory, ["", ...supportCategories], "All categories")}
                 </div>
               </div>
               <div class="list scroll-region" data-scroll-key="support-list">
-                ${rows.length ? rows.map(supportTicketItem).join("") : '<p class="empty">No support tickets match this filter.</p>'}
+                ${rows.length ? pagedList("support", rows, supportTicketItem) : '<p class="empty">No support tickets match this filter.</p>'}
               </div>
             </section>
             <section class="panel split-panel split-form-panel">
@@ -1617,8 +1378,8 @@
                 ${badge(ticket.status)} ${badge(ticket.priority)}
                 ${ticket.assigned_to ? `<br />Assigned to: ${escapeHtml(ticket.assigned_to)}` : ""}
                 <br />Updated: ${formatDate(ticket.updated_at)} | Messages: ${number(ticket.message_count)}
-                <br />${escapeHtml(ticket.message || "")}
               </div>
+              <p class="meta">${escapeHtml((ticket.message || "").slice(0, 120))}</p>
             </div>
             <div class="actions">
               <button data-action="open-support" data-id="${ticket.id}" type="button">Open</button>
@@ -1661,18 +1422,18 @@
             <section>
               <h3>Public conversation</h3>
               <div class="list" style="margin-top: 10px;">
-                ${(ticket.messages || []).map(supportMessageItem).join("") || '<p class="empty">No messages yet.</p>'}
+                ${pagedList(`messages-${ticket.id}`, ticket.messages || [], supportMessageItem, '<p class="empty">No messages yet.</p>') || '<p class="empty">No messages yet.</p>'}
               </div>
             </section>
 
             ${ticket.status === "closed" ? '<p class="details">Closed tickets cannot receive public replies.</p>' : `
-              <form id="supportReplyForm" class="form" data-ticket-id="${ticket.id}">
+              <form id="supportReplyForm" class="form support-public" data-ticket-id="${ticket.id}">
                 <h3>Public reply</h3>
                 <label>Message<textarea name="message" placeholder="Visible to the user"></textarea></label>
                 <button type="submit">Send Public Reply</button>
               </form>`}
 
-            <form id="supportNoteForm" class="form" data-ticket-id="${ticket.id}">
+            <form id="supportNoteForm" class="form support-internal" data-ticket-id="${ticket.id}">
               <h3>Internal note</h3>
               <label>Note<textarea name="note" placeholder="Only admins/support staff can see this"></textarea></label>
               <button class="secondary" type="submit">Add Internal Note</button>
@@ -1681,7 +1442,7 @@
             <section>
               <h3>Internal notes</h3>
               <div class="list" style="margin-top: 10px;">
-                ${(ticket.internal_notes || []).map(supportNoteItem).join("") || '<p class="empty">No internal notes yet.</p>'}
+                ${pagedList(`notes-${ticket.id}`, ticket.internal_notes || [], supportNoteItem, '<p class="empty">No internal notes yet.</p>') || '<p class="empty">No internal notes yet.</p>'}
               </div>
             </section>
           </div>`;
@@ -1723,7 +1484,7 @@
               ${select("reportStatus", state.filters.reportStatus, ["", ...reportStatuses], "All statuses")}
             </div>
             <div class="list" style="margin-top: 12px;">
-              ${rows.length ? rows.map(reportItem).join("") : '<p class="empty">No reports yet.</p>'}
+              ${rows.length ? pagedList("reports", rows, reportItem) : '<p class="empty">No reports yet.</p>'}
             </div>
           </section>`;
       }
@@ -1754,7 +1515,7 @@
                 <p class="subtitle">Curated home content. This is separate from real trending statistics.</p>
               </div>
               <div class="list scroll-region" data-scroll-key="featured-songs-list">
-                ${featuredSongs.length ? featuredSongs.map(songItem).join("") : '<p class="empty">No featured songs.</p>'}
+                ${featuredSongs.length ? pagedList("featured-songs", featuredSongs, songItem) : '<p class="empty">No featured songs.</p>'}
               </div>
             </section>
             <section class="panel split-panel split-list-panel">
@@ -1763,7 +1524,7 @@
                 <p class="subtitle">Curated artist highlights.</p>
               </div>
               <div class="list scroll-region" data-scroll-key="featured-artists-list">
-                ${featuredArtists.length ? featuredArtists.map(artistItem).join("") : '<p class="empty">No featured artists.</p>'}
+                ${featuredArtists.length ? pagedList("featured-artists", featuredArtists, artistItem) : '<p class="empty">No featured artists.</p>'}
               </div>
             </section>
           </div>`;
@@ -1792,7 +1553,7 @@
                 <h2>Genres - ${state.genres.length}</h2>
               </div>
               <div class="list scroll-region" data-scroll-key="genres-list">
-                ${state.genres.map(genreItem).join("")}
+                ${pagedList("genres", state.genres, genreItem)}
               </div>
             </section>
           </div>`;
@@ -1861,35 +1622,58 @@
           </section>`;
       }
 
+      function artistRows() {
+        const search = (state.filters.artistSearch || "").trim().toLowerCase();
+        return state.artists.filter(artist => (!state.filters.artistStatus || artist.status === state.filters.artistStatus) &&
+          (!search || String(artist.name || "").toLowerCase().includes(search)));
+      }
+
+      function catalogRows() {
+        const query = state.filters.catalogSearch.toLowerCase();
+        return state.songs
+          .filter(song => !state.filters.catalogStatus || song.status === state.filters.catalogStatus)
+          .filter(song => !query || [song.title, song.artist_name, song.genre].join(" ").toLowerCase().includes(query));
+      }
+
+      function updateCollectionResults(kind) {
+        const artists = kind === "artist", rows = artists ? artistRows() : catalogRows();
+        const results = document.getElementById(`${kind}Results`);
+        if (!results) return;
+        results.innerHTML = pagedList(artists ? "artists" : "catalog", rows, artists ? artistItem : songItem, `<p class="empty">No ${artists ? "artists" : "songs"} match this filter.</p>`);
+        document.getElementById(`${kind}ListCount`).textContent = `${artists ? "Artists" : "Songs"} - ${rows.length}`;
+        results.scrollTop = 0;
+      }
+
       function renderAdmins() {
-        const roleOptions = selected => ["super_admin","content_admin","moderator","support_admin"].map(role=>`<option value="${role}" ${selected===role?"selected":""}>${escapeHtml(role.replaceAll("_"," "))}</option>`).join("");
+        const roleOptions = selected => ["super_admin","content_admin","moderator","support_admin"].map(role=>`<option value="${role}" ${selected===role?"selected":""}>${escapeHtml(adminRoleLabel(role))}</option>`).join("");
         const recovery = state.admin.auth_type === "break_glass";
-        const create = !recovery || !state.admins.length ? `<section class="panel"><h2>${recovery ? "Bootstrap owner account" : "Add Admin"}</h2>
+        const create = !recovery || !state.admins.length ? `<section class="panel admin-create"><h2>${recovery ? "Bootstrap owner account" : "Add Admin"}</h2>
           <form class="form" data-admin-form="${recovery ? "bootstrap" : "create"}">
           <label>Display name<input name="display_name" required minlength="2" maxlength="100" autocomplete="off" /></label>
           <label>Login identifier<input name="login_identifier" required minlength="3" maxlength="120" autocomplete="off" /></label>
           ${recovery ? '<input type="hidden" name="role" value="super_admin"><p>First account: Super Admin</p>' : `<label>Role<select name="role">${roleOptions("support_admin")}</select></label>`}
           <label>Initial password<input name="password" type="password" required minlength="15" maxlength="128" autocomplete="new-password" /></label>
           <button type="submit">${recovery ? "Create owner account" : "Add Admin"}</button></form></section>` : "";
-        const rows = state.admins.map(admin=>`<section class="panel"><h2>${escapeHtml(admin.display_name)}</h2>
-          <p>${escapeHtml(admin.login_identifier)} ${badge(admin.active ? "active" : "disabled")}</p>
-          <p class="muted">Created ${formatDate(admin.created_at)} | Last login ${admin.last_login_at ? formatDate(admin.last_login_at) : "Never"}</p>
-          <p class="muted">Permissions: ${escapeHtml(admin.permissions.join(", "))}</p>
-          <form class="form" data-admin-form="access" data-id="${admin.id}"><div class="form-row">
+        const rows = pagedList("admins", state.admins, admin=>`<article class="admin-account"><div class="toolbar"><div><h2>${escapeHtml(admin.display_name)}</h2>
+          <p class="meta">${escapeHtml(admin.login_identifier)}</p><p class="role-badge">${escapeHtml(adminRoleLabel(admin.role))}</p></div>${badge(admin.active ? "active" : "disabled")}</div>
+          <dl class="account-dates"><div><dt>Created</dt><dd>${formatDate(admin.created_at)}</dd></div><div><dt>Last login</dt><dd>${admin.last_login_at ? formatDate(admin.last_login_at) : "Never"}</dd></div></dl>
+          <details><summary>Permissions</summary><p class="details">${escapeHtml(admin.permissions.join(", "))}</p></details>
+          <form class="form account-access" data-admin-form="access" data-id="${admin.id}"><h3>Account access</h3><div class="form-row">
           <input type="hidden" name="expected_updated_at" value="${escapeHtml(admin.updated_at)}" />
           <label>Role<select name="role">${roleOptions(admin.role)}</select></label>
           <label>Status<select name="active"><option value="true" ${admin.active?"selected":""}>Active</option><option value="false" ${!admin.active?"selected":""}>Disabled</option></select></label>
-          </div><button type="submit" class="secondary">Update access</button></form>
+          </div><p class="muted">Role and status changes take effect after Update access. Saving also revokes this Admin's existing sessions.</p><button type="submit" class="secondary">Update access</button></form>
+          <section class="security-actions"><h3>Session &amp; password security</h3>
           <details><summary>Reset password</summary><form class="form" data-admin-form="reset" data-id="${admin.id}">
           <label>New password<input name="password" type="password" required minlength="15" maxlength="128" autocomplete="new-password" /></label>
           <button type="submit" class="danger">Reset password and revoke sessions</button></form></details>
-          <form data-admin-form="revoke" data-id="${admin.id}"><button type="submit" class="ghost">Revoke all sessions</button></form>
-          </section>`).join("");
-        viewEl.innerHTML = `<div class="toolbar"><h2>Admin Management</h2></div>${recovery ? '<p class="status-line">Break-glass recovery. Use an individual account for normal operations.</p>' : ""}${create}${rows || '<p class="empty">No individual Admin accounts yet.</p>'}`;
+          <form data-admin-form="revoke" data-id="${admin.id}"><p class="muted">Revoke signs this Admin out of all active sessions after confirmation. It does not save role or status changes.</p><button type="submit" class="ghost">Revoke all sessions</button></form>
+          </section></article>`, '<p class="empty">No individual Admin accounts yet.</p>');
+        viewEl.innerHTML = `<div class="toolbar"><h2>Admin Management</h2><p class="muted">${state.admins.length} individual accounts</p></div>${recovery ? '<p class="status-line">Break-glass recovery. Use an individual account for normal operations.</p>' : ""}<div class="admin-layout">${create}<div class="admin-list">${rows || '<p class="empty">No individual Admin accounts yet.</p>'}</div></div>`;
       }
 
       function renderSecurity() {
-        viewEl.innerHTML = `<section class="panel"><h2>Change password</h2><form class="form" data-admin-form="password">
+        viewEl.innerHTML = `<section class="panel security-form"><h2>Change password</h2><form class="form" data-admin-form="password">
           <label>Current password<input name="current_password" type="password" required autocomplete="current-password" /></label>
           <label>New password<input name="password" type="password" required minlength="15" maxlength="128" autocomplete="new-password" /></label>
           <p class="muted">Use 15 to 128 characters. All your Admin sessions will be signed out.</p>
@@ -1924,7 +1708,7 @@
               <button class="secondary" data-action="refresh-audit" type="button">Refresh</button>
             </div>
             <div class="list" style="margin-top: 12px;">
-              ${state.audit.length ? state.audit.map(auditItem).join("") : '<p class="empty">No audit entries yet.</p>'}
+              ${state.audit.length ? pagedList("audit", state.audit, auditItem) : '<p class="empty">No audit entries yet.</p>'}
             </div>
           </section>`;
       }
@@ -1946,7 +1730,7 @@
       }
 
       function select(name, value, options, emptyLabel) {
-        return `<select data-filter="${name}">${options
+        return `<select aria-label="${escapeHtml(name.replace(/([A-Z])/g, " $1"))}" data-filter="${name}">${options
           .map((option) => `<option value="${escapeHtml(option)}" ${String(option) === String(value) ? "selected" : ""}>${option ? escapeHtml(option.replaceAll("_", " ")) : escapeHtml(emptyLabel)}</option>`)
           .join("")}</select>`;
       }
@@ -2261,6 +2045,11 @@
       });
 
       document.addEventListener("click", async (event) => {
+        const pageButton = event.target.closest("[data-page-key]");
+        if (pageButton) {
+          changeListPage(pageButton);
+          return;
+        }
         const viewButton = event.target.closest("[data-view]");
         if (viewButton) {
           setView(viewButton.dataset.view);
@@ -2283,20 +2072,30 @@
       });
 
       document.addEventListener("input", (event) => {
+        if (event.target.matches("[data-artist-options]")) {
+          const select = document.querySelector('#songForm select[name="artist"]');
+          select.innerHTML = artistChoiceOptions(select.value, event.target.value);
+          return;
+        }
         const filter = event.target.dataset.filter;
         if (!filter) return;
         state.filters[filter] = event.target.value;
         if (["applicationSearch", "applicationStatus"].includes(filter)) return updateApplicationResults();
         if (["releaseSearch", "releaseStatus", "releasePublication"].includes(filter)) return updateReleaseResults();
+        if (["artistSearch", "artistStatus"].includes(filter)) return updateCollectionResults("artist");
+        if (["catalogSearch", "catalogStatus"].includes(filter)) return updateCollectionResults("catalog");
         renderPreservingScroll();
       });
 
       document.addEventListener("change", (event) => {
         const filter = event.target.dataset.filter;
         if (!filter) return;
+        if (state.filters[filter] === event.target.value) return;
         state.filters[filter] = event.target.value;
         if (["applicationSearch", "applicationStatus"].includes(filter)) return updateApplicationResults();
         if (["releaseSearch", "releaseStatus", "releasePublication"].includes(filter)) return updateReleaseResults();
+        if (["artistSearch", "artistStatus"].includes(filter)) return updateCollectionResults("artist");
+        if (["catalogSearch", "catalogStatus"].includes(filter)) return updateCollectionResults("catalog");
         renderPreservingScroll();
       });
 
