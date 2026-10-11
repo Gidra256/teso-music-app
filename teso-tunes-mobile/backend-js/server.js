@@ -49,8 +49,11 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const ADMIN_TOKEN =
   process.env.ADMIN_TOKEN || crypto.randomBytes(32).toString("hex");
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+const PUBLIC_API_BASE_URL = (
+  process.env.PUBLIC_API_BASE_URL || "https://api.tesohubmusic.com"
+).replace(/\/+$/, "");
 const PUBLIC_MUSIC_WEB_URL = (
-  process.env.PUBLIC_MUSIC_WEB_URL || "https://tesohub-music-pwa.onrender.com"
+  process.env.PUBLIC_MUSIC_WEB_URL || "https://tesohubmusic.com"
 ).replace(/\/+$/, "");
 const PUBLIC_SHARE_BASE_URL = (
   process.env.PUBLIC_SHARE_BASE_URL ||
@@ -94,7 +97,34 @@ const supabasePersistence = createSupabasePersistence({
 
 const app = express();
 app.set("trust proxy", true);
-app.use(cors());
+const CORS_ALLOWED_ORIGINS = new Set([
+  "https://tesohubmusic.com",
+  "https://www.tesohubmusic.com",
+  "https://tesohub-music-pwa.onrender.com",
+  ...String(process.env.CORS_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/+$/, ""))
+    .filter(Boolean),
+]);
+const isAllowedCorsOrigin = (origin) => {
+  if (!origin) return true;
+  if (CORS_ALLOWED_ORIGINS.has(origin.replace(/\/+$/, ""))) return true;
+  try {
+    const url = new URL(origin);
+    return (
+      (url.hostname === "localhost" || url.hostname === "127.0.0.1") &&
+      (url.protocol === "http:" || url.protocol === "https:")
+    );
+  } catch {
+    return false;
+  }
+};
+app.use(cors({
+  credentials: true,
+  origin(origin, callback) {
+    callback(null, isAllowedCorsOrigin(origin));
+  },
+}));
 app.use(perfMetricsMiddleware);
 app.use(express.json({ limit: "2mb" }));
 app.use("/admin-api", (req, res, next) => adminAccounts.middleware(req, res, next));
@@ -802,7 +832,10 @@ function publicPlatformStatus(db) {
 function absoluteUrl(req, value) {
   if (!value) return "";
   if (/^https?:\/\//i.test(value)) return value;
-  const base = PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+  const requestBase = `${req.protocol}://${req.get("host")}`;
+  const base = requestBase === PUBLIC_API_BASE_URL
+    ? PUBLIC_API_BASE_URL
+    : PUBLIC_BASE_URL || requestBase;
   return `${base}${value.startsWith("/") ? value : `/${value}`}`;
 }
 

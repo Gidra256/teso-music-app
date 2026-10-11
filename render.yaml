@@ -19,9 +19,11 @@ services:
       - key: ADMIN_TOKEN
         generateValue: true
       - key: PUBLIC_BASE_URL
-        sync: false
+        value: https://api.tesohubmusic.com
+      - key: PUBLIC_MUSIC_WEB_URL
+        value: https://tesohubmusic.com
       - key: PUBLIC_SHARE_BASE_URL
-        sync: false
+        value: https://tesohubmusic.com
       - key: ANDROID_SHA256_CERT_FINGERPRINTS
         sync: false
       - key: ANDROID_STORE_URL
@@ -47,7 +49,11 @@ services:
       - key: NODE_VERSION
         value: 22.15.1
       - key: EXPO_PUBLIC_MUSIC_API_BASE_URL
-        value: https://teso-music-app.onrender.com/api
+        value: https://api.tesohubmusic.com/api
+      - key: EXPO_PUBLIC_SHARE_BASE_URL
+        value: https://tesohubmusic.com
+      - key: EXPO_PUBLIC_MUSIC_WEB_URL
+        value: https://tesohubmusic.com
     routes:
       - type: rewrite
         source: /*
