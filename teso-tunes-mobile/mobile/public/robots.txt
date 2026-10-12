@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+
+Disallow: /admin
+Disallow: /admin-api
+Disallow: /api
+Disallow: /profile
+Disallow: /settings
+Disallow: /library
+Disallow: /create
+Disallow: /artist-application
+Disallow: /artist-studio
+Disallow: /support/new
+Disallow: /support/tickets
+
+Sitemap: https://tesohubmusic.com/sitemap.xml
