@@ -63,7 +63,19 @@ function createInstallController(win) {
   let pending = false;
   const read = key => { try { return win.localStorage.getItem(key); } catch { return null; } };
   const write = (key, value) => { try { win.localStorage.setItem(key, value); } catch {} };
-  const standalone = win.matchMedia("(display-mode: standalone)");
+  const standalone = typeof win.matchMedia === "function"
+    ? win.matchMedia("(display-mode: standalone)")
+    : { matches: false };
+  const addDisplayListener = typeof standalone.addEventListener === "function"
+    ? () => standalone.addEventListener("change", displayChanged)
+    : typeof standalone.addListener === "function"
+      ? () => standalone.addListener(displayChanged)
+      : () => {};
+  const removeDisplayListener = typeof standalone.removeEventListener === "function"
+    ? () => standalone.removeEventListener("change", displayChanged)
+    : typeof standalone.removeListener === "function"
+      ? () => standalone.removeListener(displayChanged)
+      : () => {};
   let state = { installable: false, installed: standalone.matches || win.navigator.standalone === true || read(INSTALLED_KEY) === "yes", dismissed: Number(read(DISMISS_KEY)) > Date.now(), pending: false, error: "" };
   const emit = patch => { state = { ...state, ...patch }; listeners.forEach(listener => listener()); };
   function dismiss() { write(DISMISS_KEY, String(Date.now() + DISMISS_MS)); emit({ dismissed: true }); }
@@ -80,7 +92,7 @@ function createInstallController(win) {
   win.addEventListener("beforeinstallprompt", beforeInstall);
   win.addEventListener("appinstalled", installed);
   win.addEventListener("storage", storageChanged);
-  standalone.addEventListener?.("change", displayChanged);
+  addDisplayListener();
   return {
     getSnapshot: () => state,
     subscribe: callback => { listeners.add(callback); return () => listeners.delete(callback); },
@@ -103,7 +115,7 @@ function createInstallController(win) {
       win.removeEventListener("beforeinstallprompt", beforeInstall);
       win.removeEventListener("appinstalled", installed);
       win.removeEventListener("storage", storageChanged);
-      standalone.removeEventListener?.("change", displayChanged);
+      removeDisplayListener();
     },
   };
 }

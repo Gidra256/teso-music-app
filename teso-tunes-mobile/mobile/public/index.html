@@ -26,11 +26,52 @@
         flex: 1;
         height: 100%;
       }
+
+      .startup-fallback {
+        align-items: center;
+        box-sizing: border-box;
+        color: #ffffff;
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        font-family: Arial, sans-serif;
+        justify-content: center;
+        padding: 24px;
+        text-align: center;
+      }
+
+      .startup-fallback__title {
+        font-size: 28px;
+        font-weight: 700;
+        margin: 0 0 10px;
+      }
+
+      .startup-fallback__status {
+        color: #20dce5;
+        font-size: 16px;
+        margin: 0 0 12px;
+      }
+
+      .startup-fallback__help {
+        color: #a9afb7;
+        font-size: 13px;
+        line-height: 1.5;
+        margin: 0;
+        max-width: 360px;
+      }
     </style>
   </head>
 
   <body>
     <noscript>You need to enable JavaScript to run TesoHub Music.</noscript>
-    <div id="root"></div>
+    <div id="root">
+      <main class="startup-fallback" role="status" aria-live="polite">
+        <h1 class="startup-fallback__title">TesoHub Music</h1>
+        <p class="startup-fallback__status">Loading...</p>
+        <p class="startup-fallback__help">
+          If this screen remains, this browser may not support the full TesoHub Music app.
+        </p>
+      </main>
+    </div>
   </body>
 </html>

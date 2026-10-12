@@ -85,6 +85,27 @@ test("standalone, appinstalled, cross-tab state, reinstallation and prompt failu
   b.storage.set(INSTALLED_KEY, "yes"); b.handlers.storage(); assert.equal(b.controller.getSnapshot().installed, true);
   b.controller.dispose(); assert.equal(b.handlers.beforeinstallprompt, undefined);
 });
+test("install controller remains usable when matchMedia is unavailable", () => {
+  const handlers = {};
+  const storage = new Map();
+  const win = {
+    navigator: {},
+    localStorage: {
+      getItem: key => storage.get(key),
+      setItem: (key, value) => storage.set(key, value),
+    },
+    addEventListener: (name, handler) => { handlers[name] = handler; },
+    removeEventListener: name => { delete handlers[name]; },
+  };
+
+  const controller = createInstallController(win);
+  assert.equal(controller.getSnapshot().installed, false);
+  assert.equal(controller.getSnapshot().installable, false);
+  controller.dismiss();
+  assert.equal(controller.getSnapshot().dismissed, true);
+  controller.dispose();
+  assert.deepEqual(handlers, {});
+});
 test("manual installation guidance covers iOS, Android and desktop", () => {
   assert.match(manualInstallHelp({ userAgent: "iPhone" }), /Share.*Add to Home Screen/);
   assert.match(manualInstallHelp({ userAgent: "Android" }), /browser menu/);
