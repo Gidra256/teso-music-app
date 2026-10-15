@@ -14,7 +14,7 @@ function read(name) {
 test("homepage metadata is static, canonical and indexable", () => {
   const html = read("index.html");
   assert.match(html, new RegExp(`<title>${title}</title>`));
-  assert.ok(html.includes(`name="description"\n      content="${description}"`));
+  assert.match(html, new RegExp(`name="description"\\s+content="${description.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
   assert.match(html, /name="robots" content="index,follow"/);
   assert.match(html, /rel="canonical" href="https:\/\/tesohubmusic\.com\/"/);
   assert.doesNotMatch(html, /noindex/i);
@@ -26,7 +26,7 @@ test("Open Graph and WebSite structured data use supported project facts", () =>
   assert.match(html, /property="og:type" content="website"/);
   assert.match(html, /property="og:site_name" content="TesoHub Music"/);
   assert.match(html, new RegExp(`property="og:title" content="${title}"`));
-  assert.ok(html.includes(`property="og:description"\n      content="${description}"`));
+  assert.match(html, new RegExp(`property="og:description"\\s+content="${description.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
   assert.match(html, /property="og:url" content="https:\/\/tesohubmusic\.com\/"/);
   const jsonLd = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
   assert.ok(jsonLd, "Expected static JSON-LD in the document head");

@@ -23,7 +23,7 @@ function harness(os, records=[{...fixture}]) {
     const mockRequire=id=>{
       if(id==='react')return React;
       if(id==='react/jsx-runtime')return require(path.join(modulesPath,'react/jsx-runtime'));
-      if(id==='react-native')return {...Object.fromEntries(['ActivityIndicator','Image','KeyboardAvoidingView','RefreshControl','ScrollView','Switch','Text','TextInput','TouchableOpacity','View'].map(key=>[key,key])),Platform:{OS:os},StyleSheet:{create:v=>v},Alert:{alert(){}}};
+      if(id==='react-native')return {...Object.fromEntries(['ActivityIndicator','Image','KeyboardAvoidingView','Modal','RefreshControl','ScrollView','Switch','Text','TextInput','TouchableOpacity','View'].map(key=>[key,key])),Platform:{OS:os},StyleSheet:{create:v=>v},Alert:{alert(){}}};
       if(id==='react-native-safe-area-context')return {SafeAreaView:'SafeAreaView'};
       if(id==='@react-navigation/native')return {useFocusEffect:fn=>React.useEffect(fn,[fn])};
       if(id==='@expo/vector-icons')return {Ionicons:'Icon'};

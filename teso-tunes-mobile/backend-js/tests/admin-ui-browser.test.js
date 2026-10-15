@@ -154,11 +154,12 @@ test("Admin UI polish: role-aware responsive workflows", {skip:!process.env.TESO
     const artistSearchResponse=page.waitForResponse(response=>new URL(response.url()).pathname==="/admin-api/artists" && new URL(response.url()).searchParams.get("search")==="Scale Artist 0500");
     await page.locator('[data-filter="artistSearch"]').fill("Scale Artist 0500");
     await artistSearchResponse;
-    assert.equal(await page.locator('[data-page-list="artists"] > .item').count(),1);
+    await page.locator('[data-server-page-list="artists"] > .item').waitFor();
+    assert.equal(await page.locator('[data-server-page-list="artists"] > .item').count(),1);
     let artistFilterResponse=page.waitForResponse(response=>new URL(response.url()).pathname==="/admin-api/artists" && new URL(response.url()).searchParams.get("status")==="suspended");
     await page.locator('[data-filter="artistStatus"]').selectOption("suspended");
     await artistFilterResponse;
-    assert.equal(await page.locator('[data-page-list="artists"] > .item').count(),0);
+    assert.equal(await page.locator('[data-server-page-list="artists"] > .item').count(),0);
     artistFilterResponse=page.waitForResponse(response=>new URL(response.url()).pathname==="/admin-api/artists" && !new URL(response.url()).searchParams.get("status"));
     await page.locator('[data-filter="artistStatus"]').selectOption("");
     await artistFilterResponse;
