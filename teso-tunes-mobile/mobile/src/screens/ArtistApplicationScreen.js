@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -17,7 +17,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { submitArtistApplication } from "../api/musicApi";
+import { getCurrentArtistAgreement, submitArtistApplication } from "../api/musicApi";
+import ArtistAgreementPanel from "../components/ArtistAgreementPanel";
 import GenreSelector from "../components/GenreSelector";
 import { useAuth } from "../context/AuthContext";
 import { colors, spacing } from "../theme";
@@ -82,8 +83,24 @@ export default function ArtistApplicationScreen({ navigation }) {
     social_link: "",
   });
   const [photo, setPhoto] = useState(null);
+  const [agreementState, setAgreementState] = useState(null);
+  const [agreementAccepted, setAgreementAccepted] = useState(false);
+  const [agreementVisible, setAgreementVisible] = useState(false);
+  const [agreementError, setAgreementError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    getCurrentArtistAgreement()
+      .then((result) => {
+        if (active) setAgreementState(result);
+      })
+      .catch((loadError) => {
+        if (active) setAgreementError(errorMessage(loadError));
+      });
+    return () => { active = false; };
+  }, []);
 
   const validationMessage = useMemo(() => {
     if (form.artist_name.trim().length < 2) return "Enter your artist name.";
@@ -95,9 +112,15 @@ export default function ArtistApplicationScreen({ navigation }) {
     if (!form.phone.trim()) return "Enter your phone number.";
     if (!form.email.trim()) return "Enter your email address.";
     if (!photo) return "Choose a profile photo.";
+    if (agreementState?.required && !agreementState?.agreement) {
+      return "The Artist Agreement is temporarily unavailable.";
+    }
+    if (agreementState?.required && !agreementAccepted) {
+      return "Read and accept the Artist Agreement.";
+    }
     if (!form.genuine_confirmed) return "Confirm the information is genuine.";
     return "";
-  }, [form, photo]);
+  }, [agreementAccepted, agreementState, form, photo]);
 
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -130,6 +153,10 @@ export default function ArtistApplicationScreen({ navigation }) {
       Object.entries(form).forEach(([key, value]) => {
         body.append(key, typeof value === "boolean" ? String(value) : value);
       });
+      if (agreementAccepted && agreementState?.agreement?.version) {
+        body.append("agreement_accepted", "true");
+        body.append("agreement_version", agreementState.agreement.version);
+      }
       appendPickedFile(
         body,
         "photo_file",
@@ -278,6 +305,17 @@ export default function ArtistApplicationScreen({ navigation }) {
             onValueChange={(value) => updateField("genuine_confirmed", value)}
           />
         </View>
+
+        <ArtistAgreementPanel
+          accepted={agreementAccepted}
+          onAcceptedChange={setAgreementAccepted}
+          onCloseAgreement={() => setAgreementVisible(false)}
+          onOpenAgreement={() => setAgreementVisible(true)}
+          state={agreementState}
+          visible={agreementVisible}
+        />
+
+        {agreementError ? <Text style={styles.errorText}>{agreementError}</Text> : null}
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 

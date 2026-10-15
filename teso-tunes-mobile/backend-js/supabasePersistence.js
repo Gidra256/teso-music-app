@@ -387,6 +387,8 @@ export function createSupabasePersistence({
       release_date: toDateOnly(row.release_date),
       is_featured: Boolean(row.is_featured),
       status: row.status || "published",
+      removal_reason: row.removal_reason || "",
+      removed_at: toIso(row.removed_at),
       source_release_id: row.source_release_id ? Number(row.source_release_id) : null,
       created_at: toIso(row.created_at),
       updated_at: toIso(row.updated_at),
@@ -416,6 +418,7 @@ export function createSupabasePersistence({
       id: Number(row.id),
       listener: row.listener_id ? Number(row.listener_id) : null,
       artist: row.artist_id ? Number(row.artist_id) : null,
+      agreement_acceptance: row.agreement_acceptance_id ? Number(row.agreement_acceptance_id) : null,
       artist_name: row.artist_name || "",
       contact_name: row.contact_name || "",
       bio: row.bio || "",
@@ -433,8 +436,42 @@ export function createSupabasePersistence({
       rejection_reason: row.rejection_reason || "",
       reviewed_by: row.reviewed_by || "",
       reviewed_at: toIso(row.reviewed_at),
+      verification_status: row.verification_status || "unverified",
+      verification_method: row.verification_method || "",
+      verification_result: row.verification_result || "",
+      verification_reviewed_at: toIso(row.verification_reviewed_at),
+      verification_reviewed_by: row.verification_reviewed_by || "",
+      verification_notes: row.verification_notes || "",
+      social_challenge_code_hash: row.social_challenge_code_hash || null,
+      social_challenge_issued_at: toIso(row.social_challenge_issued_at),
+      social_challenge_completed_at: toIso(row.social_challenge_completed_at),
       created_at: toIso(row.created_at),
       updated_at: toIso(row.updated_at),
+    };
+  }
+
+  function agreementVersionFromRow(row) {
+    return {
+      id: Number(row.id),
+      version: row.version || "",
+      title: row.title || "",
+      content_markdown: row.content_markdown || "",
+      content_sha256: row.content_sha256 || "",
+      status: row.status || "draft",
+      published_at: toIso(row.published_at),
+      created_at: toIso(row.created_at),
+    };
+  }
+
+  function agreementAcceptanceFromRow(row) {
+    return {
+      id: Number(row.id),
+      agreement_version: Number(row.agreement_version_id),
+      listener: Number(row.listener_id),
+      accepted_version: row.accepted_version || "",
+      content_sha256: row.content_sha256 || "",
+      accepted_at: toIso(row.accepted_at),
+      created_at: toIso(row.created_at),
     };
   }
 
@@ -509,6 +546,7 @@ export function createSupabasePersistence({
       id: Number(row.application_id),
       artist_name: row.application_artist_name || "",
       status: row.application_status || "pending",
+      verification_status: row.application_verification_status || "unverified",
       review_reason: row.application_review_reason || "",
       rejection_reason: row.application_rejection_reason || "",
       created_at: toIso(row.application_created_at),
@@ -644,6 +682,8 @@ export function createSupabasePersistence({
       artists,
       genres,
       artistApplications,
+      artistAgreementVersions,
+      artistAgreementAcceptances,
       songs,
       releases,
       authTokens,
@@ -660,6 +700,8 @@ export function createSupabasePersistence({
       await queryRows(pool, "artists"),
       await queryRows(pool, "genres", "position, name"),
       await queryRows(pool, "artist_applications"),
+      await queryRows(pool, "artist_agreement_versions"),
+      await queryRows(pool, "artist_agreement_acceptances"),
       await queryRows(pool, "songs"),
       await queryRows(pool, "releases"),
       await queryRows(pool, "auth_tokens", "created_at"),
@@ -690,6 +732,8 @@ export function createSupabasePersistence({
           updated_at: toIso(genre.updated_at),
         })),
         artistApplications: artistApplications.map(applicationFromRow),
+        artistAgreementVersions: artistAgreementVersions.map(agreementVersionFromRow),
+        artistAgreementAcceptances: artistAgreementAcceptances.map(agreementAcceptanceFromRow),
         songs: songs.map(songFromRow),
         releases: releases.map(releaseFromRow),
         authTokens: authTokens.map((session) => ({
@@ -747,6 +791,7 @@ export function createSupabasePersistence({
         platformSettings: {
           registration_enabled: settingsRow.registration_enabled,
           artist_applications_enabled: settingsRow.artist_applications_enabled,
+          artist_agreement_enforcement_mode: settingsRow.artist_agreement_enforcement_mode || "off",
           music_uploads_enabled: settingsRow.music_uploads_enabled,
           maintenance_mode: settingsRow.maintenance_mode,
           maintenance_message: settingsRow.maintenance_message,
@@ -944,6 +989,7 @@ export function createSupabasePersistence({
     return {
       registration_enabled: row.registration_enabled !== false,
       artist_applications_enabled: row.artist_applications_enabled !== false,
+      artist_agreement_enforcement_mode: row.artist_agreement_enforcement_mode || "off",
       music_uploads_enabled: row.music_uploads_enabled !== false,
       maintenance_mode: Boolean(row.maintenance_mode),
       maintenance_message: row.maintenance_message || "",
@@ -968,6 +1014,7 @@ export function createSupabasePersistence({
          application.id as application_id,
          application.artist_name as application_artist_name,
          application.status as application_status,
+         application.verification_status as application_verification_status,
          application.review_reason as application_review_reason,
          application.rejection_reason as application_rejection_reason,
          application.created_at as application_created_at,
@@ -2125,6 +2172,18 @@ export function createSupabasePersistence({
     return result.rows[0] ? publicSongFromRow(result.rows[0]) : null;
   }
 
+  // New sb_secret_* keys are opaque API keys, not JWTs. Supabase Storage
+  // requires them in `apikey` and must not receive them as Bearer tokens.
+  // Legacy service_role JWT keys continue to use both headers.
+  function storageApiHeaders() {
+    return {
+      apikey: secretKey,
+      ...(!/^sb_(?:secret|publishable)_/.test(secretKey)
+        ? { authorization: `Bearer ${secretKey}` }
+        : {}),
+    };
+  }
+
   async function uploadFile(file) {
     assertConfigured();
     if (!file) return "";
@@ -2138,8 +2197,7 @@ export function createSupabasePersistence({
       fetch(`${supabaseUrl}/storage/v1/object/${bucket}/${encodedPath}`, {
         method: "POST",
         headers: {
-          apikey: secretKey,
-          authorization: `Bearer ${secretKey}`,
+          ...storageApiHeaders(),
           "content-type": file.mimetype || "application/octet-stream",
           "x-upsert": "false",
         },
@@ -2173,8 +2231,7 @@ export function createSupabasePersistence({
       fetch(`${supabaseUrl}/storage/v1/object/${bucket}/${encodedPath}`, {
         method: "POST",
         headers: {
-          apikey: secretKey,
-          authorization: `Bearer ${secretKey}`,
+          ...storageApiHeaders(),
           "content-type": file.mimetype || "application/octet-stream",
           "x-upsert": "false",
         },
@@ -2259,8 +2316,7 @@ export function createSupabasePersistence({
 
   async function streamStorageObject({ bucket, objectPath, req, res }) {
     const headers = {
-      apikey: secretKey,
-      authorization: `Bearer ${secretKey}`,
+      ...storageApiHeaders(),
     };
     const range = req.get("range");
     if (range) headers.range = range;

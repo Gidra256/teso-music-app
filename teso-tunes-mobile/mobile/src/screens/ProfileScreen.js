@@ -255,7 +255,14 @@ export default function ProfileScreen({ navigation }) {
 
 function ArtistAccessPanel({ application, navigation, role }) {
   const status = application?.status || "";
+  const verificationStatus = application?.verification_status || "unverified";
   const reason = application?.rejection_reason || application?.review_reason || "";
+  const verificationLabels = {
+    unverified: "Identity verification not completed",
+    verification_pending: "Identity verification pending",
+    verified: "Identity verified",
+    additional_information_required: "Identity verification needs more information",
+  };
 
   if (role === "artist") {
     return (
@@ -266,6 +273,7 @@ function ArtistAccessPanel({ application, navigation, role }) {
         <View style={styles.artistCopy}>
           <Text style={styles.artistTitle}>Artist Studio</Text>
           <Text style={styles.artistText}>Manage releases and upload music.</Text>
+          <Text style={styles.artistText}>{verificationLabels[verificationStatus]}</Text>
         </View>
         <TouchableOpacity
           accessibilityRole="button"
@@ -288,6 +296,7 @@ function ArtistAccessPanel({ application, navigation, role }) {
         <View style={styles.artistCopy}>
           <Text style={styles.artistTitle}>Artist Application</Text>
           <Text style={styles.artistText}>Under Review</Text>
+          <Text style={styles.artistText}>{verificationLabels[verificationStatus]}</Text>
           <Text style={styles.artistText}>Uploads unlock after admin approval.</Text>
         </View>
       </View>

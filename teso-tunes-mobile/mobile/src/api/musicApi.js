@@ -202,6 +202,18 @@ export async function submitArtistApplication(formData) {
   });
 }
 
+export async function getCurrentArtistAgreement() {
+  return fetchJson("/artist-agreements/current/");
+}
+
+export async function acceptCurrentArtistAgreement(version) {
+  return fetchJson("/artist-agreements/current/accept/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agreement_accepted: true, agreement_version: version }),
+  });
+}
+
 export async function getArtistStudioDashboard() {
   return fetchJson("/artist-studio/dashboard/");
 }
@@ -209,6 +221,32 @@ export async function getArtistStudioDashboard() {
 export async function getArtistStudioReleases(status = "") {
   const query = status ? `?status=${encodeURIComponent(status)}` : "";
   return fetchJson(`/artist-studio/releases/${query}`);
+}
+
+// Artist-owned 30-day song removal (Stage 3).
+// All requests use the existing authenticated API client; no new credentials.
+export async function getArtistStudioSongs() {
+  return fetchJson("/artist-studio/songs/");
+}
+
+export async function getArtistSongRemovalRequests() {
+  return fetchJson("/artist-studio/song-removal-requests/");
+}
+
+export async function requestArtistSongRemoval(songId, reason) {
+  return fetchJson(`/artist-studio/songs/${encodeURIComponent(String(songId))}/removal-requests/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function cancelArtistSongRemoval(requestId, reason) {
+  return fetchJson(`/artist-studio/song-removal-requests/${encodeURIComponent(String(requestId))}/cancel/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
 }
 
 export async function createArtistStudioRelease(formData) {

@@ -379,6 +379,7 @@
         ["applications", "Artist Applications", "Review applicant artists"],
         ["releases", "Release Review", "Listen and approve uploaded songs"],
         ["catalog", "Music Catalog", "Manage published and hidden songs"],
+        ["removals", "Removal Requests", "Artist notices and removal history"],
         ["artists", "Artists", "Manage artist profiles and status"],
         ["users", "Users", "Support and account status"],
         ["support", "Support", "Tickets, replies, notes, and assignment"],
@@ -403,6 +404,7 @@
         artistPage: {items: [], page: 1, page_size: 25, total: 0, total_pages: 0, has_next: false},
         editingArtist: null,
         songs: [],
+        removalRequests: [],
         applications: [],
         activeApplicationId: null,
         applicationDetail: null,
@@ -496,7 +498,7 @@
       }
       const viewPermissions = {
         dashboard: ["artists", "catalog", "releases", "reports"],
-        applications: ["applications"], releases: ["releases"], catalog: ["catalog"],
+        applications: ["applications"], releases: ["releases"], catalog: ["catalog"], removals: ["catalog"],
         artists: ["artists"], users: ["users"], support: ["support:view"],
         reports: ["reports"], discovery: ["discovery"], genres: ["genres"],
         settings: ["settings"], health: ["*"], audit: ["*"], admins: ["*"], security: [],
@@ -609,6 +611,7 @@
           return `/admin-api/artists?${params}`;
         },
         songs: "/admin-api/songs",
+        removalRequests: "/admin-api/song-removal-requests",
         applications: "/admin-api/artist-applications",
         releases: "/admin-api/releases",
         users: "/admin-api/users",
@@ -626,6 +629,7 @@
         applications: ["applications"],
         releases: ["releases"],
         catalog: ["songs", "artists", "genres"],
+        removals: ["removalRequests"],
         artists: ["artistPage"],
         users: ["users"],
         support: ["supportTickets"],
@@ -638,7 +642,7 @@
         admins: ["admins"], security: [],
       };
       const arraySources = new Set([
-        "artists", "songs", "applications", "releases", "users",
+        "artists", "songs", "removalRequests", "applications", "releases", "users",
         "supportTickets", "reports", "genres", "audit", "admins",
       ]);
       const pendingLoads = new Map();
@@ -845,6 +849,7 @@
           admins: renderAdmins,
           security: renderSecurity,
           catalog: renderCatalog,
+          removals: renderRemovals,
           dashboard: renderDashboard,
           discovery: renderDiscovery,
           genres: renderGenres,
@@ -1032,6 +1037,16 @@
         const field = (label, value) => `<div><dt>${label}</dt><dd>${escapeHtml(value || "Not provided")}</dd></div>`;
         const canAct = ["pending", "changes_requested"].includes(row.status);
         const busy = pendingApplicationReviews.has(String(row.id));
+        const verification = row.verification || {status:row.verification_status || "unverified",method:"",result:"",notes:"",social_challenge:{}};
+        const verificationStatusOptions = [
+          ["unverified", "Unverified"],
+          ["verification_pending", "Verification Pending"],
+          ["verified", "Verified"],
+          ["additional_information_required", "Additional Information Required"],
+        ];
+        const verificationMethodOptions = [["", "No method"], ["social_challenge", "Social challenge"], ["account_history", "Account history"], ["other", "Other"]];
+        const verificationResultOptions = [["", "No result"], ["challenge_issued", "Challenge issued"], ["passed", "Passed"], ["failed", "Failed"], ["needs_more_information", "Needs more information"]];
+        const potentialMatches = Array.isArray(row.potential_artist_matches) ? row.potential_artist_matches : [];
         viewEl.innerHTML = `<section class="applications-workspace">${header}
           <div class="review-identity">
           ${row.photo ? `<img class="thumb" src="${escapeHtml(row.photo)}" alt="Submitted artist photo" />` : ""}
@@ -1042,8 +1057,31 @@
           ${field("Contact name", row.contact_name)}${field("Contact email", row.email)}${field("Phone", row.phone)}${field("Location", [row.region, row.country].filter(Boolean).join(", "))}
           ${field("Genre", row.genre)}${field("Genre note", row.genre_note)}${field("Biography", row.bio)}${field("Social link", row.social_link)}
           ${field("Information confirmed genuine", row.genuine_confirmed ? "Yes" : "No")}${field("Linked artist", row.artist ? `${row.artist.name} (#${row.artist.id})` : "Not linked")}
+          ${field("Artist Agreement", row.agreement_acceptance ? "Accepted" : "Not recorded / legacy")}${field("Agreement version", row.agreement_acceptance?.agreement_version || "Not recorded")}
+          ${field("Accepted by account", row.agreement_acceptance ? `Listener #${row.agreement_acceptance.accepted_by_listener_id}` : "Not recorded")}${field("Accepted at", row.agreement_acceptance?.accepted_at || "Not recorded")}
+          ${field("Agreement SHA-256", row.agreement_acceptance?.content_sha256 || "Not recorded")}
           ${field("Submitted", row.created_at)}${field("Last updated", row.updated_at || row.created_at)}${field("Last reviewed", row.reviewed_at)}${field("Reviewed by", row.reviewed_by)}${field("Review reason", row.review_reason || row.rejection_reason)}
-          </dl><h3>Review history</h3><div class="application-history details"><p>Submitted: ${escapeHtml(row.created_at)}</p>
+          </dl>
+          <section class="review-decision"><h3>Identity verification</h3>
+          <p class="details">Verification is separate from application approval. Potential name matches require human review and never reject an application automatically.</p>
+          <dl class="application-fields">
+          ${field("Verification status", verification.status.replaceAll("_", " "))}${field("Method", verification.method.replaceAll("_", " "))}
+          ${field("Result", verification.result.replaceAll("_", " "))}${field("Verification date", verification.reviewed_at)}
+          ${field("Reviewing administrator", verification.reviewed_by)}${field("Verification notes", verification.notes)}
+          ${field("Social challenge", verification.social_challenge?.pending ? "Awaiting response" : verification.social_challenge?.completed_at ? "Completed" : "Not issued")}
+          </dl>
+          <h4>Potential existing artist matches</h4>
+          ${potentialMatches.length ? `<div class="list">${potentialMatches.map((match) => `<div class="history-entry"><strong>${escapeHtml(match.name)}</strong> (#${escapeHtml(match.id)}) ${badge(match.status)}<br /><span class="meta">${escapeHtml(match.match_type.replaceAll("_", " "))} · ${Math.round(Number(match.similarity || 0) * 100)}% similarity</span></div>`).join("")}</div>` : '<p class="empty">No close existing artist-name matches detected.</p>'}
+          <div class="application-filters">
+          <label>Status<select id="applicationVerificationStatus">${verificationStatusOptions.map(([value,label]) => `<option value="${value}" ${verification.status === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+          <label>Method<select id="applicationVerificationMethod">${verificationMethodOptions.map(([value,label]) => `<option value="${value}" ${verification.method === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+          <label>Result<select id="applicationVerificationResult">${verificationResultOptions.map(([value,label]) => `<option value="${value}" ${verification.result === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+          </div>
+          <label>Verification notes<textarea id="applicationVerificationNotes" maxlength="2000" ${busy ? "disabled" : ""}>${escapeHtml(verification.notes)}</textarea></label>
+          <label>Challenge code received from artist<input id="applicationVerificationChallenge" autocomplete="off" maxlength="32" ${busy ? "disabled" : ""} /></label>
+          <div class="actions" style="margin-top:12px;"><button class="secondary" data-action="issue-social-challenge" data-id="${row.id}" ${busy || !row.social_link ? "disabled" : ""} type="button">Issue Social Challenge</button>
+          <button data-action="save-application-verification" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Save Verification</button></div></section>
+          <h3>Review history</h3><div class="application-history details"><p>Submitted: ${escapeHtml(row.created_at)}</p>
           ${pagedList(`application-history-${row.id}`, row.history, (entry) => `<div class="history-entry">${escapeHtml(entry.action.replaceAll("_", " "))}: ${escapeHtml(entry.at)}<br />${escapeHtml(entry.admin_user || "Configured Admin")} (${escapeHtml(entry.admin_role || "Role not recorded")})${entry.reason ? `<br />${escapeHtml(entry.reason)}` : ""}</div>`)}</div>
           ${canAct ? `<section class="review-decision"><h3>Review decision</h3><label>Review reason (required for rejection or changes)<textarea id="applicationReviewReason" ${busy ? "disabled" : ""}></textarea></label><div class="actions" style="margin-top:12px;">
           <button data-action="approve-application" data-id="${row.id}" ${busy ? "disabled" : ""} type="button">Approve</button>
@@ -1073,6 +1111,38 @@
         } finally {
           pendingApplicationReviews.delete(key);
           document.querySelectorAll('[data-action$="-application"]').forEach((button) => { if (String(button.dataset.id) === key) button.disabled = false; });
+        }
+      }
+
+      async function updateApplicationVerification(action, id) {
+        const key = String(id);
+        if (pendingApplicationReviews.has(key)) return;
+        pendingApplicationReviews.add(key);
+        const token = state.token;
+        try {
+          if (action === "issue-social-challenge") {
+            const notes = (document.getElementById("applicationVerificationNotes")?.value || "").trim();
+            const result = await api(`/admin-api/artist-applications/${encodeURIComponent(key)}/verification/challenge`, {
+              method:"POST", signal:AbortSignal.timeout(45000), body:JSON.stringify({notes}),
+            });
+            if (token !== state.token) return;
+            window.prompt("Copy this one-time code and send it to the claimed social account. It will not be shown again.", result.challenge_code);
+          } else {
+            const payload = {
+              status: document.getElementById("applicationVerificationStatus")?.value || "",
+              method: document.getElementById("applicationVerificationMethod")?.value || "",
+              result: document.getElementById("applicationVerificationResult")?.value || "",
+              notes: (document.getElementById("applicationVerificationNotes")?.value || "").trim(),
+              challenge_code: (document.getElementById("applicationVerificationChallenge")?.value || "").trim(),
+            };
+            await api(`/admin-api/artist-applications/${encodeURIComponent(key)}/verification`, {
+              method:"POST", signal:AbortSignal.timeout(45000), body:JSON.stringify(payload),
+            });
+          }
+          if (token === state.token && state.activeView === "applications" && state.activeApplicationId === key) await openApplication(key);
+        } finally {
+          pendingApplicationReviews.delete(key);
+          if (token === state.token && state.activeView === "applications" && state.activeApplicationId === key) renderPreservingScroll();
         }
       }
 
@@ -1297,6 +1367,23 @@
               <button class="danger" data-action="remove-song" data-id="${song.id}" type="button">Remove</button>
             </div></details>
           </article>`;
+      }
+
+      function renderRemovals() {
+        const rows = state.removalRequests || [];
+        const pending = rows.filter(row => row.status === "scheduled").length;
+        viewEl.innerHTML = `<section class="panel">
+          <div class="toolbar"><h2>Song removal notices — ${pending} scheduled</h2>
+            <button class="secondary" data-action="refresh-removals" type="button">Refresh</button></div>
+          <p class="subtitle">Artists may cancel before their 30-day deadline. To remove a song immediately for safety or rights concerns, use Music Catalog → Remove and provide a reason.</p>
+          <div class="list" style="margin-top:16px">${rows.length ? pagedList("removals", rows, row => `<article class="item">
+            <div class="thumb" style="display:grid;place-items:center">#${escapeHtml(row.id)}</div>
+            <div><div class="item-title">${escapeHtml(row.title || "Song unavailable")}</div>
+              <p class="meta">${escapeHtml(row.artist_name || "Artist")} · ${badge(row.status)} · Deadline: ${escapeHtml(row.due_at || "Unknown")}</p>
+              <p class="details">${escapeHtml(row.reason)}</p>
+              ${row.cancellation_reason ? `<p class="details"><strong>Cancellation:</strong> ${escapeHtml(row.cancellation_reason)}</p>` : ""}
+              <details><summary>Notice history</summary>${(row.history || []).map(e => `<p class="meta">${escapeHtml(e.at)} · ${escapeHtml(e.event_type)} (${escapeHtml(e.actor_type)})</p>`).join("")}</details>
+            </div></article>`) : '<p class="empty">No song removal notices.</p>'}</div></section>`;
       }
 
       function renderArtists() {
@@ -1922,10 +2009,19 @@
       async function saveSong(event) {
         event.preventDefault();
         const form = event.target;
+        const formData = new FormData(form);
+        const previous = state.songs.find((song) => Number(song.id) === Number(state.editingSongId));
+        if (formData.get("status") === "removed" && previous?.status !== "removed") {
+          if (!state.editingSongId) throw new Error("Save the new song before removing it.");
+          const reason = prompt("Enter the reason for removing this song:");
+          if (reason === null) return;
+          if (!reason.trim()) throw new Error("Enter a removal reason.");
+          formData.set("reason", reason.trim());
+        }
         setStatus("Saving song...");
         await api(state.editingSongId ? `/admin-api/songs/${state.editingSongId}` : "/admin-api/songs", {
           method: state.editingSongId ? "PUT" : "POST",
-          body: new FormData(form),
+          body: formData,
         });
         state.editingSongId = null;
         await loadData();
@@ -2107,6 +2203,7 @@
           return;
         }
         if (["approve-application", "reject-application", "changes-application"].includes(action)) return reviewApplication(action, id);
+        if (["issue-social-challenge", "save-application-verification"].includes(action)) return updateApplicationVerification(action, id);
         if (action === "review-application") return openApplication(id);
         if (action === "back-applications") { state.activeApplicationId = null; return loadView("applications", {force:true}); }
         if (action === "refresh-applications") return loadView("applications", {force:true});
@@ -2164,10 +2261,11 @@
         }
         if (action === "remove-song") {
           const reason = prompt("Why should this song be removed from public availability?");
-          if (!reason) return;
+          if (reason === null) return;
+          if (!reason.trim()) throw new Error("Enter a removal reason.");
           await api(`/admin-api/songs/${id}/remove`, {
             method: "POST",
-            body: JSON.stringify({ reason }),
+            body: JSON.stringify({ reason: reason.trim() }),
           });
           return loadData();
         }
@@ -2186,6 +2284,7 @@
           });
           return loadData();
         }
+        if (action === "refresh-removals") return loadView("removals", { force: true });
         if (action === "refresh-health") {
           return loadView("health", { force: true });
         }

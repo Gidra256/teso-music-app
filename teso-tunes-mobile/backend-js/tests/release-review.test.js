@@ -24,7 +24,7 @@ test("Release Review actual handlers and isolated PostgreSQL transactions", {ski
   const pool = new pg.Pool({...config,database,max:5});
   t.after(async()=>{await pool.end();await admin.query(`drop database ${database}`);await admin.end();});
   await pool.query("create schema storage; create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[])");
-  for (const file of ["001_supabase_initial.sql","004_support_v1.sql"]) await pool.query(fs.readFileSync(new URL(`migrations/${file}`,root),"utf8"));
+  for (const file of ["001_supabase_initial.sql","004_support_v1.sql","007_artist_agreements.sql","008_artist_identity_verification.sql"]) await pool.query(fs.readFileSync(new URL(`migrations/${file}`,root),"utf8"));
   const p = createSupabasePersistence({databaseUrl:"postgres://fixture.invalid/unused",supabaseUrl:"https://fixture.invalid",secretKey:"fixture-only",buckets:{audio:"music-audio",artwork:"artwork",avatars:"avatars"},storageUrlFor:(b,path)=>`/api/storage/${b}/${path}`,poolFactory:()=>pool});
   const tables=(await pool.query("select tablename from pg_tables where schemaname='tesohub_music'")).rows.map(r=>`tesohub_music.${r.tablename}`);
   const routes=new Map(), clean=v=>String(v||"").trim();
@@ -33,12 +33,12 @@ test("Release Review actual handlers and isolated PostgreSQL transactions", {ski
     requireAdminPermission:()=>()=>{},upload:{fields:()=>()=>{}},
     normalizeDb:db=>{db.nextIds={};for(const [key,rows] of [["release",db.releases],["song",db.songs],["adminAuditLog",db.adminAuditLogs]]) db.nextIds[key]=Math.max(0,...rows.map(r=>Number(r.id)))+1;return db;},
     cleanText:clean,boolValue:v=>v===true,genrePayload:req=>({genre:req.body.genre,genre_note:""}),validateUploadSettings:()=>null,
-    featureFlagsFor:()=>({artist_studio_enabled:true}),platformSettingsFor:()=>({music_uploads_enabled:true}),
+    featureFlagsFor:()=>({artist_studio_enabled:true}),platformSettingsFor:db=>db.platformSettings,
     uploadUrlFor:async file=>file?`/api/storage/${file.fieldname==="audio_upload"?"music-audio":"artwork"}/fixture/${file.name || file.fieldname}`:"",
     absoluteUrl:(req,value)=>value||"",audioResponseUrl,serializeArtist:(db,req,row)=>({id:row.id,name:row.name}),serializeSong:(db,req,row)=>({id:row.id,title:row.title}),
     findListenerByToken:(db,req)=>db.listeners.find(r=>r.id===(req.listenerId||1)),
   });
-  for(const name of ["nowIso","todayKey","isFutureReleaseDate","publicListener","serializeRelease","serializeReleaseReview","releasePublicationInfo","releaseLinkageValid","releaseReviewIsCurrent","publishRelease","releasePayload","assignReleasePayload","validateReleaseForSubmit","releaseCanBeEdited","submitReleaseForReview","appendAuditLog","requireListener","requireArtist"]) vm.runInContext(extract(name),ctx);
+  for(const name of ["nowIso","todayKey","isFutureReleaseDate","publicListener","currentArtistAgreement","artistAgreementRequired","agreementAcceptanceForListener","requireArtistAgreementForUploads","serializeRelease","serializeReleaseReview","releasePublicationInfo","releaseLinkageValid","releaseReviewIsCurrent","publishRelease","releasePayload","assignReleasePayload","validateReleaseForSubmit","releaseCanBeEdited","submitReleaseForReview","appendAuditLog","requireListener","requireArtist"]) vm.runInContext(extract(name),ctx);
   vm.runInContext(source.slice(source.indexOf("const writeBaselines ="),source.indexOf("function nowIso()")),ctx);
   vm.runInContext(`async ${extract("loadDbWithPublishedReleases")}`,ctx);
   vm.runInContext(source.slice(source.indexOf('app.get("/api/artist-studio/releases/"'),source.indexOf('app.put(\n  "/api/artist-studio/profile/"')),ctx);
@@ -213,6 +213,7 @@ test("Artist Studio ignores older refresh responses and responses after leaving 
   const code=text.slice(start,text.indexOf("  const artist = dashboard",start)).replace("export default ","")+"return {loadStudio};}";
   let state=[],focus,cleanup;const pending=[];
   const ctx=vm.createContext({useState:value=>{const i=state.length;state.push(value);return [value,v=>{state[i]=v;}];},useRef:value=>({current:value}),useCallback:fn=>fn,useFocusEffect:fn=>{focus=fn;},
+    useMemo:fn=>fn(),getArtistStudioSongs:()=>Promise.resolve([]),getArtistSongRemovalRequests:()=>Promise.resolve([]),
     getArtistStudioDashboard:()=>Promise.resolve({artist:{id:1}}),getArtistStudioReleases:()=>new Promise(resolve=>pending.push(resolve)),BACKEND_CONNECTION_ERROR:"Connection failed"});
   vm.runInContext(code,ctx);const screen=ctx.ArtistStudioScreen({navigation:{}});cleanup=focus();
   const fresh=screen.loadStudio({refresh:true});pending[1]([{id:1,status:"rejected",rejection_reason:"Fix artwork"}]);await fresh;

@@ -7,9 +7,9 @@ import { startPreview } from "./fixtures/admin-ui-preview.js";
 
 const widths=[320,360,390,430,768,1024,1280,1440];
 const navigation={
-  super_admin:["dashboard","applications","releases","catalog","artists","users","support","reports","discovery","genres","settings","health","audit","admins","security"],
-  content_admin:["dashboard","applications","releases","catalog","artists","discovery","genres","security"],
-  moderator:["dashboard","catalog","artists","users","reports","security"],
+  super_admin:["dashboard","applications","releases","catalog","removals","artists","users","support","reports","discovery","genres","settings","health","audit","admins","security"],
+  content_admin:["dashboard","applications","releases","catalog","removals","artists","discovery","genres","security"],
+  moderator:["dashboard","catalog","removals","artists","users","reports","security"],
   support_admin:["support","security"],
 };
 
@@ -126,11 +126,19 @@ test("Admin UI polish: role-aware responsive workflows", {skip:!process.env.TESO
         }
         const first=await region.locator(".item-title").first().textContent();
         if(key==="catalog")await page.locator('#songForm input[name="title"]').fill("Unsaved draft");
-        await region.locator(key==="artists"?'[data-artist-page="2"]':'[data-page-step="1"]').click();
+        if(key==="artists") {
+          const nextPage=page.waitForResponse(response=>new URL(response.url()).pathname==="/admin-api/artists" && new URL(response.url()).searchParams.get("page")==="2");
+          await region.locator('[data-artist-page="2"]').click();
+          await nextPage;
+        } else await region.locator('[data-page-step="1"]').click();
         assert.notEqual(await region.locator(".item-title").first().textContent(),first);
         assert.equal(await region.locator(":scope > .item").count(),25);
         if(key==="catalog")assert.equal(await page.locator('#songForm input[name="title"]').inputValue(),"Unsaved draft");
-        await region.locator(key==="artists"?'[data-artist-page="1"]':'[data-page-step="-1"]').click();
+        if(key==="artists") {
+          const previousPage=page.waitForResponse(response=>new URL(response.url()).pathname==="/admin-api/artists" && new URL(response.url()).searchParams.get("page")==="1");
+          await region.locator('[data-artist-page="1"]').click();
+          await previousPage;
+        } else await region.locator('[data-page-step="-1"]').click();
         assert.equal(await region.locator(".item-title").first().textContent(),first);
         const elapsed=Date.now()-started;
         assert.ok(elapsed<5000,`Slow navigation/page interaction: ${key}/${width} ${elapsed}ms`);
@@ -182,10 +190,11 @@ test("Admin UI polish: role-aware responsive workflows", {skip:!process.env.TESO
       await page.getByRole("heading",{name:"Review decision",exact:true}).waitFor();
       const region=page.locator('.application-history [data-page-list]');
       assert.equal(await region.locator(".history-entry").count(),25);
-      await page.locator(".review-decision textarea").fill("Unsaved review reason");
+      const reason=page.locator(key==="applications" ? "#applicationReviewReason" : "#releaseReviewReason");
+      await reason.fill("Unsaved review reason");
       await region.locator('[data-page-step="1"]').click();
       assert.equal(await region.locator(".history-entry").count(),25);
-      assert.equal(await page.locator(".review-decision textarea").inputValue(),"Unsaved review reason");
+      assert.equal(await reason.inputValue(),"Unsaved review reason");
     }
     assert.deepEqual(errors,[]);
     assert.deepEqual(preview.requests.filter(r=>r.method!=="GET"),[],"UI inspection must not submit mutations");

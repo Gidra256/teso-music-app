@@ -51,6 +51,8 @@ const policy = [
   ["post", "/admin-api/supabase-migration/validate", ["*"]],
   ["get", "/admin-api/artist-applications", ["applications"]],
   ["get", "/admin-api/artist-applications/:id", ["applications"]],
+  ["post", "/admin-api/artist-applications/:id/verification/challenge", ["applications"]],
+  ["post", "/admin-api/artist-applications/:id/verification", ["applications"]],
   ["post", "/admin-api/artist-applications/:id/approve", ["applications"]],
   ["post", "/admin-api/artist-applications/:id/reject", ["applications"]],
   ["post", "/admin-api/artist-applications/:id/request-changes", ["applications"]],
@@ -69,6 +71,7 @@ const policy = [
   ["post", "/admin-api/artists/:id/feature", ["discovery"]],
   ["post", "/admin-api/artists/:id/unfeature", ["discovery"]],
   ["get", "/admin-api/songs", ["catalog"]],
+  ["get", "/admin-api/song-removal-requests", ["catalog"]],
   ["post", "/admin-api/songs", ["catalog"]],
   ["put", "/admin-api/songs/:id", ["catalog"]],
   ["delete", "/admin-api/songs/:id", ["catalog"]],
@@ -122,10 +125,13 @@ async function fixture(t, role, gateOnly = false) {
     USE_SUPABASE_PERSISTENCE:true, PERSISTENCE_BACKEND:"supabase", AUDIO_COOKIE:"tesohub_audio_preview", upload:{single:()=>noop,fields:()=>noop},
     loadDb: async()=>{record("load");return db;}, loadDbWithPublishedReleases:async()=>{record("publicationRead");return db;},
     saveDb:async()=>{record("save");}, setAudioPreviewCookie:()=>record("previewCookie"),
+    reconcileAdminSongRemoval:async()=>{record("reconcileSongRemoval");},
+    finishPendingSongRemoval:()=>{record("finishSongRemoval");},
     migrationJobs:new Map(), MIGRATION_CONFIRMATIONS:confirmations,
     startMigrationJob:(kind)=>{record("migration");return {kind,status:"fixture"};},
     migrationJobSnapshot:job=>job, nowIso:()=>"2026-10-08T00:00:00.000Z",
     appendAuditLog:()=>record("audit"), auditSupportAction:async()=>record("supportAudit"),
+    songRemovalStore:{listForAdmin:async()=>[]},
     supabasePersistence:{...support,listAdminArtists:async()=>({rows:db.artists,total:db.artists.length}),getAdminArtist:async id=>db.artists.find(row=>row.id===id)||null}, supportTicketListPayload:rows=>rows, attachSupportUrls:row=>row,
     SUPPORT_TICKET_STATUSES:new Set(["open","in_progress","waiting_on_user","resolved","closed"]), SUPPORT_TICKET_PRIORITIES:new Set(["normal","high"]),
     ARTIST_STATUSES:new Set(["active","suspended","removed"]), SONG_STATUSES:new Set(["published","hidden","removed"]), REPORT_STATUSES:new Set(["open","resolved"]),
@@ -338,7 +344,8 @@ test("Moderator genre dependency is a minimal active lookup, never genre managem
   assert.equal((await f.request("post","/admin-api/users/1/suspend",{reason:"Moderation"})).json.status,"suspended");
   assert.equal((await f.request("post","/admin-api/users/1/restore")).json.status,"active");
   assert.equal((await f.request("post","/admin-api/songs/1/hide")).json.status,"hidden");
-  assert.equal((await f.request("delete","/admin-api/songs/1")).json.removed,true);
+  assert.equal((await f.request("delete","/admin-api/songs/1")).status,400);
+assert.equal((await f.request("delete","/admin-api/songs/1",{reason:"Moderation policy violation"})).json.removed,true);
   assert.ok(!f.calls.includes("error"));
 });
 

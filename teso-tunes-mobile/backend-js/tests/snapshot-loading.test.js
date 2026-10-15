@@ -12,6 +12,7 @@ function loader(queryRows) {
     getPool: () => ({}), queryRows, toIso: value => value,
     listenerFromRow: row => row, artistFromRow: row => row,
     applicationFromRow: row => row, songFromRow: row => row, releaseFromRow: row => row,
+    agreementVersionFromRow: row => row, agreementAcceptanceFromRow: row => row,
   });
 }
 
@@ -28,7 +29,7 @@ test("snapshot reads preserve pending applications and ordering with one outstan
   });
   const db = await load();
   assert.equal(peak, 1);
-  assert.equal(calls.length, 15);
+  assert.equal(calls.length, 17);
   assert.equal(db.artistApplications[0], pending);
   assert.ok(calls.some(([table, order]) => table === "playlist_songs" && order === "playlist_id, position, id"));
   assert.ok(calls.some(([table, order]) => table === "feature_flags" && order === "key"));

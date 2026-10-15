@@ -14,6 +14,7 @@ const date = "2026-10-09T08:00:00Z";
 const image = "/app-assets/images/tesohub-music.png";
 const artist = {id:1,name:"Local Fixture Artist",category:"Gospel Artists",status:"active",photo:image,bio:"Synthetic preview record.",follower_count:12,stream_count:320,is_featured:true};
 const song = {id:1,title:"Local Fixture Song",artist:1,artist_name:artist.name,genre:"Gospel",status:"published",is_featured:true,cover_image:image,audio_file:"/fixture-audio.wav",like_count:8,play_count:320};
+const removal = {id:1,song:1,artist:1,title:song.title,artist_name:artist.name,reason:"The artist requested an end to distribution",status:"scheduled",requested_at:date,due_at:"2026-11-08T08:00:00Z",cancellation_reason:"",cancelled_at:null,completed_at:null,history:[{event_type:"requested",actor_type:"artist",actor_label:"1",at:date,details:{}}]};
 const application = {id:1,listener:1,artist_name:"Local Fixture Applicant",contact_name:"Preview Contact",email:"preview@example.invalid",applicant:{id:1,name:"Preview Listener",email:"preview@example.invalid"},photo:image,bio:"Synthetic application for local layout verification only.",genre:"Gospel",country:"Uganda",region:"Teso",status:"pending",created_at:date,updated_at:date,genuine_confirmed:true,history:[]};
 const release = {id:1,title:"Local Fixture Release",artist:1,artist_name:artist.name,genre:"Gospel",language:"Ateso",status:"under_review",cover_image:image,audio_file:"/fixture-audio.wav",release_type:"single",rights_confirmed:true,linkage_valid:true,listener:{id:1,name:"Preview Listener"},created_at:date,updated_at:date,submitted_at:date,history:[]};
 const ticket = {id:1,reference:"TSH-PREVIEW",subject:"Local fixture playback question",category:"Playback",status:"open",priority:"normal",user_id:1,account_email:"preview@example.invalid",message:"Synthetic support request.",created_at:date,updated_at:date,messages:[{id:1,author_type:"user",message:"Please help with this preview question.",created_at:date,attachments:[]}],internal_notes:[],attachments:[],user:{name:"Preview Listener",email:"preview@example.invalid",role:"listener"}};
@@ -69,6 +70,7 @@ export async function startPreview(port=0) {
       "/admin-api/platform-health":{backend_status:"Local fixture",database:{},warnings:[]},
       "/admin-api/artists":[artist],
       "/admin-api/songs":[song],
+      "/admin-api/song-removal-requests":[removal],
       "/admin-api/genres":[{id:1,name:"Gospel",position:1,active:true}],
       "/admin-api/artist-applications":[application],
       "/admin-api/artist-applications/1":application,
@@ -113,7 +115,7 @@ export async function startPreview(port=0) {
       if(!row){res.writeHead(404);return res.end(JSON.stringify({detail:"Artist not found."}));}
       return res.end(JSON.stringify(row));
     }
-    const required={"admin-accounts":"*","platform-health":"*","audit-log":"*","platform-settings":"settings","feature-flags":"settings","artist-applications":"applications",releases:"releases",support:"support:view",users:"users",reports:"reports",songs:"catalog",artists:"artists",genres:"genres"}[url.pathname.split("/")[2]];
+    const required={"admin-accounts":"*","platform-health":"*","audit-log":"*","platform-settings":"settings","feature-flags":"settings","artist-applications":"applications","song-removal-requests":"catalog",releases:"releases",support:"support:view",users:"users",reports:"reports",songs:"catalog",artists:"artists",genres:"genres"}[url.pathname.split("/")[2]];
     // Catalog also reads the genre list under the existing backend contract.
     if(required && !allowed(required) && !(required==="genres" && allowed("catalog"))) {res.writeHead(403);return res.end(JSON.stringify({detail:"Fixture role does not have access."}));}
     if(!Object.hasOwn(resources,url.pathname)) {res.writeHead(404);return res.end(JSON.stringify({detail:"Unknown fixture route"}));}
