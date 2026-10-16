@@ -38,7 +38,6 @@ test("Artist verification migration is additive for approved artists and release
     insert into tesohub_music.artist_applications(listener_id,artist_id,artist_name,status,genuine_confirmed)
       values (1,1,'Legacy Stage','approved',true);
     update tesohub_music.listeners set artist_id=1, artist_application_id=1 where id=1;
-    insert into tesohub_music.platform_settings(id) values (1);
     insert into tesohub_music.releases(artist_id,listener_id,title,status,rights_confirmed)
       values (1,1,'Existing Release','approved',true);
   `);

@@ -35,7 +35,14 @@ test("public schema emergency containment with synthetic local records only", {s
   backend=new pg.Pool({...config,database,options:`-c role=${roles.backend}`});
   assert.equal((await backend.query("select current_user")).rows[0].current_user,roles.backend);
   await backend.query("create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[])");
-  for(const file of ["001_supabase_initial.sql","004_support_v1.sql","005_support_identity_defaults.sql"])
+  for(const file of [
+    "001_supabase_initial.sql",
+    "004_support_v1.sql",
+    "005_support_identity_defaults.sql",
+    "007_artist_agreements.sql",
+    "008_artist_identity_verification.sql",
+    "009_song_removal_requests.sql",
+  ])
     await backend.query(read(`../migrations/${file}`));
   // Illustrative columns ONLY: the live public table definitions are unknown.
   await backend.query(`create table public.profiles(id text primary key,email text,display_name text,username text);

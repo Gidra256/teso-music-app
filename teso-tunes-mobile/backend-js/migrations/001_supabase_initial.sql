@@ -308,6 +308,12 @@ create table if not exists tesohub_music.platform_settings (
   updated_at timestamptz
 );
 
+-- Every runtime settings read targets this singleton. Preserve existing values
+-- while ensuring fresh projects never depend on a manual seed step.
+insert into tesohub_music.platform_settings (id)
+values (1)
+on conflict (id) do nothing;
+
 create table if not exists tesohub_music.feature_flags (
   key text primary key,
   enabled boolean not null default true,

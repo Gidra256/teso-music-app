@@ -150,7 +150,9 @@ test("Admin UI polish: role-aware responsive workflows", {skip:!process.env.TESO
   });
   await t.test("large-list search finds distant records, resets pages, and bounds the artist picker",async()=>{
     await open("artists");
+    const artistPageTwoResponse=page.waitForResponse(response=>new URL(response.url()).pathname==="/admin-api/artists" && new URL(response.url()).searchParams.get("page")==="2");
     await page.locator('[data-artist-page="2"]').click();
+    await artistPageTwoResponse;
     const artistSearchResponse=page.waitForResponse(response=>new URL(response.url()).pathname==="/admin-api/artists" && new URL(response.url()).searchParams.get("search")==="Scale Artist 0500");
     await page.locator('[data-filter="artistSearch"]').fill("Scale Artist 0500");
     await artistSearchResponse;

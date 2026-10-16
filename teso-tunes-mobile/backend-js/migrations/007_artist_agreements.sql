@@ -53,6 +53,10 @@ alter table tesohub_music.artist_applications
   references tesohub_music.artist_agreement_acceptances(id) on delete restrict
   deferrable initially deferred;
 
+insert into tesohub_music.platform_settings (id)
+values (1)
+on conflict (id) do nothing;
+
 alter table tesohub_music.platform_settings
   add column artist_agreement_enforcement_mode text not null default 'off'
   check (artist_agreement_enforcement_mode in ('off', 'new_applications', 'all_artists'));
@@ -98,7 +102,7 @@ end $$;
 create function tesohub_music.protect_artist_agreement_version()
 returns trigger
 language plpgsql
-set search_path = pg_catalog, public, tesohub_music
+set search_path = pg_catalog, extensions, public, tesohub_music
 as $$
 declare
   calculated_hash text;

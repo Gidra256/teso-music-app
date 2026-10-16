@@ -789,10 +789,10 @@ export function createSupabasePersistence({
           updated_at: toIso(report.updated_at),
         })),
         platformSettings: {
-          registration_enabled: settingsRow.registration_enabled,
-          artist_applications_enabled: settingsRow.artist_applications_enabled,
+          registration_enabled: settingsRow.registration_enabled !== false,
+          artist_applications_enabled: settingsRow.artist_applications_enabled !== false,
           artist_agreement_enforcement_mode: settingsRow.artist_agreement_enforcement_mode || "off",
-          music_uploads_enabled: settingsRow.music_uploads_enabled,
+          music_uploads_enabled: settingsRow.music_uploads_enabled !== false,
           maintenance_mode: settingsRow.maintenance_mode,
           maintenance_message: settingsRow.maintenance_message,
           max_audio_upload_mb: settingsRow.max_audio_upload_mb,

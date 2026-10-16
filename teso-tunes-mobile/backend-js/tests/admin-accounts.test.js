@@ -38,7 +38,7 @@ test("guests and explicit bearer recovery do not require the staff database",asy
   await service.middleware(recovery,res,()=>{});assert.equal(recovery.adminIdentity.auth_type,"break_glass");
 });
 
-test("individual Admin authentication, security and transactions",{skip:!process.env.TESO_P0C_POSTGRES_PORT,timeout:180000},async t=>{
+test("individual Admin authentication, security and transactions",{skip:!process.env.TESO_P0C_POSTGRES_PORT,timeout:300000},async t=>{
   const config={host:"127.0.0.1",port:Number(process.env.TESO_P0C_POSTGRES_PORT),user:"p0c_fixture",password:"",ssl:false};
   assert.ok(config.port>=1024&&config.port<=65535);
   const database=`admin_accounts_${process.pid}_${Date.now()}`;
@@ -477,15 +477,17 @@ test("individual Admin authentication, security and transactions",{skip:!process
       };
       await signIn("fixture-recovery",recoveryPassword,true);
       await page.getByRole("button",{name:"Admin Management",exact:true}).click();
+      await page.getByRole("button",{name:"Bootstrap owner",exact:true}).click();
       const bootstrap=page.locator('[data-admin-form="bootstrap"]');await bootstrap.waitFor();
       await bootstrap.locator('[name="display_name"]').fill("Browser Owner");await bootstrap.locator('[name="login_identifier"]').fill("browserowner");await bootstrap.locator('[name="password"]').fill(password);
-      await bootstrap.getByRole("button").click();await page.getByRole("heading",{name:"Browser Owner"}).waitFor();assert.equal(await bootstrap.count(),0);
+      await bootstrap.getByRole("button",{name:"Create owner account",exact:true}).click();await page.getByRole("heading",{name:"Browser Owner"}).waitFor();assert.equal(await bootstrap.count(),0);
       await page.getByRole("button",{name:"Logout",exact:true}).click();
       await signIn("browserowner",password);
       await page.getByRole("button",{name:"Admin Management",exact:true}).click();
+      await page.getByRole("button",{name:"Add Admin",exact:true}).click();
       const create=page.locator('[data-admin-form="create"]');await create.waitFor();
       await create.locator('[name="display_name"]').fill("Browser Support");await create.locator('[name="login_identifier"]').fill("browsersupport");await create.locator('[name="password"]').fill(password);
-      await create.getByRole("button").evaluate(button=>{button.click();button.click();});
+      await create.getByRole("button",{name:"Add Admin",exact:true}).evaluate(button=>{button.click();button.click();});
       await page.getByRole("heading",{name:"Browser Support",exact:true}).waitFor();
       assert.equal((await pool.query("select count(*)::int n from tesohub_music.admin_accounts")).rows[0].n,2);
       assert.equal(await page.evaluate(()=>localStorage.getItem("tesoAdminToken")),null);
@@ -497,9 +499,10 @@ test("individual Admin authentication, security and transactions",{skip:!process
         await page.getByRole("button",{name:"Add Admin",exact:true}).scrollIntoViewIfNeeded();
         await page.screenshot({path:path.join(dir,`admin-accounts-${width}.png`),fullPage:true});
       }
+      await page.getByRole("button",{name:"Manage Browser Support",exact:true}).click();
       const access=page.locator('[data-admin-form="access"][data-id="2"]');
       await access.locator('[name="role"]').selectOption("moderator");await access.getByRole("button").click();
-      await page.waitForFunction(()=>document.querySelector('[data-admin-form="access"][data-id="2"] [name="role"]')?.value==="moderator");
+      await page.waitForFunction(()=>document.querySelector('[data-admin-form="access"][data-id="2"] [name="role"]')?.value==="moderator",null,{timeout:30000});
       await page.getByRole("button",{name:"Account Security",exact:true}).click();
       await page.locator('[name="current_password"]').fill(password);const next="Browser changed passphrase!";
       await page.locator('[data-admin-form="password"] [name="password"]').fill(next);

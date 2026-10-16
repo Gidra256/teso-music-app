@@ -15,7 +15,13 @@ test("P0-C isolated PostgreSQL concurrency and data integrity", {skip:!process.e
   const sql = new PGlite();
   t.after(() => sql.close());
   await sql.exec("create schema storage; create table storage.buckets(id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);");
-  for (const migration of ["001_supabase_initial.sql", "004_support_v1.sql", "007_artist_agreements.sql", "008_artist_identity_verification.sql"]) {
+  for (const migration of [
+    "001_supabase_initial.sql",
+    "004_support_v1.sql",
+    "007_artist_agreements.sql",
+    "008_artist_identity_verification.sql",
+    "009_song_removal_requests.sql",
+  ]) {
     const schema = fs.readFileSync(new URL(`migrations/${migration}`, root), "utf8").replace("create extension if not exists pgcrypto;", "");
     await sql.exec(schema);
   }

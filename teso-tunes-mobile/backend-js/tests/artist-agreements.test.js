@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import pg from "pg";
 import { test } from "node:test";
@@ -30,16 +31,17 @@ test("Artist Agreement migration, evidence, versioning and isolation", {
 
   await pool.query("create schema storage; create table storage.buckets(id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[])");
   await pool.query(fs.readFileSync(new URL("migrations/001_supabase_initial.sql", root), "utf8"));
+  await pool.query("create schema extensions; alter extension pgcrypto set schema extensions");
   await pool.query(`insert into tesohub_music.listeners(name,email,password_hash) values ('Legacy Artist','legacy@fixture.invalid','fixture-hash');
     insert into tesohub_music.artists(name) values ('Legacy Artist');
     update tesohub_music.listeners set role='artist', artist_id=1 where id=1;
-    insert into tesohub_music.artist_applications(listener_id,artist_id,artist_name,status) values (1,1,'Legacy Artist','approved');
-    insert into tesohub_music.platform_settings(id) values (1);`);
+    insert into tesohub_music.artist_applications(listener_id,artist_id,artist_name,status) values (1,1,'Legacy Artist','approved');`);
   await pool.query(fs.readFileSync(new URL("migrations/007_artist_agreements.sql", root), "utf8"));
 
   const objects = (await pool.query(`select to_regclass('tesohub_music.artist_agreement_versions') versions,
     to_regclass('tesohub_music.artist_agreement_acceptances') acceptances`)).rows[0];
   assert.ok(objects.versions);assert.ok(objects.acceptances);
+  assert.equal((await pool.query("select count(*)::int count from tesohub_music.platform_settings where id=1")).rows[0].count,1);
   assert.equal((await pool.query("select artist_agreement_enforcement_mode mode from tesohub_music.platform_settings where id=1")).rows[0].mode,"off");
   assert.equal((await pool.query("select count(*)::int count from tesohub_music.listeners")).rows[0].count,1);
   assert.equal((await pool.query("select count(*)::int count from tesohub_music.artist_applications")).rows[0].count,1);
@@ -59,7 +61,7 @@ test("Artist Agreement migration, evidence, versioning and isolation", {
   }
 
   const content="# Artist Agreement v1\n\nCanonical synthetic agreement used only by local tests.";
-  const hash=(await pool.query("select encode(digest(convert_to($1,'UTF8'),'sha256'),'hex') hash",[content])).rows[0].hash;
+  const hash=crypto.createHash("sha256").update(content).digest("hex");
   await assert.rejects(pool.query(`insert into tesohub_music.artist_agreement_versions(version,title,content_markdown,content_sha256,status,published_at)
     values ('bad-hash','Bad hash', $1, $2, 'published', now())`,[content,"0".repeat(64)]),/SHA-256/);
   const first=(await pool.query(`insert into tesohub_music.artist_agreement_versions(version,title,content_markdown,content_sha256,status,published_at)
@@ -80,7 +82,7 @@ test("Artist Agreement migration, evidence, versioning and isolation", {
 
   await pool.query("update tesohub_music.artist_agreement_versions set status='retired' where id=$1",[first.id]);
   const contentV2="# Artist Agreement v2\n\nA future synthetic replacement used only by local tests.";
-  const hashV2=(await pool.query("select encode(digest(convert_to($1,'UTF8'),'sha256'),'hex') hash",[contentV2])).rows[0].hash;
+  const hashV2=crypto.createHash("sha256").update(contentV2).digest("hex");
   await pool.query(`insert into tesohub_music.artist_agreement_versions(version,title,content_markdown,content_sha256,status,published_at)
     values ('2026-v2','Artist Agreement v2',$1,$2,'published',now())`,[contentV2,hashV2]);
   assert.equal((await pool.query("select count(*)::int count from tesohub_music.artist_agreement_versions where status='published'")).rows[0].count,1);

@@ -47,6 +47,15 @@ test("a failed table read rejects the snapshot and stops scheduling further read
   assert.deepEqual(calls, ["listeners", "artists", "genres", "artist_applications"]);
 });
 
+test("snapshot feature switches use the same enabled defaults when the settings row is absent", async () => {
+  const load = loader(async () => []);
+  const db = await load();
+  assert.equal(db.platformSettings.registration_enabled, true);
+  assert.equal(db.platformSettings.artist_applications_enabled, true);
+  assert.equal(db.platformSettings.music_uploads_enabled, true);
+  assert.equal(db.platformSettings.artist_agreement_enforcement_mode, "off");
+});
+
 test("fourteen concurrent snapshots do not flood a single-connection pool", async () => {
   let outstanding = 0;
   let peak = 0;

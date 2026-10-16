@@ -88,7 +88,9 @@ test("song-removal migration, ownership, cancellation evidence and due worker", 
   assert.equal(cancelled.request.history.at(-1).details.reason, cancellationReason);
 
   const due = await store.request({ artistId: 1, listenerId: 1, songId: 1, reason: requestReason });
-  await pool.query("update tesohub_music.song_removal_requests set due_at=now()-interval '1 minute' where id=$1", [due.request.id]);
+  await pool.query(`update tesohub_music.song_removal_requests
+    set requested_at=now()-interval '30 days 1 minute', due_at=now()-interval '1 minute'
+    where id=$1`, [due.request.id]);
   assert.equal(await store.runDueBatch(), 1);
   const song = (await pool.query("select status,removal_reason,removed_at,is_featured from tesohub_music.songs where id=1")).rows[0];
   assert.equal(song.status, "removed");
