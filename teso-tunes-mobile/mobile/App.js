@@ -32,6 +32,7 @@ import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { EngagementProvider } from "./src/context/EngagementContext";
 import { PlayerProvider } from "./src/context/PlayerContext";
 import ArtistDetailScreen from "./src/screens/ArtistDetailScreen";
+import AboutScreen from "./src/screens/AboutScreen";
 import ArtistApplicationScreen from "./src/screens/ArtistApplicationScreen";
 import ArtistStudioScreen from "./src/screens/ArtistStudioScreen";
 import ArtistsScreen from "./src/screens/ArtistsScreen";
@@ -81,6 +82,7 @@ const linking = {
       Profile: "profile",
       EditProfile: "profile/edit",
       Settings: "settings",
+      About: "about",
       ArtistApplication: "artist-application",
       ArtistStudio: "artist-studio",
       ReleaseUpload: "artist-studio/upload",
@@ -564,6 +566,7 @@ function RootStack({ isAuthenticated }) {
           />
           <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ headerShown: false }} />
           <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="About" component={AboutScreen} options={{ headerShown: false }} />
           <Stack.Screen
             name="SupportTickets"
             component={SupportTicketsScreen}
@@ -612,6 +615,7 @@ function RootStack({ isAuthenticated }) {
             component={SupportHomeScreen}
             options={{ headerShown: false }}
           />
+          <Stack.Screen name="About" component={AboutScreen} options={{ headerShown: false }} />
           <Stack.Screen
             name="TesoTabs"
             component={MainTabs}

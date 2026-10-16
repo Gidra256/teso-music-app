@@ -227,6 +227,7 @@ export default function ProfileScreen({ navigation }) {
             <Text style={styles.keepListeningText}>Keep Listening</Text>
           </TouchableOpacity>
           <AccountRow title="Help & Support" accessibilityLabel="Open Help and Support" icon="help-buoy-outline" onPress={() => navigation.navigate("Support")} />
+          <AccountRow title="About TesoHub Music" icon="information-circle-outline" onPress={() => navigation.navigate("About")} />
           </>
         ) : (
           <>
@@ -239,6 +240,7 @@ export default function ProfileScreen({ navigation }) {
             <Text style={accountStyles.section}>Account</Text>
             <AccountRow title="Settings" icon="settings-outline" onPress={() => navigation.navigate("Settings")} />
             <AccountRow title="Help & Support" accessibilityLabel="Open Help and Support" icon="help-buoy-outline" onPress={() => navigation.navigate("Support")} />
+            <AccountRow title="About TesoHub Music" icon="information-circle-outline" onPress={() => navigation.navigate("About")} />
             <TouchableOpacity accessibilityRole="button" accessibilityLabel="Log out" disabled={submitting} activeOpacity={0.65} style={styles.logoutButton} onPress={handleLogout}>
               {submitting ? <ActivityIndicator color={colors.text} /> : <Ionicons name="log-out-outline" color={colors.text} size={22} />}
               <Text style={styles.editText}>{submitting ? "Logging out..." : "Log out"}</Text>

@@ -41,6 +41,7 @@ export default function SettingsScreen({ navigation }) {
       <AccountRow title="Request account deletion" subtitle="Send a request to Support. Your account is not deleted immediately." icon="trash-outline" onPress={() => navigation.navigate("SupportTicketForm", { category: artist ? "Other" : "Account / Login", subject: "Account deletion request" })} />
       <AppAccess persistent />
       <Text style={accountStyles.section}>About</Text>
+      <AccountRow title="About TesoHub Music" subtitle="Our Music. Our Artists. Our Home." icon="information-circle-outline" onPress={() => navigation.navigate("About")} />
       <View style={styles.about}>
         <Image source={require("../../assets/images/tesohub-music.png")} style={styles.logo} accessibilityLabel="TesoHub Music logo" />
         <View style={styles.copy}>
