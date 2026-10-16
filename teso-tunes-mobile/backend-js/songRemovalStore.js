@@ -72,7 +72,7 @@ export function createSongRemovalStore(getPool) {
       await client.query(`insert into tesohub_music.song_removal_events
         (request_id,event_type,actor_type,actor_label) values ($1,'requested','artist',$2)`, [id,String(listenerId)]);
       await client.query('commit');
-      return { request: await getOne(id) };
+      return { request: await getOne(id, client) };
     } catch (e) {
       await client.query('rollback').catch(() => {});
       if (e.code === '23505') return { error:'already_scheduled' };
@@ -102,7 +102,7 @@ export function createSongRemovalStore(getPool) {
         values ($1,'cancelled','artist',$2,jsonb_build_object('reason',$3::text))`,
         [requestId,String(listenerId),cancellationReason]);
       await client.query('commit');
-      return { request:await getOne(requestId) };
+      return { request:await getOne(requestId, client) };
     } catch(e) { await client.query('rollback').catch(() => {}); throw e; }
     finally { client.release(); }
   }
