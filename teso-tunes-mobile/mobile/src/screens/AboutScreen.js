@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import MiniPlayer from "../components/MiniPlayer";
+import { SUPPORT_EMAIL, supportEmailUrl } from "../config/contact";
 import { useAuth } from "../context/AuthContext";
 import { colors, spacing } from "../theme";
 
@@ -50,6 +51,7 @@ export default function AboutScreen({ navigation }) {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Help and information</Text>
           <ActionRow icon="help-buoy-outline" label="Help & Support" onPress={() => navigation.navigate("Support")} />
+          <ActionRow icon="mail-outline" label={SUPPORT_EMAIL} onPress={() => Linking.openURL(supportEmailUrl())} />
           {isAuthenticated ? (
             <ActionRow icon="shield-checkmark-outline" label="Privacy & account data" onPress={() => navigation.navigate("Settings")} />
           ) : (

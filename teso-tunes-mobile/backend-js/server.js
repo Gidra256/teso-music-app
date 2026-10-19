@@ -1918,6 +1918,7 @@ function supportHelpCenterPayload() {
   return {
     contact: {
       title: "Contact Support",
+      email: "support@tesohubmusic.com",
       message:
         "Send a ticket from your account so the TesoHub Music team can see your app profile and reply in one place.",
     },
@@ -1976,7 +1977,7 @@ function supportHelpCenterPayload() {
         id: "contact-support",
         title: "How to contact support",
         summary:
-          "Use Submit Support Ticket from Help & Support so your conversation stays linked to your account.",
+          "Use Submit a Support Request so your conversation stays linked to your account, or email support@tesohubmusic.com.",
       },
     ],
   };

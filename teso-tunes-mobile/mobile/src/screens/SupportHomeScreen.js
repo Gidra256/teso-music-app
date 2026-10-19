@@ -3,6 +3,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Linking,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -14,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BACKEND_CONNECTION_ERROR, getSupportHelpCenter } from "../api/musicApi";
 import MiniPlayer from "../components/MiniPlayer";
+import { SUPPORT_EMAIL, supportEmailUrl } from "../config/contact";
 import { useAuth } from "../context/AuthContext";
 import { colors, spacing } from "../theme";
 import { supportCopy } from "../utils/supportLabels";
@@ -93,6 +95,20 @@ export default function SupportHomeScreen({ navigation }) {
             </Text>
           </View>
         </View>
+
+        <TouchableOpacity
+          accessibilityRole="link"
+          activeOpacity={0.84}
+          style={styles.emailLink}
+          onPress={() => Linking.openURL(supportEmailUrl())}
+        >
+          <Ionicons name="mail-outline" color={colors.primary} size={20} />
+          <View style={styles.emailCopy}>
+            <Text style={styles.emailLabel}>Official support email</Text>
+            <Text style={styles.emailAddress}>{SUPPORT_EMAIL}</Text>
+          </View>
+          <Ionicons name="open-outline" color={colors.muted} size={18} />
+        </TouchableOpacity>
 
         <View style={styles.actionGrid}>
           <SupportTile
@@ -190,6 +206,18 @@ const styles = StyleSheet.create({
     padding: spacing.page,
     paddingBottom: 120,
   },
+  emailLink: {
+    alignItems: "center",
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 52,
+    paddingVertical: 8,
+  },
+  emailCopy: { flex: 1, gap: 2 },
+  emailLabel: { color: colors.muted, fontSize: 12, fontWeight: "800" },
+  emailAddress: { color: colors.text, fontSize: 15, fontWeight: "800" },
   topbar: {
     alignItems: "center",
     flexDirection: "row",
