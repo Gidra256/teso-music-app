@@ -1,0 +1,495 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+import { API_BASE_URL } from "../config/api";
+
+export const BACKEND_CONNECTION_ERROR =
+  "Could not connect to TesoHub Music backend.";
+
+let authToken = "";
+
+const CACHE_KEYS = {
+  artists: "tesohub_music_cache_artists",
+  artist: (id) => `tesohub_music_cache_artist_${id}`,
+  featuredArtists: "tesohub_music_cache_featured_artists",
+  featuredSongs: "tesohub_music_cache_featured_songs",
+  song: (id) => `tesohub_music_cache_song_${id}`,
+  songs: "tesohub_music_cache_songs",
+};
+
+export function setAuthToken(token = "") {
+  authToken = token;
+}
+
+function countItems(data) {
+  if (Array.isArray(data)) return data.length;
+  if (data?.songs && Array.isArray(data.songs)) return data.songs.length;
+  return data ? 1 : 0;
+}
+
+function backendError(path, error) {
+  const wrappedError = new Error(BACKEND_CONNECTION_ERROR);
+  wrappedError.path = path;
+  wrappedError.cause = error;
+  return wrappedError;
+}
+
+async function fetchJson(path, options) {
+  const url = `${API_BASE_URL}${path}`;
+  console.log(`[TesoHub Music API] Fetching: ${url}`);
+
+  let response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers: {
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...(options?.headers || {}),
+      },
+    });
+  } catch (error) {
+    console.warn(`[TesoHub Music API] Network error for ${url}:`, error?.message || error);
+    throw backendError(path, error);
+  }
+
+  console.log(`[TesoHub Music API] ${url} status: ${response.status}`);
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error = backendError(
+      path,
+      new Error(data?.detail || `API request failed: ${response.status}`)
+    );
+    error.detail = data?.detail;
+    error.status = response.status;
+    throw error;
+  }
+
+  console.log(`[TesoHub Music API] ${path} returned ${countItems(data)} item(s).`);
+  return data;
+}
+
+async function readCachedRealData(cacheKey) {
+  try {
+    const cachedValue = await AsyncStorage.getItem(cacheKey);
+    if (!cachedValue) return null;
+
+    const cached = JSON.parse(cachedValue);
+    if (cached?.source !== "backend" || !Object.prototype.hasOwnProperty.call(cached, "data")) {
+      return null;
+    }
+
+    return cached.data;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function writeCachedRealData(cacheKey, data) {
+  try {
+    await AsyncStorage.setItem(
+      cacheKey,
+      JSON.stringify({
+        cached_at: new Date().toISOString(),
+        data,
+        source: "backend",
+      })
+    );
+  } catch (error) {}
+}
+
+async function fetchJsonWithRealCache(path, cacheKey, label) {
+  try {
+    const data = await fetchJson(path);
+    await writeCachedRealData(cacheKey, data);
+    return data;
+  } catch (error) {
+    const cachedData = await readCachedRealData(cacheKey);
+    if (cachedData !== null) {
+      console.warn(
+        `[TesoHub Music API] ${label} failed; using cached backend data.`,
+        error?.message || error
+      );
+      return cachedData;
+    }
+
+    console.warn(
+      `[TesoHub Music API] ${label} failed and no real cached data exists.`,
+      error?.message || error
+    );
+    throw error;
+  }
+}
+
+async function cachedArtistFromLists(id) {
+  const numericId = Number(id);
+  const [cachedArtists, cachedSongs] = await Promise.all([
+    readCachedRealData(CACHE_KEYS.artists),
+    readCachedRealData(CACHE_KEYS.songs),
+  ]);
+
+  const artist = Array.isArray(cachedArtists)
+    ? cachedArtists.find((item) => Number(item.id) === numericId)
+    : null;
+
+  if (!artist) return null;
+
+  const songs = Array.isArray(cachedSongs)
+    ? cachedSongs.filter((song) => Number(song.artist) === numericId)
+    : [];
+
+  return { ...artist, songs };
+}
+
+async function cachedSongFromList(id) {
+  const numericId = Number(id);
+  const cachedSongs = await readCachedRealData(CACHE_KEYS.songs);
+
+  if (!Array.isArray(cachedSongs)) return null;
+  return cachedSongs.find((song) => Number(song.id) === numericId) || null;
+}
+
+async function postDeviceAction(path, deviceId) {
+  return fetchJson(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ device_id: deviceId }),
+  });
+}
+
+export async function registerListenerAccount(payload) {
+  return fetchJson("/auth/register/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function loginListenerAccount(payload) {
+  return fetchJson("/auth/login/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getListenerAccount() {
+  return fetchJson("/auth/me/");
+}
+
+export async function updateListenerAccount(payload) {
+  return fetchJson("/auth/me/", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function logoutListenerAccount() {
+  return fetchJson("/auth/logout/", {
+    method: "POST",
+  });
+}
+
+export async function getMyArtistApplication() {
+  return fetchJson("/artist-applications/me/");
+}
+
+export async function submitArtistApplication(formData) {
+  return fetchJson("/artist-applications/", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function getCurrentArtistAgreement() {
+  return fetchJson("/artist-agreements/current/");
+}
+
+export async function acceptCurrentArtistAgreement(version) {
+  return fetchJson("/artist-agreements/current/accept/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agreement_accepted: true, agreement_version: version }),
+  });
+}
+
+export async function getArtistStudioDashboard() {
+  return fetchJson("/artist-studio/dashboard/");
+}
+
+export async function getArtistStudioReleases(status = "") {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return fetchJson(`/artist-studio/releases/${query}`);
+}
+
+// Artist-owned 30-day song removal (Stage 3).
+// All requests use the existing authenticated API client; no new credentials.
+export async function getArtistStudioSongs() {
+  return fetchJson("/artist-studio/songs/");
+}
+
+export async function getArtistSongRemovalRequests() {
+  return fetchJson("/artist-studio/song-removal-requests/");
+}
+
+export async function requestArtistSongRemoval(songId, reason) {
+  return fetchJson(`/artist-studio/songs/${encodeURIComponent(String(songId))}/removal-requests/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function cancelArtistSongRemoval(requestId) {
+  return fetchJson(`/artist-studio/song-removal-requests/${encodeURIComponent(String(requestId))}/cancel/`, {
+    method: "POST",
+  });
+}
+
+export async function createArtistStudioRelease(formData) {
+  return fetchJson("/artist-studio/releases/", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function updateArtistStudioRelease(id, formData) {
+  return fetchJson(`/artist-studio/releases/${id}/`, {
+    method: "PUT",
+    body: formData,
+  });
+}
+
+export async function submitArtistStudioRelease(id) {
+  return fetchJson(`/artist-studio/releases/${id}/submit/`, {
+    method: "POST",
+  });
+}
+
+export async function updateArtistStudioProfile(formData) {
+  return fetchJson("/artist-studio/profile/", {
+    method: "PUT",
+    body: formData,
+  });
+}
+
+export async function getSupportHelpCenter() {
+  return fetchJson("/support/help-center/");
+}
+
+export async function getSupportTickets() {
+  return fetchJson("/support/tickets/");
+}
+
+export async function createSupportTicket(formData) {
+  return fetchJson("/support/tickets/", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function getSupportTicket(id) {
+  return fetchJson(`/support/tickets/${id}/`);
+}
+
+export async function replySupportTicket(id, formData) {
+  return fetchJson(`/support/tickets/${id}/replies/`, {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function getPlaylists() {
+  return fetchJson("/playlists/");
+}
+
+export async function createPlaylist(payload) {
+  return fetchJson("/playlists/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getPlaylist(id) {
+  return fetchJson(`/playlists/${id}/`);
+}
+
+export async function updatePlaylist(id, payload) {
+  return fetchJson(`/playlists/${id}/`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deletePlaylist(id) {
+  return fetchJson(`/playlists/${id}/`, {
+    method: "DELETE",
+  });
+}
+
+export async function addSongToPlaylist(playlistId, songId) {
+  return fetchJson(`/playlists/${playlistId}/songs/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ song_id: songId }),
+  });
+}
+
+export async function removeSongFromPlaylist(playlistId, songId) {
+  return fetchJson(`/playlists/${playlistId}/songs/${songId}/`, {
+    method: "DELETE",
+  });
+}
+
+export async function getArtists() {
+  return fetchJsonWithRealCache("/artists/", CACHE_KEYS.artists, "artists");
+}
+
+export async function getArtist(id) {
+  try {
+    const artist = await fetchJson(`/artists/${id}/`);
+    await writeCachedRealData(CACHE_KEYS.artist(id), artist);
+    return artist;
+  } catch (error) {
+    const cachedArtist =
+      (await readCachedRealData(CACHE_KEYS.artist(id))) ||
+      (await cachedArtistFromLists(id));
+
+    if (cachedArtist) {
+      console.warn(
+        `[TesoHub Music API] artist ${id} failed; using cached backend data.`,
+        error?.message || error
+      );
+      return cachedArtist;
+    }
+
+    console.warn(
+      `[TesoHub Music API] artist ${id} failed and no real cached data exists.`,
+      error?.message || error
+    );
+    throw error;
+  }
+}
+
+export async function getSongs() {
+  return fetchJsonWithRealCache("/songs/", CACHE_KEYS.songs, "songs");
+}
+
+export async function getSong(id) {
+  try {
+    const song = await fetchJson(`/songs/${id}/`);
+    await writeCachedRealData(CACHE_KEYS.song(id), song);
+    return song;
+  } catch (error) {
+    if (error?.status === 404) {
+      throw error;
+    }
+
+    const cachedSong =
+      (await readCachedRealData(CACHE_KEYS.song(id))) ||
+      (await cachedSongFromList(id));
+
+    if (cachedSong) {
+      console.warn(
+        `[TesoHub Music API] song ${id} failed; using cached backend data.`,
+        error?.message || error
+      );
+      return cachedSong;
+    }
+
+    console.warn(
+      `[TesoHub Music API] song ${id} failed and no real cached data exists.`,
+      error?.message || error
+    );
+    throw error;
+  }
+}
+
+export async function getShareableSong(id) {
+  if (!/^[1-9]\d*$/.test(String(id)) || !Number.isSafeInteger(Number(id))) {
+    throw new Error("This song is unavailable.");
+  }
+  // Shared pages and share actions must not revive unpublished songs from cache.
+  const song = await fetchJson(`/songs/${encodeURIComponent(String(id))}/`);
+  if (String(song?.id) !== String(id) || song?.status !== "published") {
+    throw new Error("This song is unavailable.");
+  }
+  return song;
+}
+
+export async function getFeaturedArtists() {
+  return fetchJsonWithRealCache(
+    "/featured-artists/",
+    CACHE_KEYS.featuredArtists,
+    "featured artists"
+  );
+}
+
+export async function getFeaturedSongs() {
+  return fetchJsonWithRealCache(
+    "/featured-songs/",
+    CACHE_KEYS.featuredSongs,
+    "featured songs"
+  );
+}
+
+export async function getGenres() {
+  return fetchJson("/genres/");
+}
+
+const discoveryRequests = new Map();
+
+export function getDiscoveryItems(kind, { discovery = "more", limit = 16, ids } = {}) {
+  const query = new URLSearchParams({ discovery, limit: String(limit) });
+  if (ids !== undefined) query.set("ids", ids.join(","));
+  const path = kind === "genres" ? "/genres/" : `/${kind}/?${query}`;
+  const key = `${authToken}:${path}`;
+  if (discoveryRequests.has(key)) return discoveryRequests.get(key);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  // Bounded public lists stay fresh; never revive a hidden song from a saved cache.
+  const request = fetchJson(path, { signal: controller.signal })
+    .then(items => {
+      if (!Array.isArray(items)) throw new Error("Music could not be loaded. Please retry.");
+      return items;
+    })
+    .finally(() => { clearTimeout(timeout); discoveryRequests.delete(key); });
+  discoveryRequests.set(key, request);
+  return request;
+}
+
+export async function getPlatformStatus() {
+  return fetchJson("/platform-status/");
+}
+
+export async function likeSong(id, deviceId) {
+  return postDeviceAction(`/songs/${id}/like/`, deviceId);
+}
+
+export async function unlikeSong(id, deviceId) {
+  return postDeviceAction(`/songs/${id}/unlike/`, deviceId);
+}
+
+export async function incrementSongPlay(songId) {
+  if (!songId) return null;
+
+  try {
+    return await fetchJson(`/songs/${songId}/play/`, {
+      method: "POST",
+    });
+  } catch (error) {
+    console.log("Could not increment song play count:", error?.message || error);
+    return null;
+  }
+}
+
+export async function followArtist(id, deviceId) {
+  return postDeviceAction(`/artists/${id}/follow/`, deviceId);
+}
+
+export async function unfollowArtist(id, deviceId) {
+  return postDeviceAction(`/artists/${id}/unfollow/`, deviceId);
+}
