@@ -2115,6 +2115,102 @@ export function createSupabasePersistence({
     return supportAttachmentFromRow(result.rows[0]);
   }
 
+  async function writeArtistAgreementVersion({
+    adminRole = "super_admin",
+    adminUser = "",
+    contentMarkdown,
+    id = null,
+    title,
+    version,
+  }) {
+    const client = await getPool().connect();
+    const contentHash = crypto.createHash("sha256").update(contentMarkdown, "utf8").digest("hex");
+    try {
+      await client.query("begin");
+      const result = id
+        ? await client.query(
+            `update tesohub_music.artist_agreement_versions
+             set version=$1,title=$2,content_markdown=$3,content_sha256=$4
+             where id=$5 and status='draft'
+             returning *`,
+            [version, title, contentMarkdown, contentHash, id],
+          )
+        : await client.query(
+            `insert into tesohub_music.artist_agreement_versions
+              (version,title,content_markdown,content_sha256,status)
+             values ($1,$2,$3,$4,'draft') returning *`,
+            [version, title, contentMarkdown, contentHash],
+          );
+      if (result.rowCount !== 1) {
+        const error = new Error("Only draft Artist Agreement versions can be changed.");
+        error.code = "AGREEMENT_NOT_DRAFT";
+        throw error;
+      }
+      const row = result.rows[0];
+      await client.query(
+        `insert into tesohub_music.admin_audit_logs
+          (admin_user,admin_role,action,target_type,target_id,details,created_at)
+         values ($1,$2,$3,'artist_agreement',$4,$5,now())`,
+        [adminUser, adminRole, id ? "update_artist_agreement_draft" : "create_artist_agreement_draft", row.id, { version: row.version, content_sha256: row.content_sha256 }],
+      );
+      await client.query("commit");
+      return agreementVersionFromRow(row);
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async function publishArtistAgreementVersion({ adminRole = "super_admin", adminUser = "", id }) {
+    const client = await getPool().connect();
+    try {
+      await client.query("begin");
+      const target = await client.query(
+        `select * from tesohub_music.artist_agreement_versions where id=$1 for update`,
+        [id],
+      );
+      if (target.rowCount !== 1) {
+        const error = new Error("Artist Agreement version not found.");
+        error.code = "AGREEMENT_NOT_FOUND";
+        throw error;
+      }
+      if (target.rows[0].status !== "draft") {
+        const error = new Error("Only a draft Artist Agreement can be published.");
+        error.code = "AGREEMENT_NOT_DRAFT";
+        throw error;
+      }
+      await client.query(
+        `update tesohub_music.artist_agreement_versions
+         set status='retired'
+         where status='published'`,
+      );
+      const published = await client.query(
+        `update tesohub_music.artist_agreement_versions
+         set status='published',published_at=clock_timestamp()
+         where id=$1 and status='draft'
+         returning *`,
+        [id],
+      );
+      if (published.rowCount !== 1) throw new Error("Artist Agreement publication conflicted.");
+      const row = published.rows[0];
+      await client.query(
+        `insert into tesohub_music.admin_audit_logs
+          (admin_user,admin_role,action,target_type,target_id,details,created_at)
+         values ($1,$2,'publish_artist_agreement','artist_agreement',$3,$4,now())`,
+        [adminUser, adminRole, row.id, { version: row.version, content_sha256: row.content_sha256 }],
+      );
+      await client.query("commit");
+      return agreementVersionFromRow(row);
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async function recordAdminAuditLog({
     action = "admin_action",
     adminRole = "super_admin",
@@ -2403,6 +2499,7 @@ export function createSupabasePersistence({
     addSupportAdminReply,
     addSupportInternalNote,
     addSupportTicketReply,
+    writeArtistAgreementVersion,
     createAuthSession,
     createListenerAccount,
     createPlaylist,
@@ -2429,6 +2526,7 @@ export function createSupabasePersistence({
     loadDb,
     loginExists,
     platformSettings,
+    publishArtistAgreementVersion,
     publishDueReleases,
     recordAdminAuditLog,
     removeSongFromPlaylist,
