@@ -1164,12 +1164,70 @@ function serializeAgreementAcceptance(db, acceptance) {
   );
   return {
     id: acceptance.id,
+    status: "accepted",
     agreement_version: acceptance.accepted_version,
     agreement_title: agreement?.title || "Artist Agreement",
     content_sha256: acceptance.content_sha256,
     accepted_by_listener_id: acceptance.listener,
     accepted_at: acceptance.accepted_at,
   };
+}
+
+function artistAgreementAdminPayload(db) {
+  const current = currentArtistAgreement(db);
+  const acceptanceCount = new Map();
+  for (const acceptance of db.artistAgreementAcceptances) {
+    const key = Number(acceptance.agreement_version);
+    acceptanceCount.set(key, (acceptanceCount.get(key) || 0) + 1);
+  }
+  const versions = [...db.artistAgreementVersions]
+    .sort((first, second) => Number(second.id) - Number(first.id))
+    .map((agreement) => ({
+      ...serializeArtistAgreement(agreement, false),
+      status: agreement.status,
+      created_at: agreement.created_at,
+      acceptance_count: acceptanceCount.get(Number(agreement.id)) || 0,
+    }));
+  const acceptances = [...db.artistAgreementAcceptances]
+    .sort((first, second) => String(second.accepted_at || "").localeCompare(String(first.accepted_at || "")))
+    .slice(0, 500)
+    .map((acceptance) => {
+      const listener = db.listeners.find((item) => Number(item.id) === Number(acceptance.listener));
+      const artist = db.artists.find((item) => Number(item.owner_listener) === Number(acceptance.listener));
+      return {
+        ...serializeAgreementAcceptance(db, acceptance),
+        account_name: listener?.name || "",
+        account_email: listener?.email || "",
+        artist_name: artist?.name || "",
+      };
+    });
+  const missing_current_acceptance = current
+    ? db.listeners
+        .filter((listener) => listener.role === "artist" && listener.status === "active")
+        .filter((listener) => !agreementAcceptanceForListener(db, listener.id, current.id))
+        .map((listener) => ({
+          listener_id: listener.id,
+          account_name: listener.name || "",
+          artist_name: db.artists.find((artist) => Number(artist.owner_listener) === Number(listener.id))?.name || "",
+        }))
+    : [];
+  return {
+    current: serializeArtistAgreement(current, false),
+    enforcement_mode: platformSettingsFor(db).artist_agreement_enforcement_mode,
+    versions,
+    acceptances,
+    missing_current_acceptance,
+  };
+}
+
+function artistAgreementDraftPayload(req) {
+  const version = cleanText(req.body?.version);
+  const title = cleanText(req.body?.title);
+  const contentMarkdown = String(req.body?.content_markdown || "").trim();
+  if (version.length < 1 || version.length > 80) return { error: "Enter a version between 1 and 80 characters." };
+  if (title.length < 2 || title.length > 160) return { error: "Enter a title between 2 and 160 characters." };
+  if (contentMarkdown.length < 20) return { error: "Enter the complete Artist Agreement text." };
+  return { version, title, contentMarkdown };
 }
 
 function prepareArtistAgreementAcceptance(db, req, listener, audience) {
@@ -4398,6 +4456,17 @@ app.put(
     const db = await loadDb();
     const currentSettings = platformSettingsFor(db);
     const nextSettings = settingsPayloadFromBody(req, currentSettings);
+    if (
+      nextSettings.artist_agreement_enforcement_mode !== "off" &&
+      nextSettings.artist_agreement_enforcement_mode !== currentSettings.artist_agreement_enforcement_mode
+    ) {
+      if (!currentArtistAgreement(db)) {
+        return res.status(409).json({ detail: "Publish an approved Artist Agreement before enabling enforcement." });
+      }
+      if (!boolValue(req.body?.artist_agreement_enforcement_confirmed)) {
+        return res.status(400).json({ detail: "Confirm the Artist Agreement enforcement change." });
+      }
+    }
     nextSettings.updated_at = nowIso();
     nextSettings.updated_by = req.adminUser.username;
     db.platformSettings = nextSettings;
@@ -4700,6 +4769,127 @@ app.post(
       challenge_code: challengeCode,
       delivery: "Send this code manually to the claimed social account. It will not be shown again.",
     });
+  },
+);
+
+app.get(
+  "/admin-api/artist-agreements",
+  requireAdminPermission("settings"),
+  async (req, res) => {
+    const db = await loadDb();
+    res.set("Cache-Control", "no-store").json(artistAgreementAdminPayload(db));
+  },
+);
+
+app.post(
+  "/admin-api/artist-agreements",
+  requireAdminPermission("settings"),
+  async (req, res) => {
+    const payload = artistAgreementDraftPayload(req);
+    if (payload.error) return res.status(400).json({ detail: payload.error });
+    if (USE_SUPABASE_PERSISTENCE) {
+      try {
+        const agreement = await supabasePersistence.writeArtistAgreementVersion({
+          ...payload,
+          adminRole: req.adminUser.role,
+          adminUser: req.adminUser.username,
+        });
+        return res.status(201).json(agreement);
+      } catch (error) {
+        if (error?.code === "23505") return res.status(409).json({ detail: "That Artist Agreement version already exists." });
+        throw error;
+      }
+    }
+    const db = await loadDb();
+    if (db.artistAgreementVersions.some((item) => item.version === payload.version)) {
+      return res.status(409).json({ detail: "That Artist Agreement version already exists." });
+    }
+    const agreement = {
+      id: Math.max(0, ...db.artistAgreementVersions.map((item) => Number(item.id) || 0)) + 1,
+      version: payload.version,
+      title: payload.title,
+      content_markdown: payload.contentMarkdown,
+      content_sha256: crypto.createHash("sha256").update(payload.contentMarkdown, "utf8").digest("hex"),
+      status: "draft",
+      published_at: null,
+      created_at: nowIso(),
+    };
+    db.artistAgreementVersions.push(agreement);
+    appendAuditLog(db, req, "create_artist_agreement_draft", "artist_agreement", agreement.id, { version: agreement.version, content_sha256: agreement.content_sha256 });
+    await saveDb(db);
+    res.status(201).json(serializeArtistAgreement(agreement, false));
+  },
+);
+
+app.put(
+  "/admin-api/artist-agreements/:id",
+  requireAdminPermission("settings"),
+  async (req, res) => {
+    const payload = artistAgreementDraftPayload(req);
+    if (payload.error) return res.status(400).json({ detail: payload.error });
+    if (USE_SUPABASE_PERSISTENCE) {
+      try {
+        return res.json(await supabasePersistence.writeArtistAgreementVersion({
+          ...payload,
+          id: Number(req.params.id),
+          adminRole: req.adminUser.role,
+          adminUser: req.adminUser.username,
+        }));
+      } catch (error) {
+        if (error?.code === "AGREEMENT_NOT_DRAFT") return res.status(409).json({ detail: error.message });
+        if (error?.code === "23505") return res.status(409).json({ detail: "That Artist Agreement version already exists." });
+        throw error;
+      }
+    }
+    const db = await loadDb();
+    const agreement = db.artistAgreementVersions.find((item) => Number(item.id) === Number(req.params.id));
+    if (!agreement) return res.status(404).json({ detail: "Artist Agreement version not found." });
+    if (agreement.status !== "draft") return res.status(409).json({ detail: "Only draft Artist Agreement versions can be changed." });
+    if (db.artistAgreementVersions.some((item) => Number(item.id) !== Number(agreement.id) && item.version === payload.version)) {
+      return res.status(409).json({ detail: "That Artist Agreement version already exists." });
+    }
+    Object.assign(agreement, {
+      version: payload.version,
+      title: payload.title,
+      content_markdown: payload.contentMarkdown,
+      content_sha256: crypto.createHash("sha256").update(payload.contentMarkdown, "utf8").digest("hex"),
+    });
+    appendAuditLog(db, req, "update_artist_agreement_draft", "artist_agreement", agreement.id, { version: agreement.version, content_sha256: agreement.content_sha256 });
+    await saveDb(db);
+    res.json(serializeArtistAgreement(agreement, false));
+  },
+);
+
+app.post(
+  "/admin-api/artist-agreements/:id/publish",
+  requireAdminPermission("settings"),
+  async (req, res) => {
+    if (cleanText(req.body?.confirmation) !== "PUBLISH ARTIST AGREEMENT") {
+      return res.status(400).json({ detail: "Enter the publication confirmation exactly." });
+    }
+    if (USE_SUPABASE_PERSISTENCE) {
+      try {
+        return res.json(await supabasePersistence.publishArtistAgreementVersion({
+          id: Number(req.params.id),
+          adminRole: req.adminUser.role,
+          adminUser: req.adminUser.username,
+        }));
+      } catch (error) {
+        if (error?.code === "AGREEMENT_NOT_FOUND") return res.status(404).json({ detail: error.message });
+        if (error?.code === "AGREEMENT_NOT_DRAFT") return res.status(409).json({ detail: error.message });
+        throw error;
+      }
+    }
+    const db = await loadDb();
+    const agreement = db.artistAgreementVersions.find((item) => Number(item.id) === Number(req.params.id));
+    if (!agreement) return res.status(404).json({ detail: "Artist Agreement version not found." });
+    if (agreement.status !== "draft") return res.status(409).json({ detail: "Only a draft Artist Agreement can be published." });
+    for (const item of db.artistAgreementVersions) if (item.status === "published") item.status = "retired";
+    agreement.status = "published";
+    agreement.published_at = nowIso();
+    appendAuditLog(db, req, "publish_artist_agreement", "artist_agreement", agreement.id, { version: agreement.version, content_sha256: agreement.content_sha256 });
+    await saveDb(db);
+    res.json(serializeArtistAgreement(agreement, false));
   },
 );
 

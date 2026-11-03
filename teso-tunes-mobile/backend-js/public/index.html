@@ -386,6 +386,7 @@
         ["reports", "Reports", "Moderation queue"],
         ["discovery", "Home & Discovery", "Curated featured content"],
         ["genres", "Genres", "Master genre list"],
+        ["agreements", "Artist Agreements", "Versioning, acceptance, and enforcement"],
         ["settings", "Platform Settings", "Operational switches and upload policy"],
         ["health", "Platform Health", "Backend and storage visibility"],
         ["audit", "Audit Log", "Admin activity history"],
@@ -421,6 +422,7 @@
         reports: [],
         genres: [],
         settings: null,
+        agreements: null,
         flags: {},
         health: null,
         audit: [],
@@ -501,6 +503,7 @@
         applications: ["applications"], releases: ["releases"], catalog: ["catalog"], removals: ["catalog"],
         artists: ["artists"], users: ["users"], support: ["support:view"],
         reports: ["reports"], discovery: ["discovery"], genres: ["genres"],
+        agreements: ["settings"],
         settings: ["settings"], health: ["*"], audit: ["*"], admins: ["*"], security: [],
       };
 
@@ -619,6 +622,7 @@
         reports: "/admin-api/reports",
         genres: "/admin-api/genres",
         settings: "/admin-api/platform-settings",
+        agreements: "/admin-api/artist-agreements",
         flags: "/admin-api/feature-flags",
         health: "/admin-api/platform-health",
         audit: "/admin-api/audit-log",
@@ -636,7 +640,8 @@
         reports: ["reports"],
         discovery: ["artists", "songs"],
         genres: ["genres"],
-        settings: ["settings", "flags"],
+        agreements: ["agreements"],
+        settings: ["settings", "flags", "agreements"],
         health: ["health"],
         audit: ["audit"],
         admins: ["admins"], security: [],
@@ -853,6 +858,7 @@
           dashboard: renderDashboard,
           discovery: renderDiscovery,
           genres: renderGenres,
+          agreements: renderAgreements,
           health: renderHealth,
           releases: renderReleases,
           reports: renderReports,
@@ -1755,6 +1761,7 @@
       function renderSettings() {
         const settings = state.settings || {};
         const flags = settings.feature_flags || state.flags || {};
+        const currentAgreement = state.agreements?.current;
         const toggle = (name, label, value, description) => `<label class="setting-toggle"><span><strong>${label}</strong><small>${description}</small></span><input class="setting-switch" type="checkbox" role="switch" aria-label="${label}" name="${name}" ${value ? "checked" : ""} /></label>`;
         viewEl.innerHTML = `
           <form id="settingsForm" class="form settings-workspace">
@@ -1762,6 +1769,11 @@
               <section class="settings-group"><h2>Access &amp; Onboarding</h2>
                 ${toggle("registration_enabled", "User registration", settings.registration_enabled, "Allow new listeners to create an account.")}
                 ${toggle("artist_applications_enabled", "Artist applications", settings.artist_applications_enabled, "Accept applications from new artists.")}
+                <label>Artist Agreement enforcement<select name="artist_agreement_enforcement_mode">
+                  <option value="off" ${settings.artist_agreement_enforcement_mode === "off" ? "selected" : ""}>Off</option>
+                  <option value="new_applications" ${settings.artist_agreement_enforcement_mode === "new_applications" ? "selected" : ""} ${currentAgreement ? "" : "disabled"}>New applications</option>
+                  <option value="all_artists" ${settings.artist_agreement_enforcement_mode === "all_artists" ? "selected" : ""} ${currentAgreement ? "" : "disabled"}>Applications and existing artists</option>
+                </select><span class="muted">${currentAgreement ? `Current: version ${escapeHtml(currentAgreement.version)}` : "No published agreement. Enforcement must remain off."}</span></label>
                 ${toggle("artist_studio_enabled", "Artist Studio", flags.artist_studio_enabled, "Enable the artist workspace.")}
               </section>
               <section class="settings-group"><h2>Platform Features</h2>
@@ -1788,6 +1800,39 @@
             </div>
             <div class="settings-save"><button type="submit">Save Changes</button></div>
           </form>`;
+      }
+
+      function renderAgreements() {
+        const data = state.agreements || {versions: [], acceptances: [], missing_current_acceptance: []};
+        const current = data.current;
+        const versionItem = agreement => `<article class="item"><div class="thumb">${escapeHtml(agreement.version)}</div><div>
+          <div class="item-title">${escapeHtml(agreement.title)} ${badge(agreement.status)}</div>
+          <div class="meta">SHA-256 ${escapeHtml(agreement.content_sha256)} | ${number(agreement.acceptance_count)} acceptances</div>
+          <details><summary>Read exact agreement</summary><pre class="details" style="white-space:pre-wrap">${escapeHtml(agreement.content)}</pre></details>
+          ${agreement.status === "draft" ? `<details><summary>Edit draft</summary><form class="form" data-agreement-form="edit" data-id="${agreement.id}">
+            <label>Version<input name="version" required maxlength="80" value="${escapeHtml(agreement.version)}" /></label>
+            <label>Title<input name="title" required maxlength="160" value="${escapeHtml(agreement.title)}" /></label>
+            <label>Agreement text<textarea name="content_markdown" required rows="16">${escapeHtml(agreement.content)}</textarea></label>
+            <button type="submit" class="secondary">Save draft</button></form>
+            <form data-agreement-form="publish" data-id="${agreement.id}"><button type="submit" class="danger">Publish this version</button></form></details>` : ""}
+        </div></article>`;
+        const acceptanceItem = acceptance => `<article class="item"><div class="thumb">#${acceptance.accepted_by_listener_id}</div><div>
+          <div class="item-title">${escapeHtml(acceptance.artist_name || acceptance.account_name || "Artist account")}</div>
+          <div class="meta">Version ${escapeHtml(acceptance.agreement_version)} | ${escapeHtml(acceptance.status)} | ${formatDate(acceptance.accepted_at)}</div>
+          <div class="details">Account: ${escapeHtml(acceptance.account_name || "Unknown")} | SHA-256 ${escapeHtml(acceptance.content_sha256)}</div>
+        </div></article>`;
+        viewEl.innerHTML = `<section class="panel"><h2>Current agreement</h2>
+          ${current ? `<p><strong>${escapeHtml(current.title)}</strong> - version ${escapeHtml(current.version)}</p><p class="details">Published ${formatDate(current.published_at)} | Enforcement: ${escapeHtml(data.enforcement_mode)}</p>` : '<p class="empty">No Artist Agreement is published. Enforcement remains off.</p>'}
+          <p class="muted">Publishing makes a version current but does not enable enforcement. Change enforcement separately in Platform Settings after legal approval.</p></section>
+          <section class="panel"><details><summary>Prepare a new draft</summary><form class="form" data-agreement-form="create">
+            <label>Version<input name="version" required maxlength="80" placeholder="1.0" /></label>
+            <label>Title<input name="title" required maxlength="160" value="TesoHub Music Artist Agreement" /></label>
+            <label>Agreement text<textarea name="content_markdown" required rows="18" placeholder="Paste the complete legally approved text here."></textarea></label>
+            <button type="submit">Save draft</button></form></details></section>
+          <section class="panel"><h2>Agreement versions</h2><div class="list">${data.versions.length ? data.versions.map(versionItem).join("") : '<p class="empty">No agreement versions yet.</p>'}</div></section>
+          <section class="panel"><h2>Artists missing current acceptance</h2><p class="meta">${number(data.missing_current_acceptance.length)} active artist accounts</p>
+            <div class="list">${data.missing_current_acceptance.length ? data.missing_current_acceptance.map(row => `<article class="item"><div><div class="item-title">${escapeHtml(row.artist_name || row.account_name || `Listener #${row.listener_id}`)}</div><div class="meta">Listener #${row.listener_id}</div></div></article>`).join("") : '<p class="empty">None for the current agreement.</p>'}</div></section>
+          <section class="panel"><h2>Recent acceptance records</h2><div class="list">${data.acceptances.length ? pagedList("agreement-acceptances", data.acceptances, acceptanceItem) : '<p class="empty">No acceptance records yet.</p>'}</div></section>`;
       }
 
       function renderHealth() {
@@ -2049,6 +2094,7 @@
         const previous = state.settings || {};
         const nextMaintenance = form.elements.maintenance_mode.checked;
         const nextRegistration = form.elements.registration_enabled.checked;
+        const nextAgreementMode = String(data.get("artist_agreement_enforcement_mode") || "off");
 
         if (!nextRegistration && previous.registration_enabled) {
           if (!confirm("Disable new user registration? Existing users can still login.")) return;
@@ -2056,10 +2102,17 @@
         if (nextMaintenance && !previous.maintenance_mode) {
           if (!confirm("Enable maintenance mode for normal app users? Admin access will remain available.")) return;
         }
+        let agreementEnforcementConfirmed = false;
+        if (nextAgreementMode !== "off" && nextAgreementMode !== previous.artist_agreement_enforcement_mode) {
+          if (!confirm("Enable Artist Agreement enforcement? Artists without the current acceptance will be blocked from the selected actions.")) return;
+          agreementEnforcementConfirmed = true;
+        }
 
         const body = {
           registration_enabled: nextRegistration,
           artist_applications_enabled: form.elements.artist_applications_enabled.checked,
+          artist_agreement_enforcement_mode: nextAgreementMode,
+          artist_agreement_enforcement_confirmed: agreementEnforcementConfirmed,
           music_uploads_enabled: form.elements.music_uploads_enabled.checked,
           maintenance_mode: nextMaintenance,
           max_audio_upload_mb: Number(data.get("max_audio_upload_mb") || 80),
@@ -2086,6 +2139,30 @@
         });
         await loadData();
         setStatus("Settings saved.");
+      }
+
+      async function saveAgreement(event) {
+        event.preventDefault();
+        const form = event.target;
+        if (form.dataset.pending) return;
+        const kind = form.dataset.agreementForm;
+        const id = form.dataset.id;
+        if (kind === "publish" && !confirm("Publish this exact Artist Agreement version? Published content becomes immutable. Enforcement will remain unchanged.")) return;
+        form.dataset.pending = "1";
+        const button = form.querySelector('button[type="submit"]');
+        if (button) button.disabled = true;
+        try {
+          const body = kind === "publish"
+            ? {confirmation: "PUBLISH ARTIST AGREEMENT"}
+            : Object.fromEntries(new FormData(form));
+          const route = kind === "create" ? "/admin-api/artist-agreements" : kind === "edit" ? `/admin-api/artist-agreements/${id}` : `/admin-api/artist-agreements/${id}/publish`;
+          await api(route, {method: kind === "edit" ? "PUT" : "POST", body: JSON.stringify(body)});
+          await loadResource("agreements", {force: true});
+          setStatus(kind === "publish" ? "Agreement published. Enforcement remains unchanged." : "Agreement draft saved.");
+        } finally {
+          delete form.dataset.pending;
+          if (button) button.disabled = false;
+        }
       }
 
       async function refreshSupportTickets() {
@@ -2405,6 +2482,7 @@
       document.addEventListener("submit", async (event) => {
         try {
           if (event.target.matches("[data-admin-form]")) return await saveAdminForm(event);
+          if (event.target.matches("[data-agreement-form]")) return await saveAgreement(event);
           if (event.target.id === "artistForm") return await saveArtist(event);
           if (event.target.id === "songForm") return await saveSong(event);
           if (event.target.id === "genreForm") return await saveGenre(event);
