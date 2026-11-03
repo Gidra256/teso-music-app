@@ -202,6 +202,18 @@ export async function submitArtistApplication(formData) {
   });
 }
 
+export async function getCurrentArtistAgreement() {
+  return fetchJson("/artist-agreements/current/");
+}
+
+export async function acceptCurrentArtistAgreement(version) {
+  return fetchJson("/artist-agreements/current/accept/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agreement_accepted: true, agreement_version: version }),
+  });
+}
+
 export async function getArtistStudioDashboard() {
   return fetchJson("/artist-studio/dashboard/");
 }

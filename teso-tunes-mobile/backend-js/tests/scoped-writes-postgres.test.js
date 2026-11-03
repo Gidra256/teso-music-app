@@ -51,7 +51,7 @@ test("P0-C real PostgreSQL independent-session release gate", {skip:!process.env
   observer = new pg.Client({...connection, database, application_name:"p0c-observer"});
   await observer.connect();
   await observer.query("create schema storage; create table storage.buckets(id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[])");
-  for (const file of ["001_supabase_initial.sql", "004_support_v1.sql"]) {
+  for (const file of ["001_supabase_initial.sql", "004_support_v1.sql", "007_artist_agreements.sql", "008_artist_identity_verification.sql"]) {
     await observer.query(fs.readFileSync(new URL(`migrations/${file}`, root), "utf8"));
   }
   function instance(name) {

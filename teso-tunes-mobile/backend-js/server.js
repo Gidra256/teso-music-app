@@ -302,6 +302,21 @@ const SONG_STATUSES = new Set(["published", "hidden", "removed", "under_review"]
 const ARTIST_STATUSES = new Set(["active", "suspended", "removed"]);
 const LISTENER_STATUSES = new Set(["active", "suspended"]);
 const REPORT_STATUSES = new Set(["open", "reviewing", "resolved", "dismissed"]);
+const ARTIST_AGREEMENT_ENFORCEMENT_MODES = new Set(["off", "new_applications", "all_artists"]);
+const ARTIST_VERIFICATION_STATUSES = new Set([
+  "unverified",
+  "verification_pending",
+  "verified",
+  "additional_information_required",
+]);
+const ARTIST_VERIFICATION_METHODS = new Set(["", "social_challenge", "account_history", "other"]);
+const ARTIST_VERIFICATION_RESULTS = new Set([
+  "",
+  "challenge_issued",
+  "passed",
+  "failed",
+  "needs_more_information",
+]);
 const SUPPORT_TICKET_STATUSES = new Set([
   "open",
   "in_progress",
@@ -507,6 +522,7 @@ function defaultPlatformSettings() {
   return {
     registration_enabled: true,
     artist_applications_enabled: true,
+    artist_agreement_enforcement_mode: "off",
     music_uploads_enabled: true,
     maintenance_mode: false,
     maintenance_message: "TesoHub Music is temporarily under maintenance.",
@@ -538,6 +554,8 @@ function emptyDb() {
     playlists: [],
     playlistSongs: [],
     artistApplications: [],
+    artistAgreementVersions: [],
+    artistAgreementAcceptances: [],
     releases: [],
     reports: [],
     genres: defaultGenres(),
@@ -547,6 +565,7 @@ function emptyDb() {
       adminAuditLog: 1,
       artist: 1,
       artistApplication: 1,
+      artistAgreementAcceptance: 1,
       genre: GENRE_OPTIONS.length + 1,
       listener: 1,
       playlist: 1,
@@ -574,6 +593,11 @@ function normalizePlatformSettings(value = {}) {
 
   settings.registration_enabled = Boolean(settings.registration_enabled);
   settings.artist_applications_enabled = Boolean(settings.artist_applications_enabled);
+  settings.artist_agreement_enforcement_mode = ARTIST_AGREEMENT_ENFORCEMENT_MODES.has(
+    settings.artist_agreement_enforcement_mode,
+  )
+    ? settings.artist_agreement_enforcement_mode
+    : "off";
   settings.music_uploads_enabled = Boolean(settings.music_uploads_enabled);
   settings.maintenance_mode = Boolean(settings.maintenance_mode);
   settings.max_audio_upload_mb = Math.max(1, Number(settings.max_audio_upload_mb || defaults.max_audio_upload_mb));
@@ -645,6 +669,12 @@ function normalizeDb(db) {
   db.artistApplications = Array.isArray(db.artistApplications)
     ? db.artistApplications
     : [];
+  db.artistAgreementVersions = Array.isArray(db.artistAgreementVersions)
+    ? db.artistAgreementVersions
+    : [];
+  db.artistAgreementAcceptances = Array.isArray(db.artistAgreementAcceptances)
+    ? db.artistAgreementAcceptances
+    : [];
   db.releases = Array.isArray(db.releases) ? db.releases : [];
   db.reports = Array.isArray(db.reports) ? db.reports : [];
   db.adminAuditLogs = Array.isArray(db.adminAuditLogs) ? db.adminAuditLogs : [];
@@ -689,6 +719,41 @@ function normalizeDb(db) {
     artist: release.artist ? Number(release.artist) : null,
     listener: release.listener ? Number(release.listener) : null,
     public_song: release.public_song ? Number(release.public_song) : null,
+  }));
+  db.artistApplications = db.artistApplications.map((application) => ({
+    ...application,
+    agreement_acceptance: application.agreement_acceptance
+      ? Number(application.agreement_acceptance)
+      : null,
+    verification_status: ARTIST_VERIFICATION_STATUSES.has(application.verification_status)
+      ? application.verification_status
+      : "unverified",
+    verification_method: ARTIST_VERIFICATION_METHODS.has(application.verification_method)
+      ? application.verification_method
+      : "",
+    verification_result: ARTIST_VERIFICATION_RESULTS.has(application.verification_result)
+      ? application.verification_result
+      : "",
+    verification_reviewed_at: application.verification_reviewed_at || null,
+    verification_reviewed_by: application.verification_reviewed_by || "",
+    verification_notes: application.verification_notes || "",
+    social_challenge_code_hash: application.social_challenge_code_hash || null,
+    social_challenge_issued_at: application.social_challenge_issued_at || null,
+    social_challenge_completed_at: application.social_challenge_completed_at || null,
+  }));
+  db.artistAgreementVersions = db.artistAgreementVersions.map((agreement) => ({
+    ...agreement,
+    id: Number(agreement.id),
+    version: cleanText(agreement.version),
+    status: ["draft", "published", "retired"].includes(agreement.status)
+      ? agreement.status
+      : "draft",
+  }));
+  db.artistAgreementAcceptances = db.artistAgreementAcceptances.map((acceptance) => ({
+    ...acceptance,
+    id: Number(acceptance.id),
+    agreement_version: Number(acceptance.agreement_version),
+    listener: Number(acceptance.listener),
   }));
   db.reports = db.reports.map((report) => ({
     ...report,
@@ -736,6 +801,10 @@ function normalizeDb(db) {
   db.nextIds.artistApplication = Math.max(
     Number(db.nextIds.artistApplication || 1),
     maxNextId(db.artistApplications),
+  );
+  db.nextIds.artistAgreementAcceptance = Math.max(
+    Number(db.nextIds.artistAgreementAcceptance || 1),
+    maxNextId(db.artistAgreementAcceptances),
   );
   db.nextIds.genre = Math.max(
     Number(db.nextIds.genre || 1),
@@ -1034,7 +1103,266 @@ function publicListener(listener) {
   };
 }
 
-function serializeArtistApplication(db, req, application) {
+function currentArtistAgreement(db) {
+  return db.artistAgreementVersions.find((agreement) => agreement.status === "published") || null;
+}
+
+function artistAgreementRequired(db, audience = "new_application") {
+  const mode = platformSettingsFor(db).artist_agreement_enforcement_mode;
+  return mode === "all_artists" || (mode === "new_applications" && audience === "new_application");
+}
+
+function agreementAcceptanceForApplication(db, applicationId) {
+  const application = db.artistApplications.find(
+    (item) => Number(item.id) === Number(applicationId),
+  );
+  return application?.agreement_acceptance
+    ? db.artistAgreementAcceptances.find(
+        (acceptance) => Number(acceptance.id) === Number(application.agreement_acceptance),
+      ) || null
+    : null;
+}
+
+function agreementAcceptanceForListener(db, listenerId, agreementId) {
+  return db.artistAgreementAcceptances.find(
+    (acceptance) => Number(acceptance.listener) === Number(listenerId) &&
+      Number(acceptance.agreement_version) === Number(agreementId),
+  ) || null;
+}
+
+function serializeArtistAgreement(agreement, required = false) {
+  if (!agreement) return null;
+  return {
+    id: agreement.id,
+    version: agreement.version,
+    title: agreement.title,
+    content: agreement.content_markdown,
+    content_sha256: agreement.content_sha256,
+    published_at: agreement.published_at,
+    required: Boolean(required),
+  };
+}
+
+function serializeAgreementAcceptance(db, acceptance) {
+  if (!acceptance) return null;
+  const agreement = db.artistAgreementVersions.find(
+    (item) => Number(item.id) === Number(acceptance.agreement_version),
+  );
+  return {
+    id: acceptance.id,
+    status: "accepted",
+    agreement_version: acceptance.accepted_version,
+    agreement_title: agreement?.title || "Artist Agreement",
+    content_sha256: acceptance.content_sha256,
+    accepted_by_listener_id: acceptance.listener,
+    accepted_at: acceptance.accepted_at,
+  };
+}
+
+function artistAgreementAdminPayload(db) {
+  const current = currentArtistAgreement(db);
+  const acceptanceCount = new Map();
+  for (const acceptance of db.artistAgreementAcceptances) {
+    const key = Number(acceptance.agreement_version);
+    acceptanceCount.set(key, (acceptanceCount.get(key) || 0) + 1);
+  }
+  const versions = [...db.artistAgreementVersions]
+    .sort((first, second) => Number(second.id) - Number(first.id))
+    .map((agreement) => ({
+      ...serializeArtistAgreement(agreement, false),
+      status: agreement.status,
+      created_at: agreement.created_at,
+      acceptance_count: acceptanceCount.get(Number(agreement.id)) || 0,
+    }));
+  const acceptances = [...db.artistAgreementAcceptances]
+    .sort((first, second) => String(second.accepted_at || "").localeCompare(String(first.accepted_at || "")))
+    .slice(0, 500)
+    .map((acceptance) => {
+      const listener = db.listeners.find((item) => Number(item.id) === Number(acceptance.listener));
+      const artist = db.artists.find((item) => Number(item.owner_listener) === Number(acceptance.listener));
+      return {
+        ...serializeAgreementAcceptance(db, acceptance),
+        account_name: listener?.name || "",
+        account_email: listener?.email || "",
+        artist_name: artist?.name || "",
+      };
+    });
+  const missing_current_acceptance = current
+    ? db.listeners
+        .filter((listener) => listener.role === "artist" && listener.status === "active")
+        .filter((listener) => !agreementAcceptanceForListener(db, listener.id, current.id))
+        .map((listener) => ({
+          listener_id: listener.id,
+          account_name: listener.name || "",
+          artist_name: db.artists.find((artist) => Number(artist.owner_listener) === Number(listener.id))?.name || "",
+        }))
+    : [];
+  return {
+    current: serializeArtistAgreement(current, false),
+    enforcement_mode: platformSettingsFor(db).artist_agreement_enforcement_mode,
+    versions,
+    acceptances,
+    missing_current_acceptance,
+  };
+}
+
+function artistAgreementDraftPayload(req) {
+  const version = cleanText(req.body?.version);
+  const title = cleanText(req.body?.title);
+  const contentMarkdown = String(req.body?.content_markdown || "").trim();
+  if (version.length < 1 || version.length > 80) return { error: "Enter a version between 1 and 80 characters." };
+  if (title.length < 2 || title.length > 160) return { error: "Enter a title between 2 and 160 characters." };
+  if (contentMarkdown.length < 20) return { error: "Enter the complete Artist Agreement text." };
+  return { version, title, contentMarkdown };
+}
+
+function prepareArtistAgreementAcceptance(db, req, listener, audience) {
+  const required = artistAgreementRequired(db, audience);
+  const accepted = boolValue(req.body?.agreement_accepted);
+  const requestedVersion = cleanText(req.body?.agreement_version);
+  const agreement = currentArtistAgreement(db);
+
+  if (!required && !accepted && !requestedVersion) return { acceptance: null };
+  if (!agreement) {
+    return {
+      error: "Artist Agreement enforcement is not ready because no agreement is published.",
+      status: 503,
+    };
+  }
+  if (!accepted) {
+    return { error: "Read and accept the current Artist Agreement.", status: 400 };
+  }
+  if (requestedVersion !== agreement.version) {
+    return {
+      error: "The Artist Agreement changed. Read the current version before accepting.",
+      status: 409,
+    };
+  }
+
+  const existing = agreementAcceptanceForListener(db, listener.id, agreement.id);
+  if (existing) return { acceptance: existing, existing: true };
+
+  const now = nowIso();
+  const acceptance = {
+    id: db.nextIds.artistAgreementAcceptance++,
+    agreement_version: agreement.id,
+    listener: listener.id,
+    accepted_version: agreement.version,
+    content_sha256: agreement.content_sha256,
+    accepted_at: now,
+    created_at: now,
+  };
+  db.artistAgreementAcceptances.push(acceptance);
+  return { acceptance, existing: false };
+}
+
+function artistAgreementState(db, listener, audience) {
+  const agreement = currentArtistAgreement(db);
+  const acceptance = agreement && listener
+    ? agreementAcceptanceForListener(db, listener.id, agreement.id)
+    : null;
+  return {
+    agreement: serializeArtistAgreement(agreement, artistAgreementRequired(db, audience)),
+    acceptance: serializeAgreementAcceptance(db, acceptance),
+    enforcement_mode: platformSettingsFor(db).artist_agreement_enforcement_mode,
+    required: artistAgreementRequired(db, audience),
+  };
+}
+
+function requireArtistAgreementForUploads(db, account, res) {
+  if (!artistAgreementRequired(db, "existing_artist")) return true;
+  const agreement = currentArtistAgreement(db);
+  if (!agreement) {
+    res.status(503).json({ detail: "Artist Agreement enforcement is not ready." });
+    return false;
+  }
+  if (!agreementAcceptanceForListener(db, account.listener.id, agreement.id)) {
+    res.status(403).json({
+      detail: "Accept the current Artist Agreement in Artist Studio before managing releases.",
+      code: "artist_agreement_required",
+    });
+    return false;
+  }
+  return true;
+}
+
+function normalizeArtistIdentityName(value) {
+  return cleanText(value)
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function artistNameSimilarity(firstValue, secondValue) {
+  const first = normalizeArtistIdentityName(firstValue);
+  const second = normalizeArtistIdentityName(secondValue);
+  if (!first || !second) return 0;
+  if (first === second) return 1;
+  const previous = Array.from({ length: second.length + 1 }, (_, index) => index);
+  for (let firstIndex = 1; firstIndex <= first.length; firstIndex += 1) {
+    const current = [firstIndex];
+    for (let secondIndex = 1; secondIndex <= second.length; secondIndex += 1) {
+      current[secondIndex] = Math.min(
+        current[secondIndex - 1] + 1,
+        previous[secondIndex] + 1,
+        previous[secondIndex - 1] + (first[firstIndex - 1] === second[secondIndex - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return 1 - previous[second.length] / Math.max(first.length, second.length);
+}
+
+function potentialArtistMatches(db, artistName, linkedArtistId = null) {
+  const normalized = normalizeArtistIdentityName(artistName);
+  if (!normalized) return [];
+  const compact = normalized.replaceAll(" ", "");
+  return db.artists
+    .filter((artist) => Number(artist.id) !== Number(linkedArtistId || 0))
+    .map((artist) => {
+      const candidate = normalizeArtistIdentityName(artist.name);
+      const score = artistNameSimilarity(normalized, candidate);
+      const exact = candidate === normalized;
+      const compactMatch = compact.length >= 4 && candidate.replaceAll(" ", "") === compact;
+      return {
+        id: artist.id,
+        name: artist.name || "",
+        status: artist.status || "active",
+        category: artist.category || "",
+        match_type: exact ? "normalized_exact" : compactMatch ? "spacing_variant" : "similar_name",
+        similarity: Number(score.toFixed(3)),
+      };
+    })
+    .filter((match) => match.match_type !== "similar_name" || match.similarity >= 0.82)
+    .sort((first, second) => second.similarity - first.similarity || Number(first.id) - Number(second.id))
+    .slice(0, 5);
+}
+
+function artistVerificationForAdmin(application) {
+  return {
+    status: application.verification_status || "unverified",
+    method: application.verification_method || "",
+    result: application.verification_result || "",
+    reviewed_at: application.verification_reviewed_at || null,
+    reviewed_by: application.verification_reviewed_by || "",
+    notes: application.verification_notes || "",
+    social_challenge: {
+      issued_at: application.social_challenge_issued_at || null,
+      completed_at: application.social_challenge_completed_at || null,
+      pending: Boolean(
+        application.social_challenge_code_hash &&
+        application.social_challenge_issued_at &&
+        !application.social_challenge_completed_at
+      ),
+    },
+  };
+}
+
+function serializeArtistApplication(db, req, application, { includeVerification = false } = {}) {
   const listener = db.listeners.find(
     (item) => Number(item.id) === Number(application.listener),
   );
@@ -1060,12 +1388,47 @@ function serializeArtistApplication(db, req, application) {
     social_link: application.social_link || "",
     genuine_confirmed: Boolean(application.genuine_confirmed),
     status: application.status || "pending",
+    verification_status: application.verification_status || "unverified",
     review_reason: application.review_reason || "",
     rejection_reason: application.rejection_reason || "",
     created_at: application.created_at,
     updated_at: application.updated_at,
     reviewed_at: application.reviewed_at || null,
+    agreement_acceptance: serializeAgreementAcceptance(
+      db,
+      agreementAcceptanceForApplication(db, application.id),
+    ),
+    ...(includeVerification ? { verification: artistVerificationForAdmin(application) } : {}),
   };
+}
+
+function validClaimedSocialLink(value) {
+  try {
+    const url = new URL(cleanText(value));
+    return ["http:", "https:"].includes(url.protocol) && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function newSocialChallenge() {
+  const raw = crypto.randomBytes(8).toString("hex").toUpperCase();
+  return `TSH-${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}`;
+}
+
+function hashSocialChallenge(applicationId, code) {
+  return crypto.createHash("sha256")
+    .update(`artist-social-challenge:${applicationId}:${cleanText(code).toUpperCase()}`)
+    .digest("hex");
+}
+
+function socialChallengeMatches(application, code) {
+  const stored = cleanText(application.social_challenge_code_hash);
+  const supplied = hashSocialChallenge(application.id, code);
+  return stored.length === 64 && supplied.length === stored.length && crypto.timingSafeEqual(
+    Buffer.from(stored, "hex"),
+    Buffer.from(supplied, "hex"),
+  );
 }
 
 function serializeCompactArtistApplication(application) {
@@ -1074,6 +1437,7 @@ function serializeCompactArtistApplication(application) {
     id: application.id,
     artist_name: application.artist_name || "",
     status: application.status || "pending",
+    verification_status: application.verification_status || "unverified",
     review_reason: application.review_reason || "",
     rejection_reason: application.rejection_reason || "",
     created_at: application.created_at,
@@ -2394,6 +2758,56 @@ app.post("/api/auth/logout/", async (req, res) => {
   res.json({ logged_out: true });
 });
 
+app.get("/api/artist-agreements/current/", async (req, res) => {
+  const db = await loadDb();
+  const listener = findListenerByToken(db, req);
+  const audience = listener?.role === "artist" ? "existing_artist" : "new_application";
+  res.set("Cache-Control", "no-store").json(artistAgreementState(db, listener, audience));
+});
+
+app.post("/api/artist-agreements/current/accept/", async (req, res) => {
+  const db = await loadDb();
+  const account = requireArtist(db, req, res);
+  if (!account) return;
+
+  const prepared = prepareArtistAgreementAcceptance(
+    db,
+    req,
+    account.listener,
+    "existing_artist",
+  );
+  if (prepared.error) return res.status(prepared.status).json({ detail: prepared.error });
+  if (prepared.existing) {
+    return res.json({
+      acceptance: serializeAgreementAcceptance(db, prepared.acceptance),
+      ...artistAgreementState(db, account.listener, "existing_artist"),
+    });
+  }
+
+  try {
+    await saveDb(db);
+  } catch (error) {
+    if (error?.code !== "STALE_WRITE" && error?.code !== "23505") throw error;
+    const fresh = await loadDb();
+    const agreement = currentArtistAgreement(fresh);
+    const accepted = agreement && agreementAcceptanceForListener(
+      fresh,
+      account.listener.id,
+      agreement.id,
+    );
+    if (!accepted) throw error;
+    return res.json({
+      acceptance: serializeAgreementAcceptance(fresh, accepted),
+      ...artistAgreementState(fresh, account.listener, "existing_artist"),
+    });
+  }
+
+  res.status(201).json({
+    acceptance: serializeAgreementAcceptance(db, prepared.acceptance),
+    ...artistAgreementState(db, account.listener, "existing_artist"),
+  });
+});
+
 app.get("/api/artist-applications/me/", async (req, res) => {
   const db = await loadDb();
   const listener = requireListener(db, req, res);
@@ -2447,6 +2861,16 @@ app.post(
       return res.status(400).json({ detail: validationError });
     }
 
+    const preparedAgreement = prepareArtistAgreementAcceptance(
+      db,
+      req,
+      listener,
+      "new_application",
+    );
+    if (preparedAgreement.error) {
+      return res.status(preparedAgreement.status).json({ detail: preparedAgreement.error });
+    }
+
     const now = new Date().toISOString();
     const application = {
       id: db.nextIds.artistApplication++,
@@ -2457,6 +2881,7 @@ app.post(
       review_reason: "",
       rejection_reason: "",
       artist: null,
+      agreement_acceptance: preparedAgreement.acceptance?.id || null,
       created_at: now,
       updated_at: now,
       reviewed_at: null,
@@ -2492,6 +2917,7 @@ app.get("/api/artist-studio/dashboard/", async (req, res) => {
 
   res.json({
     artist: serializeArtist(db, req, account.artist),
+    artist_agreement: artistAgreementState(db, account.listener, "existing_artist"),
     follower_count: followerCount(db, account.artist.id),
     total_releases: releases.length,
     published_releases: releases.filter((release) => release.status === "published")
@@ -2533,6 +2959,7 @@ app.post(
     const db = await loadDb();
     const account = requireArtist(db, req, res);
     if (!account) return;
+    if (!requireArtistAgreementForUploads(db, account, res)) return;
     if (!featureFlagsFor(db).artist_studio_enabled || !platformSettingsFor(db).music_uploads_enabled) {
       return res.status(403).json({ detail: "Music uploads are temporarily disabled." });
     }
@@ -2596,6 +3023,7 @@ app.put(
     const db = await loadDb();
     const account = requireArtist(db, req, res);
     if (!account) return;
+    if (!requireArtistAgreementForUploads(db, account, res)) return;
     if (!featureFlagsFor(db).artist_studio_enabled || !platformSettingsFor(db).music_uploads_enabled) {
       return res.status(403).json({ detail: "Music uploads are temporarily disabled." });
     }
@@ -2643,6 +3071,7 @@ app.post("/api/artist-studio/releases/:id/submit/", async (req, res) => {
   const db = await loadDb();
   const account = requireArtist(db, req, res);
   if (!account) return;
+  if (!requireArtistAgreementForUploads(db, account, res)) return;
   if (!featureFlagsFor(db).artist_studio_enabled || !platformSettingsFor(db).music_uploads_enabled) {
     return res.status(403).json({ detail: "Music uploads are temporarily disabled." });
   }
@@ -3908,6 +4337,17 @@ app.put(
     const db = await loadDb();
     const currentSettings = platformSettingsFor(db);
     const nextSettings = settingsPayloadFromBody(req, currentSettings);
+    if (
+      nextSettings.artist_agreement_enforcement_mode !== "off" &&
+      nextSettings.artist_agreement_enforcement_mode !== currentSettings.artist_agreement_enforcement_mode
+    ) {
+      if (!currentArtistAgreement(db)) {
+        return res.status(409).json({ detail: "Publish an approved Artist Agreement before enabling enforcement." });
+      }
+      if (!boolValue(req.body?.artist_agreement_enforcement_confirmed)) {
+        return res.status(400).json({ detail: "Confirm the Artist Agreement enforcement change." });
+      }
+    }
     nextSettings.updated_at = nowIso();
     nextSettings.updated_by = req.adminUser.username;
     db.platformSettings = nextSettings;
@@ -4152,16 +4592,251 @@ app.get("/admin-api/artist-applications/:id", requireAdminPermission("applicatio
   const db = await loadDb();
   const application = db.artistApplications.find((row) => Number(row.id) === Number(req.params.id));
   if (!application) return res.status(404).json({ detail: "Application not found." });
-  const reviewActions = ["approve_artist_application", "reject_artist_application", "request_artist_application_changes"];
+  const reviewActions = [
+    "approve_artist_application",
+    "reject_artist_application",
+    "request_artist_application_changes",
+    "issue_artist_social_challenge",
+    "record_artist_identity_verification",
+  ];
   // Only this application's review history, not the privileged global audit log.
   const history = db.adminAuditLogs.filter((entry) => entry.target_type === "artist_application" &&
     Number(entry.target_id) === Number(application.id) && reviewActions.includes(entry.action))
     .map((entry) => ({action:entry.action, at:entry.created_at, admin_user:entry.admin_user,
       admin_role:entry.admin_role, reason:entry.reason || entry.details?.review_reason || ""}))
     .sort((a, b) => String(a.at).localeCompare(String(b.at)));
-  res.set("Cache-Control", "no-store").json({...serializeArtistApplication(db, req, application),
-    reviewed_by:application.reviewed_by || "", history});
+  res.set("Cache-Control", "no-store").json({
+    ...serializeArtistApplication(db, req, application, { includeVerification: true }),
+    reviewed_by: application.reviewed_by || "",
+    potential_artist_matches: potentialArtistMatches(db, application.artist_name, application.artist),
+    history,
+  });
 });
+
+app.post(
+  "/admin-api/artist-applications/:id/verification/challenge",
+  requireAdminPermission("applications"),
+  async (req, res) => {
+    const db = await loadDb();
+    const application = db.artistApplications.find(
+      (item) => Number(item.id) === Number(req.params.id),
+    );
+    if (!application) return res.status(404).json({ detail: "Application not found." });
+    if (!validClaimedSocialLink(application.social_link)) {
+      return res.status(400).json({
+        detail: "A valid claimed social account URL is required before issuing a challenge.",
+      });
+    }
+
+    const challengeCode = newSocialChallenge();
+    const now = nowIso();
+    application.verification_status = "verification_pending";
+    application.verification_method = "social_challenge";
+    application.verification_result = "challenge_issued";
+    application.verification_reviewed_at = now;
+    application.verification_reviewed_by = req.adminUser.username;
+    application.verification_notes = cleanText(req.body?.notes).slice(0, 2000);
+    application.social_challenge_code_hash = hashSocialChallenge(application.id, challengeCode);
+    application.social_challenge_issued_at = now;
+    application.social_challenge_completed_at = null;
+    application.updated_at = now;
+    appendAuditLog(db, req, "issue_artist_social_challenge", "artist_application", application.id, {
+      verification_status: application.verification_status,
+      verification_method: application.verification_method,
+    });
+    await saveDb(db);
+    res.status(201).json({
+      application: serializeArtistApplication(db, req, application, { includeVerification: true }),
+      challenge_code: challengeCode,
+      delivery: "Send this code manually to the claimed social account. It will not be shown again.",
+    });
+  },
+);
+
+app.get(
+  "/admin-api/artist-agreements",
+  requireAdminPermission("settings"),
+  async (req, res) => {
+    const db = await loadDb();
+    res.set("Cache-Control", "no-store").json(artistAgreementAdminPayload(db));
+  },
+);
+
+app.post(
+  "/admin-api/artist-agreements",
+  requireAdminPermission("settings"),
+  async (req, res) => {
+    const payload = artistAgreementDraftPayload(req);
+    if (payload.error) return res.status(400).json({ detail: payload.error });
+    if (USE_SUPABASE_PERSISTENCE) {
+      try {
+        const agreement = await supabasePersistence.writeArtistAgreementVersion({
+          ...payload,
+          adminRole: req.adminUser.role,
+          adminUser: req.adminUser.username,
+        });
+        return res.status(201).json(agreement);
+      } catch (error) {
+        if (error?.code === "23505") return res.status(409).json({ detail: "That Artist Agreement version already exists." });
+        throw error;
+      }
+    }
+    const db = await loadDb();
+    if (db.artistAgreementVersions.some((item) => item.version === payload.version)) {
+      return res.status(409).json({ detail: "That Artist Agreement version already exists." });
+    }
+    const agreement = {
+      id: Math.max(0, ...db.artistAgreementVersions.map((item) => Number(item.id) || 0)) + 1,
+      version: payload.version,
+      title: payload.title,
+      content_markdown: payload.contentMarkdown,
+      content_sha256: crypto.createHash("sha256").update(payload.contentMarkdown, "utf8").digest("hex"),
+      status: "draft",
+      published_at: null,
+      created_at: nowIso(),
+    };
+    db.artistAgreementVersions.push(agreement);
+    appendAuditLog(db, req, "create_artist_agreement_draft", "artist_agreement", agreement.id, { version: agreement.version, content_sha256: agreement.content_sha256 });
+    await saveDb(db);
+    res.status(201).json(serializeArtistAgreement(agreement, false));
+  },
+);
+
+app.put(
+  "/admin-api/artist-agreements/:id",
+  requireAdminPermission("settings"),
+  async (req, res) => {
+    const payload = artistAgreementDraftPayload(req);
+    if (payload.error) return res.status(400).json({ detail: payload.error });
+    if (USE_SUPABASE_PERSISTENCE) {
+      try {
+        return res.json(await supabasePersistence.writeArtistAgreementVersion({
+          ...payload,
+          id: Number(req.params.id),
+          adminRole: req.adminUser.role,
+          adminUser: req.adminUser.username,
+        }));
+      } catch (error) {
+        if (error?.code === "AGREEMENT_NOT_DRAFT") return res.status(409).json({ detail: error.message });
+        if (error?.code === "23505") return res.status(409).json({ detail: "That Artist Agreement version already exists." });
+        throw error;
+      }
+    }
+    const db = await loadDb();
+    const agreement = db.artistAgreementVersions.find((item) => Number(item.id) === Number(req.params.id));
+    if (!agreement) return res.status(404).json({ detail: "Artist Agreement version not found." });
+    if (agreement.status !== "draft") return res.status(409).json({ detail: "Only draft Artist Agreement versions can be changed." });
+    if (db.artistAgreementVersions.some((item) => Number(item.id) !== Number(agreement.id) && item.version === payload.version)) {
+      return res.status(409).json({ detail: "That Artist Agreement version already exists." });
+    }
+    Object.assign(agreement, {
+      version: payload.version,
+      title: payload.title,
+      content_markdown: payload.contentMarkdown,
+      content_sha256: crypto.createHash("sha256").update(payload.contentMarkdown, "utf8").digest("hex"),
+    });
+    appendAuditLog(db, req, "update_artist_agreement_draft", "artist_agreement", agreement.id, { version: agreement.version, content_sha256: agreement.content_sha256 });
+    await saveDb(db);
+    res.json(serializeArtistAgreement(agreement, false));
+  },
+);
+
+app.post(
+  "/admin-api/artist-agreements/:id/publish",
+  requireAdminPermission("settings"),
+  async (req, res) => {
+    if (cleanText(req.body?.confirmation) !== "PUBLISH ARTIST AGREEMENT") {
+      return res.status(400).json({ detail: "Enter the publication confirmation exactly." });
+    }
+    if (USE_SUPABASE_PERSISTENCE) {
+      try {
+        return res.json(await supabasePersistence.publishArtistAgreementVersion({
+          id: Number(req.params.id),
+          adminRole: req.adminUser.role,
+          adminUser: req.adminUser.username,
+        }));
+      } catch (error) {
+        if (error?.code === "AGREEMENT_NOT_FOUND") return res.status(404).json({ detail: error.message });
+        if (error?.code === "AGREEMENT_NOT_DRAFT") return res.status(409).json({ detail: error.message });
+        throw error;
+      }
+    }
+    const db = await loadDb();
+    const agreement = db.artistAgreementVersions.find((item) => Number(item.id) === Number(req.params.id));
+    if (!agreement) return res.status(404).json({ detail: "Artist Agreement version not found." });
+    if (agreement.status !== "draft") return res.status(409).json({ detail: "Only a draft Artist Agreement can be published." });
+    for (const item of db.artistAgreementVersions) if (item.status === "published") item.status = "retired";
+    agreement.status = "published";
+    agreement.published_at = nowIso();
+    appendAuditLog(db, req, "publish_artist_agreement", "artist_agreement", agreement.id, { version: agreement.version, content_sha256: agreement.content_sha256 });
+    await saveDb(db);
+    res.json(serializeArtistAgreement(agreement, false));
+  },
+);
+
+app.post(
+  "/admin-api/artist-applications/:id/verification",
+  requireAdminPermission("applications"),
+  async (req, res) => {
+    const db = await loadDb();
+    const application = db.artistApplications.find(
+      (item) => Number(item.id) === Number(req.params.id),
+    );
+    if (!application) return res.status(404).json({ detail: "Application not found." });
+
+    const status = cleanText(req.body?.status);
+    const method = cleanText(req.body?.method);
+    const result = cleanText(req.body?.result);
+    const notes = cleanText(req.body?.notes).slice(0, 2000);
+    if (!ARTIST_VERIFICATION_STATUSES.has(status) || !ARTIST_VERIFICATION_METHODS.has(method) ||
+        !ARTIST_VERIFICATION_RESULTS.has(result)) {
+      return res.status(400).json({ detail: "Choose a valid verification status, method and result." });
+    }
+    if (status === "verified" && (!method || result !== "passed")) {
+      return res.status(400).json({ detail: "Verified status requires a verification method and passed result." });
+    }
+    if (status === "verification_pending" && !method) {
+      return res.status(400).json({ detail: "Verification Pending requires a verification method." });
+    }
+    if (status === "additional_information_required" &&
+        (result !== "needs_more_information" || !notes)) {
+      return res.status(400).json({
+        detail: "Additional Information Required needs a clear note and matching result.",
+      });
+    }
+    if (status === "unverified" && (method || result)) {
+      return res.status(400).json({ detail: "Unverified status must not claim a method or result." });
+    }
+    if (application.verification_status === "verified" && status !== "verified" && !notes) {
+      return res.status(400).json({ detail: "Explain why verified status is being changed." });
+    }
+    if (status === "verified" && method === "social_challenge") {
+      if (application.social_challenge_completed_at ||
+          !socialChallengeMatches(application, req.body?.challenge_code)) {
+        return res.status(400).json({ detail: "The social verification challenge is invalid or already used." });
+      }
+    }
+
+    const now = nowIso();
+    application.verification_status = status;
+    application.verification_method = method;
+    application.verification_result = result;
+    application.verification_reviewed_at = now;
+    application.verification_reviewed_by = req.adminUser.username;
+    application.verification_notes = notes;
+    if (status === "verified" && method === "social_challenge") {
+      application.social_challenge_completed_at = now;
+    }
+    application.updated_at = now;
+    appendAuditLog(db, req, "record_artist_identity_verification", "artist_application", application.id, {
+      verification_status: status,
+      verification_method: method,
+      verification_result: result,
+    });
+    await saveDb(db);
+    res.json(serializeArtistApplication(db, req, application, { includeVerification: true }));
+  },
+);
 
 app.post(
   "/admin-api/artist-applications/:id/approve",
@@ -4723,6 +5398,13 @@ app.put(
       (item) => Number(item.id) === Number(req.params.id),
     );
     if (!song) return res.status(404).json({ detail: "Song not found." });
+    const nextStatus = SONG_STATUSES.has(req.body?.status)
+      ? req.body.status : song.status || "published";
+    const removingSong = nextStatus === "removed" && song.status !== "removed";
+    const removalReason = cleanText(req.body?.reason);
+    if (removingSong && !removalReason) {
+      return res.status(400).json({ detail: "Enter a removal reason." });
+    }
     if (!allowFeaturedChange(req, res, song.is_featured)) return;
     const uploadError = validateUploadSettings(db, req.files);
     if (uploadError) {
@@ -4751,9 +5433,14 @@ app.put(
       play_count: numberOrZero(req.body.play_count ?? song.play_count),
       release_date: req.body.release_date ?? song.release_date,
       is_featured: adminCan(req.adminUser, "discovery") ? boolValue(req.body.is_featured) : Boolean(song.is_featured),
-      status: SONG_STATUSES.has(req.body.status) ? req.body.status : song.status || "published",
+      status: nextStatus,
       updated_at: nowIso(),
     });
+    if (removingSong) {
+      song.removal_reason = removalReason;
+      song.removed_at = song.updated_at;
+      appendAuditLog(db, req, "remove_song", "song", song.id, { reason: removalReason });
+    }
     appendAuditLog(db, req, "update_song", "song", song.id, {
       title: song.title,
       artist: song.artist,
@@ -4779,10 +5466,13 @@ app.delete("/admin-api/songs/:id", requireAdminPermission("catalog"), requirePer
     return res.json({ deleted: true, permanent: true });
   }
 
+  const reason = cleanText(req.body?.reason);
+  if (!reason) return res.status(400).json({ detail: "Enter a removal reason." });
   song.status = "removed";
+  song.removal_reason = reason;
   song.removed_at = nowIso();
   song.updated_at = song.removed_at;
-  appendAuditLog(db, req, "remove_song", "song", song.id, {});
+  appendAuditLog(db, req, "remove_song", "song", song.id, { reason });
   await saveDb(db);
   res.json({ removed: true, song: serializeSong(db, req, song) });
 });

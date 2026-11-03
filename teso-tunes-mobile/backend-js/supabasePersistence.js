@@ -416,6 +416,7 @@ export function createSupabasePersistence({
       id: Number(row.id),
       listener: row.listener_id ? Number(row.listener_id) : null,
       artist: row.artist_id ? Number(row.artist_id) : null,
+      agreement_acceptance: row.agreement_acceptance_id ? Number(row.agreement_acceptance_id) : null,
       artist_name: row.artist_name || "",
       contact_name: row.contact_name || "",
       bio: row.bio || "",
@@ -433,8 +434,42 @@ export function createSupabasePersistence({
       rejection_reason: row.rejection_reason || "",
       reviewed_by: row.reviewed_by || "",
       reviewed_at: toIso(row.reviewed_at),
+      verification_status: row.verification_status || "unverified",
+      verification_method: row.verification_method || "",
+      verification_result: row.verification_result || "",
+      verification_reviewed_at: toIso(row.verification_reviewed_at),
+      verification_reviewed_by: row.verification_reviewed_by || "",
+      verification_notes: row.verification_notes || "",
+      social_challenge_code_hash: row.social_challenge_code_hash || null,
+      social_challenge_issued_at: toIso(row.social_challenge_issued_at),
+      social_challenge_completed_at: toIso(row.social_challenge_completed_at),
       created_at: toIso(row.created_at),
       updated_at: toIso(row.updated_at),
+    };
+  }
+
+  function agreementVersionFromRow(row) {
+    return {
+      id: Number(row.id),
+      version: row.version || "",
+      title: row.title || "",
+      content_markdown: row.content_markdown || "",
+      content_sha256: row.content_sha256 || "",
+      status: row.status || "draft",
+      published_at: toIso(row.published_at),
+      created_at: toIso(row.created_at),
+    };
+  }
+
+  function agreementAcceptanceFromRow(row) {
+    return {
+      id: Number(row.id),
+      agreement_version: Number(row.agreement_version_id),
+      listener: Number(row.listener_id),
+      accepted_version: row.accepted_version || "",
+      content_sha256: row.content_sha256 || "",
+      accepted_at: toIso(row.accepted_at),
+      created_at: toIso(row.created_at),
     };
   }
 
@@ -509,6 +544,7 @@ export function createSupabasePersistence({
       id: Number(row.application_id),
       artist_name: row.application_artist_name || "",
       status: row.application_status || "pending",
+      verification_status: row.application_verification_status || "unverified",
       review_reason: row.application_review_reason || "",
       rejection_reason: row.application_rejection_reason || "",
       created_at: toIso(row.application_created_at),
@@ -644,6 +680,8 @@ export function createSupabasePersistence({
       artists,
       genres,
       artistApplications,
+      artistAgreementVersions,
+      artistAgreementAcceptances,
       songs,
       releases,
       authTokens,
@@ -660,6 +698,8 @@ export function createSupabasePersistence({
       await queryRows(pool, "artists"),
       await queryRows(pool, "genres", "position, name"),
       await queryRows(pool, "artist_applications"),
+      await queryRows(pool, "artist_agreement_versions"),
+      await queryRows(pool, "artist_agreement_acceptances"),
       await queryRows(pool, "songs"),
       await queryRows(pool, "releases"),
       await queryRows(pool, "auth_tokens", "created_at"),
@@ -690,6 +730,8 @@ export function createSupabasePersistence({
           updated_at: toIso(genre.updated_at),
         })),
         artistApplications: artistApplications.map(applicationFromRow),
+        artistAgreementVersions: artistAgreementVersions.map(agreementVersionFromRow),
+        artistAgreementAcceptances: artistAgreementAcceptances.map(agreementAcceptanceFromRow),
         songs: songs.map(songFromRow),
         releases: releases.map(releaseFromRow),
         authTokens: authTokens.map((session) => ({
@@ -747,6 +789,7 @@ export function createSupabasePersistence({
         platformSettings: {
           registration_enabled: settingsRow.registration_enabled,
           artist_applications_enabled: settingsRow.artist_applications_enabled,
+          artist_agreement_enforcement_mode: settingsRow.artist_agreement_enforcement_mode || "off",
           music_uploads_enabled: settingsRow.music_uploads_enabled,
           maintenance_mode: settingsRow.maintenance_mode,
           maintenance_message: settingsRow.maintenance_message,
@@ -944,6 +987,7 @@ export function createSupabasePersistence({
     return {
       registration_enabled: row.registration_enabled !== false,
       artist_applications_enabled: row.artist_applications_enabled !== false,
+      artist_agreement_enforcement_mode: row.artist_agreement_enforcement_mode || "off",
       music_uploads_enabled: row.music_uploads_enabled !== false,
       maintenance_mode: Boolean(row.maintenance_mode),
       maintenance_message: row.maintenance_message || "",
@@ -968,6 +1012,7 @@ export function createSupabasePersistence({
          application.id as application_id,
          application.artist_name as application_artist_name,
          application.status as application_status,
+         application.verification_status as application_verification_status,
          application.review_reason as application_review_reason,
          application.rejection_reason as application_rejection_reason,
          application.created_at as application_created_at,
@@ -2068,6 +2113,102 @@ export function createSupabasePersistence({
     return supportAttachmentFromRow(result.rows[0]);
   }
 
+  async function writeArtistAgreementVersion({
+    adminRole = "super_admin",
+    adminUser = "",
+    contentMarkdown,
+    id = null,
+    title,
+    version,
+  }) {
+    const client = await getPool().connect();
+    const contentHash = crypto.createHash("sha256").update(contentMarkdown, "utf8").digest("hex");
+    try {
+      await client.query("begin");
+      const result = id
+        ? await client.query(
+            `update tesohub_music.artist_agreement_versions
+             set version=$1,title=$2,content_markdown=$3,content_sha256=$4
+             where id=$5 and status='draft'
+             returning *`,
+            [version, title, contentMarkdown, contentHash, id],
+          )
+        : await client.query(
+            `insert into tesohub_music.artist_agreement_versions
+              (version,title,content_markdown,content_sha256,status)
+             values ($1,$2,$3,$4,'draft') returning *`,
+            [version, title, contentMarkdown, contentHash],
+          );
+      if (result.rowCount !== 1) {
+        const error = new Error("Only draft Artist Agreement versions can be changed.");
+        error.code = "AGREEMENT_NOT_DRAFT";
+        throw error;
+      }
+      const row = result.rows[0];
+      await client.query(
+        `insert into tesohub_music.admin_audit_logs
+          (admin_user,admin_role,action,target_type,target_id,details,created_at)
+         values ($1,$2,$3,'artist_agreement',$4,$5,now())`,
+        [adminUser, adminRole, id ? "update_artist_agreement_draft" : "create_artist_agreement_draft", row.id, { version: row.version, content_sha256: row.content_sha256 }],
+      );
+      await client.query("commit");
+      return agreementVersionFromRow(row);
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async function publishArtistAgreementVersion({ adminRole = "super_admin", adminUser = "", id }) {
+    const client = await getPool().connect();
+    try {
+      await client.query("begin");
+      const target = await client.query(
+        `select * from tesohub_music.artist_agreement_versions where id=$1 for update`,
+        [id],
+      );
+      if (target.rowCount !== 1) {
+        const error = new Error("Artist Agreement version not found.");
+        error.code = "AGREEMENT_NOT_FOUND";
+        throw error;
+      }
+      if (target.rows[0].status !== "draft") {
+        const error = new Error("Only a draft Artist Agreement can be published.");
+        error.code = "AGREEMENT_NOT_DRAFT";
+        throw error;
+      }
+      await client.query(
+        `update tesohub_music.artist_agreement_versions
+         set status='retired'
+         where status='published'`,
+      );
+      const published = await client.query(
+        `update tesohub_music.artist_agreement_versions
+         set status='published',published_at=clock_timestamp()
+         where id=$1 and status='draft'
+         returning *`,
+        [id],
+      );
+      if (published.rowCount !== 1) throw new Error("Artist Agreement publication conflicted.");
+      const row = published.rows[0];
+      await client.query(
+        `insert into tesohub_music.admin_audit_logs
+          (admin_user,admin_role,action,target_type,target_id,details,created_at)
+         values ($1,$2,'publish_artist_agreement','artist_agreement',$3,$4,now())`,
+        [adminUser, adminRole, row.id, { version: row.version, content_sha256: row.content_sha256 }],
+      );
+      await client.query("commit");
+      return agreementVersionFromRow(row);
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async function recordAdminAuditLog({
     action = "admin_action",
     adminRole = "super_admin",
@@ -2347,6 +2488,7 @@ export function createSupabasePersistence({
     addSupportAdminReply,
     addSupportInternalNote,
     addSupportTicketReply,
+    writeArtistAgreementVersion,
     createAuthSession,
     createListenerAccount,
     createPlaylist,
@@ -2373,6 +2515,7 @@ export function createSupabasePersistence({
     loadDb,
     loginExists,
     platformSettings,
+    publishArtistAgreementVersion,
     publishDueReleases,
     recordAdminAuditLog,
     removeSongFromPlaylist,

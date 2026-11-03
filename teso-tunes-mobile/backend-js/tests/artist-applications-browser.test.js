@@ -9,12 +9,12 @@ import { test } from "node:test";
 
 const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 const identity = {admin:{username:"fixture-admin",role:"super_admin",permissions:["*"]}};
-const application = {id:1,listener:1,artist_name:"Fixture Stage",contact_name:"Fixture Contact",applicant:{id:1,name:"Fixture Listener",email:"listener@fixture.invalid"},email:"contact@fixture.invalid",phone:"0700000000",bio:"A synthetic artist application used only for local verification.",genre:"Gospel",country:"Uganda",region:"Teso",status:"pending",created_at:"2026-10-08T10:00:00Z",updated_at:"2026-10-08T10:00:00Z",genuine_confirmed:true,history:[]};
+const application = {id:1,listener:1,artist_name:"Fixture Stage",contact_name:"Fixture Contact",applicant:{id:1,name:"Fixture Listener",email:"listener@fixture.invalid"},email:"contact@fixture.invalid",phone:"0700000000",bio:"A synthetic artist application used only for local verification.",genre:"Gospel",country:"Uganda",region:"Teso",social_link:"https://social.example/fixture-stage",status:"pending",verification_status:"unverified",verification:{status:"unverified",method:"",result:"",reviewed_at:null,reviewed_by:"",notes:"",social_challenge:{pending:false}},potential_artist_matches:[{id:7,name:"Fixture-Stage",status:"active",match_type:"normalized_exact",similarity:1}],created_at:"2026-10-08T10:00:00Z",updated_at:"2026-10-08T10:00:00Z",genuine_confirmed:true,agreement_acceptance:{agreement_version:"2026-v1",accepted_by_listener_id:1,accepted_at:"2026-10-08T09:30:00Z",content_sha256:"a".repeat(64)},history:[]};
 
 test("Artist Applications browser behavior and responsive layout", {skip:!process.env.TESO_PLAYWRIGHT_MODULE,timeout:90000},async t=>{
   const {chromium}=await import(pathToFileURL(process.env.TESO_PLAYWRIGHT_MODULE).href);
   const browser=await chromium.launch({headless:true,channel:"chrome"});
-  let records=[],status=200,reviewCount=0,detailStatus=200,listDelay=0;
+  let records=[],status=200,reviewCount=0,verificationCount=0,challengeCount=0,detailStatus=200,listDelay=0;
   const server=http.createServer(async(req,res)=>{
     if(req.url==="/"){res.setHeader("Content-Type","text/html");return res.end(html);}
     if(req.url==="/app-assets/images/tesohub-music.png") { res.setHeader("Content-Type","image/png");return res.end(fs.readFileSync(new URL("../../mobile/assets/images/tesohub-music.png",import.meta.url))); }
@@ -29,6 +29,10 @@ test("Artist Applications browser behavior and responsive layout", {skip:!proces
       res.statusCode=status;data=status===200?records:{detail:"Fixture unavailable"};
     }else if(req.url==="/admin-api/artist-applications/1"){
       res.statusCode=detailStatus;data=detailStatus===200?records[0]:{detail:"Fixture unavailable"};
+    }else if(req.url==="/admin-api/artist-applications/1/verification/challenge"){
+      challengeCount++;records[0]={...records[0],verification_status:"verification_pending",verification:{...records[0].verification,status:"verification_pending",method:"social_challenge",result:"challenge_issued",social_challenge:{pending:true}}};data={application:records[0],challenge_code:"TSH-AAAA-BBBB-CCCC"};
+    }else if(req.url==="/admin-api/artist-applications/1/verification"){
+      verificationCount++;records[0]={...records[0],verification_status:"additional_information_required",verification:{...records[0].verification,status:"additional_information_required",method:"other",result:"needs_more_information",notes:"Confirm the claimed account."}};data=records[0];
     }else if(req.url==="/admin-api/artist-applications/1/approve"){
       reviewCount++;await delay(120);
       records[0]={...records[0],status:"approved",artist:{id:9,name:"Fixture Stage"},reviewed_at:"2026-10-08T12:00:00Z",reviewed_by:"fixture-admin",history:[{action:"approve_artist_application",at:"2026-10-08T12:00:00Z",admin_user:"fixture-admin",admin_role:"content_admin",reason:""}]};data=records[0];
@@ -82,6 +86,8 @@ test("Artist Applications browser behavior and responsive layout", {skip:!proces
       const geometry=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,top:document.querySelector("#view").getBoundingClientRect().top}));
       assert.ok(geometry.scroll<=width,`Overflow at ${width}`);assert.ok(geometry.top<400,`Applications pushed down at ${width}`);
       await page.getByRole("button",{name:"Review",exact:true}).click();await page.getByRole("heading",{name:"Review history"}).waitFor();
+      await page.getByText("Artist Agreement",{exact:true}).waitFor();
+      await page.getByText("2026-v1",{exact:true}).waitFor();
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`Detail overflow at ${width}`);
       for(const action of ["Approve","Reject","Request changes"]){const box=await page.getByRole("button",{name:action,exact:true}).boundingBox();assert.ok(box.height>=44);assert.ok(box.x>=0&&box.x+box.width<=width);}
       if(process.env.TESO_APPLICATION_SCREENSHOTS){fs.mkdirSync(process.env.TESO_APPLICATION_SCREENSHOTS,{recursive:true});await page.screenshot({path:path.join(process.env.TESO_APPLICATION_SCREENSHOTS,`applications-detail-${width}.png`),fullPage:true});}
@@ -97,6 +103,23 @@ test("Artist Applications browser behavior and responsive layout", {skip:!proces
     await page.getByText("approve artist application:",{exact:false}).waitFor();assert.equal(reviewCount,1);
     await page.getByRole("button",{name:"Back to applications"}).click();await search().waitFor();
     await page.locator('[data-filter="applicationStatus"]').selectOption("approved");await page.getByText("Fixture Stage",{exact:true}).waitFor();
+  });
+  await t.test("identity evidence, duplicate-name warning and verification actions stay in existing review detail",async()=>{
+    records=[structuredClone(application)];
+    await page.locator('[data-filter="applicationStatus"]').selectOption("");
+    await page.getByRole("button",{name:"Refresh",exact:true}).click();
+    await page.getByRole("button",{name:"Review",exact:true}).click();
+    await page.getByRole("heading",{name:"Identity verification"}).waitFor();
+    await page.getByText("Fixture-Stage",{exact:true}).waitFor();
+    await page.getByRole("button",{name:"Issue Social Challenge"}).click();
+    await page.getByText("verification pending",{exact:true}).waitFor();assert.equal(challengeCount,1);
+    await page.locator("#applicationVerificationStatus").selectOption("additional_information_required");
+    await page.locator("#applicationVerificationMethod").selectOption("other");
+    await page.locator("#applicationVerificationResult").selectOption("needs_more_information");
+    await page.locator("#applicationVerificationNotes").fill("Confirm the claimed account.");
+    await page.getByRole("button",{name:"Save Verification"}).click();
+    await page.getByRole("definition").filter({hasText:"Confirm the claimed account."}).waitFor();assert.equal(verificationCount,1);
+    assert.equal(records[0].status,"pending");
   });
   assert.deepEqual(errors,[]);
 });

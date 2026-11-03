@@ -14,10 +14,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
+  acceptCurrentArtistAgreement,
   BACKEND_CONNECTION_ERROR,
   getArtistStudioDashboard,
   getArtistStudioReleases,
 } from "../api/musicApi";
+import ArtistAgreementPanel from "../components/ArtistAgreementPanel";
 import MiniPlayer from "../components/MiniPlayer";
 import SongShareModal from "../components/SongShareModal";
 import { colors, spacing } from "../theme";
@@ -58,6 +60,8 @@ export default function ArtistStudioScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [agreementVisible, setAgreementVisible] = useState(false);
+  const [acceptingAgreement, setAcceptingAgreement] = useState(false);
   const loadRequest = useRef(0);
 
   const loadStudio = useCallback(
@@ -100,6 +104,31 @@ export default function ArtistStudioScreen({ navigation }) {
   const artist = dashboard?.artist;
   const latestRelease = dashboard?.latest_release;
   const visibleReleases = useMemo(() => releases || [], [releases]);
+  const agreementState = dashboard?.artist_agreement || null;
+  const agreementBlocksUploads = Boolean(agreementState?.required && !agreementState?.acceptance);
+
+  const openUpload = useCallback(() => {
+    if (agreementBlocksUploads) {
+      setAgreementVisible(true);
+      return;
+    }
+    navigation.navigate("ReleaseUpload");
+  }, [agreementBlocksUploads, navigation]);
+
+  const acceptAgreement = useCallback(async () => {
+    const version = agreementState?.agreement?.version;
+    if (!version || acceptingAgreement) return;
+    setAcceptingAgreement(true);
+    setError("");
+    try {
+      const result = await acceptCurrentArtistAgreement(version);
+      setDashboard((current) => ({ ...current, artist_agreement: result }));
+    } catch (acceptError) {
+      setError(acceptError?.detail || acceptError?.message || BACKEND_CONNECTION_ERROR);
+    } finally {
+      setAcceptingAgreement(false);
+    }
+  }, [acceptingAgreement, agreementState?.agreement?.version]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -121,7 +150,7 @@ export default function ArtistStudioScreen({ navigation }) {
           <Text style={styles.title}>Artist Studio</Text>
           <TouchableOpacity
             style={styles.iconButton}
-            onPress={() => navigation.navigate("ReleaseUpload")}
+            onPress={openUpload}
           >
             <Ionicons name="add" color={colors.primary} size={24} />
           </TouchableOpacity>
@@ -168,9 +197,18 @@ export default function ArtistStudioScreen({ navigation }) {
               />
             </View>
 
+            <ArtistAgreementPanel
+              accepting={acceptingAgreement}
+              onAccept={agreementState?.agreement ? acceptAgreement : undefined}
+              onCloseAgreement={() => setAgreementVisible(false)}
+              onOpenAgreement={() => setAgreementVisible(true)}
+              state={agreementState}
+              visible={agreementVisible}
+            />
+
             <TouchableOpacity
-              style={styles.uploadButton}
-              onPress={() => navigation.navigate("ReleaseUpload")}
+              style={[styles.uploadButton, agreementBlocksUploads && styles.disabledButton]}
+              onPress={openUpload}
             >
               <Ionicons name="cloud-upload" color={colors.background} size={20} />
               <Text style={styles.uploadText}>Upload Music</Text>
@@ -408,6 +446,9 @@ const styles = StyleSheet.create({
     color: colors.background,
     fontSize: 15,
     fontWeight: "950",
+  },
+  disabledButton: {
+    opacity: 0.55,
   },
   latestPanel: {
     gap: 10,

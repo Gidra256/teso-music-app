@@ -16,7 +16,7 @@ test("engagement responses match authoritative PostgreSQL counts", {skip:!proces
   const pool = new pg.Pool({...config, database, max:4});
   t.after(async () => { await pool.end(); await control.query(`drop database ${database}`); await control.end(); });
   await pool.query("create schema storage; create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[])");
-  for (const name of ["001_supabase_initial.sql", "004_support_v1.sql", "005_support_identity_defaults.sql"])
+  for (const name of ["001_supabase_initial.sql", "004_support_v1.sql", "005_support_identity_defaults.sql", "007_artist_agreements.sql", "008_artist_identity_verification.sql"])
     await pool.query(fs.readFileSync(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
   await pool.query(`insert into tesohub_music.listeners(name,email) values ('A','a@fixture.invalid'),('B','b@fixture.invalid');
     insert into tesohub_music.artists(name,is_featured) values ('Fixture Artist',true);

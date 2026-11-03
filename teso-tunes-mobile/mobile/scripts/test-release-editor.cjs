@@ -33,7 +33,7 @@ function harness(os, records=[{...fixture}]) {
       if(id.endsWith('/theme'))return {colors:{},spacing:{page:16}};
       if(id.endsWith('/format'))return {formatFollowers:String,formatPlays:String};
       if(id.endsWith('/GenreSelector'))return 'GenreSelector';
-      if(id.endsWith('/MiniPlayer')||id.endsWith('/SongShareModal'))return ()=>null;
+      if(id.endsWith('/ArtistAgreementPanel')||id.endsWith('/MiniPlayer')||id.endsWith('/SongShareModal'))return ()=>null;
       throw Error(`Unexpected import: ${id}`);
     };
     const ctx=vm.createContext({require:mockRequire,module:{exports:{}},FormData,Blob,File,window:{alert(){}},console});ctx.exports=ctx.module.exports;vm.runInContext(code,ctx);return ctx.module.exports.default;

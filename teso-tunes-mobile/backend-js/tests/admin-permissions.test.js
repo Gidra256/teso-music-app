@@ -36,6 +36,10 @@ const policy = [
   ["post", "/admin-api/genres/:id/deactivate", ["genres"]],
   ["get", "/admin-api/platform-settings", ["settings"]],
   ["put", "/admin-api/platform-settings", ["settings"]],
+  ["get", "/admin-api/artist-agreements", ["settings"]],
+  ["post", "/admin-api/artist-agreements", ["settings"]],
+  ["put", "/admin-api/artist-agreements/:id", ["settings"]],
+  ["post", "/admin-api/artist-agreements/:id/publish", ["settings"]],
   ["get", "/admin-api/feature-flags", ["settings"]],
   ["put", "/admin-api/feature-flags", ["settings"]],
   ["get", "/admin-api/reports", ["reports"]],
@@ -51,6 +55,8 @@ const policy = [
   ["post", "/admin-api/supabase-migration/validate", ["*"]],
   ["get", "/admin-api/artist-applications", ["applications"]],
   ["get", "/admin-api/artist-applications/:id", ["applications"]],
+  ["post", "/admin-api/artist-applications/:id/verification/challenge", ["applications"]],
+  ["post", "/admin-api/artist-applications/:id/verification", ["applications"]],
   ["post", "/admin-api/artist-applications/:id/approve", ["applications"]],
   ["post", "/admin-api/artist-applications/:id/reject", ["applications"]],
   ["post", "/admin-api/artist-applications/:id/request-changes", ["applications"]],
@@ -338,7 +344,8 @@ test("Moderator genre dependency is a minimal active lookup, never genre managem
   assert.equal((await f.request("post","/admin-api/users/1/suspend",{reason:"Moderation"})).json.status,"suspended");
   assert.equal((await f.request("post","/admin-api/users/1/restore")).json.status,"active");
   assert.equal((await f.request("post","/admin-api/songs/1/hide")).json.status,"hidden");
-  assert.equal((await f.request("delete","/admin-api/songs/1")).json.removed,true);
+  assert.equal((await f.request("delete","/admin-api/songs/1")).status,400);
+assert.equal((await f.request("delete","/admin-api/songs/1",{reason:"Moderation policy violation"})).json.removed,true);
   assert.ok(!f.calls.includes("error"));
 });
 
