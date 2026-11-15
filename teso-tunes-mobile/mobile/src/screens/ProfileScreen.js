@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Image,
   Platform,
   RefreshControl,
   ScrollView,
@@ -15,7 +16,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { BACKEND_CONNECTION_ERROR } from "../api/musicApi";
+import { BACKEND_CONNECTION_ERROR, resolveAccountAvatarUrl } from "../api/musicApi";
 import MiniPlayer from "../components/MiniPlayer";
 import { AccountRow, accountStyles } from "../components/AccountPage";
 import { useAuth } from "../context/AuthContext";
@@ -75,6 +76,7 @@ export default function ProfileScreen({ navigation }) {
   );
 
   const profileName = listener?.name || "Teso Listener";
+  const avatarUri = resolveAccountAvatarUrl(listener?.avatar_url);
   const initials = useMemo(() => {
     return profileName
       .split(/\s+/)
@@ -189,7 +191,13 @@ export default function ProfileScreen({ navigation }) {
 
         <View style={styles.hero}>
           <View style={styles.avatar}>
-            {isAuthenticated ? <Text style={styles.avatarText}>{initials}</Text> : <Ionicons name="person-outline" color={colors.background} size={30} />}
+            {isAuthenticated && avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.avatarImage} accessibilityLabel="Your profile picture" />
+            ) : isAuthenticated ? (
+              <Text style={styles.avatarText}>{initials}</Text>
+            ) : (
+              <Ionicons name="person-outline" color={colors.background} size={30} />
+            )}
           </View>
           <View style={styles.identity}>
             {isAuthenticated ? <Text style={styles.kicker}>{listener?.role === "artist" ? "Artist" : "Listener"}</Text> : null}
@@ -572,8 +580,10 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     height: 64,
     justifyContent: "center",
+    overflow: "hidden",
     width: 64,
   },
+  avatarImage: { width: 64, height: 64, borderRadius: 32 },
   avatarText: {
     color: colors.background,
     fontSize: 23,

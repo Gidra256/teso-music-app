@@ -9,6 +9,7 @@ import {
   registerListenerAccount,
   setAuthToken,
   updateListenerAccount,
+  uploadListenerAvatar,
 } from "../api/musicApi";
 import { useEngagement } from "./EngagementContext";
 
@@ -120,9 +121,23 @@ export function AuthProvider({ children }) {
 
   async function updateAccount(payload) {
     setAuthError("");
+    const requestId = ++accountRequestRef.current;
     const result = await updateListenerAccount(payload);
-    setListener(result.listener);
-    await AsyncStorage.setItem(AUTH_LISTENER_KEY, JSON.stringify(result.listener));
+    if (requestId === accountRequestRef.current) {
+      setListener(result.listener);
+      await AsyncStorage.setItem(AUTH_LISTENER_KEY, JSON.stringify(result.listener));
+    }
+    return result.listener;
+  }
+
+  async function updateAvatar(formData) {
+    setAuthError("");
+    const requestId = ++accountRequestRef.current;
+    const result = await uploadListenerAvatar(formData);
+    if (requestId === accountRequestRef.current) {
+      setListener(result.listener);
+      await AsyncStorage.setItem(AUTH_LISTENER_KEY, JSON.stringify(result.listener));
+    }
     return result.listener;
   }
 
@@ -146,6 +161,7 @@ export function AuthProvider({ children }) {
       setAuthError,
       token,
       updateAccount,
+      updateAvatar,
     }),
     [authError, listener, loading, token, deviceId, refreshAccount]
   );

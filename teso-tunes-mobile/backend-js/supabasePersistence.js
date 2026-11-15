@@ -66,6 +66,7 @@ function bucketForField(fieldname, buckets) {
   if (fieldname === "audio_upload") return buckets.audio;
   if (fieldname === "cover_upload") return buckets.artwork;
   if (fieldname === "photo_file") return buckets.avatars;
+  if (fieldname === "avatar_upload") return buckets.avatars;
   throw new Error("Unsupported upload field.");
 }
 
@@ -73,6 +74,7 @@ function folderForField(fieldname) {
   if (fieldname === "audio_upload") return "songs/audio";
   if (fieldname === "cover_upload") return "songs/covers";
   if (fieldname === "photo_file") return "artists/photos";
+  if (fieldname === "avatar_upload") return "listeners/avatars";
   return "misc";
 }
 
@@ -407,6 +409,7 @@ export function createSupabasePersistence({
       status: row.status || "active",
       artist_id: row.artist_id ? Number(row.artist_id) : null,
       artist_application_id: row.artist_application_id ? Number(row.artist_application_id) : null,
+      avatar_url: row.avatar_url || "",
       suspension_reason: row.suspension_reason || "",
       created_at: toIso(row.created_at),
       updated_at: toIso(row.updated_at),
@@ -564,6 +567,7 @@ export function createSupabasePersistence({
       phone: row.phone || "",
       role: row.role || "listener",
       artist_id: row.artist_id ? Number(row.artist_id) : null,
+      avatar_url: row.avatar_url || "",
       artist_application: compactApplicationFromRow(row),
       liked_song_ids: toNumberArray(row.liked_song_ids),
       followed_artist_ids: toNumberArray(row.followed_artist_ids),
@@ -1042,6 +1046,18 @@ export function createSupabasePersistence({
       [listenerId],
     );
     return listenerProfileFromRow(result.rows[0]);
+  }
+
+  async function updateListenerAvatar(listenerId, avatarUrl) {
+    const result = await getPool().query(
+      `update tesohub_music.listeners
+       set avatar_url = $2, updated_at = now()
+       where id = $1 and status <> 'suspended'
+       returning id`,
+      [listenerId, avatarUrl],
+    );
+    if (!result.rows[0]) return null;
+    return listenerProfile(listenerId);
   }
 
   async function listenerByTokenHash(tokenHash) {
@@ -2540,6 +2556,7 @@ export function createSupabasePersistence({
     unfollowArtist,
     unlikeSong,
     updatePlaylist,
+    updateListenerAvatar,
     updateSupportTicketForAdmin,
     uploadFile,
     uploadSupportAttachment,

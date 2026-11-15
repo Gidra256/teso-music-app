@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE_URL } from "../config/api";
 
 export const BACKEND_CONNECTION_ERROR =
-  "Could not connect to TesoHub Music backend.";
+  "Unable to connect to TesoHub Music. Check your internet connection and try again.";
 
 let authToken = "";
 
@@ -175,6 +175,22 @@ export async function loginListenerAccount(payload) {
 
 export async function getListenerAccount() {
   return fetchJson("/auth/me/");
+}
+
+export function resolveAccountAvatarUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (!url.startsWith("/")) return "";
+  const origin = API_BASE_URL.replace(/\/api\/?$/i, "").replace(/\/$/, "");
+  return `${origin}${url}`;
+}
+
+export async function uploadListenerAvatar(formData) {
+  return fetchJson("/auth/me/avatar/", {
+    method: "POST",
+    body: formData,
+  });
 }
 
 export async function updateListenerAccount(payload) {
@@ -447,18 +463,36 @@ const discoveryRequests = new Map();
 export function getDiscoveryItems(kind, { discovery = "more", limit = 16, ids } = {}) {
   const query = new URLSearchParams({ discovery, limit: String(limit) });
   if (ids !== undefined) query.set("ids", ids.join(","));
-  const path = kind === "genres" ? "/genres/" : `/${kind}/?${query}`;
-  const key = `${authToken}:${path}`;
+
+  const apiPath = kind === "genres" ? "/genres/" : `/${kind}/?${query}`;
+  const key = `${authToken}:${apiPath}`;
+
   if (discoveryRequests.has(key)) return discoveryRequests.get(key);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
-  // Bounded public lists stay fresh; never revive a hidden song from a saved cache.
-  const request = fetchJson(path, { signal: controller.signal })
-    .then(items => {
-      if (!Array.isArray(items)) throw new Error("Music could not be loaded. Please retry.");
-      return items;
-    })
-    .finally(() => { clearTimeout(timeout); discoveryRequests.delete(key); });
+
+  const request = (async () => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30000);
+
+      try {
+        const items = await fetchJson(apiPath, { signal: controller.signal });
+
+        if (!Array.isArray(items)) {
+          throw new Error("Music could not be loaded. Please retry.");
+        }
+
+        return items;
+      } catch (error) {
+        if (error?.status >= 400 && error.status < 500) throw error;
+        if (attempt === 1) throw error;
+
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  })().finally(() => discoveryRequests.delete(key));
+
   discoveryRequests.set(key, request);
   return request;
 }
@@ -494,4 +528,16 @@ export async function followArtist(id, deviceId) {
 
 export async function unfollowArtist(id, deviceId) {
   return postDeviceAction(`/artists/${id}/unfollow/`, deviceId);
+}
+
+export async function createContentReport({ targetType, targetId, reason }) {
+  return fetchJson("/reports/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      target_type: targetType,
+      target_id: Number(targetId),
+      reason: String(reason || "").trim(),
+    }),
+  });
 }

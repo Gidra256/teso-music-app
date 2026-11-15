@@ -413,10 +413,10 @@ const upload = multer({
       if (AUDIO_EXTENSIONS.has(extension) || mime.startsWith("audio/")) {
         return cb(null, true);
       }
-      return cb(new Error("Upload a valid audio file."));
+      return cb(new Error("Upload failed: This file was not recognized as audio. Please select an MP3, M4A, WAV, AAC, FLAC, OGG, OPUS or WebM file."));
     }
 
-    if (file.fieldname === "photo_file" || file.fieldname === "cover_upload") {
+    if (file.fieldname === "photo_file" || file.fieldname === "cover_upload" || file.fieldname === "avatar_upload") {
       if (IMAGE_EXTENSIONS.has(extension) || mime.startsWith("image/")) {
         return cb(null, true);
       }
@@ -437,6 +437,33 @@ const upload = multer({
     return cb(new Error("Unsupported upload field."));
   },
 });
+
+// Listener avatar uploads have their own strict 5 MB limit. Do not relax the
+// music and artist upload rules when handling listener profile photos.
+const listenerAvatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => {
+    const extension = path.extname(file.originalname || "").toLowerCase();
+    const mime = String(file.mimetype || "").toLowerCase();
+    const accepted =
+      ((extension === ".jpg" || extension === ".jpeg") && mime === "image/jpeg") ||
+      (extension === ".png" && mime === "image/png") ||
+      (extension === ".webp" && mime === "image/webp");
+    if (!accepted) return cb(new Error("Upload a JPG, PNG or WebP profile picture (5 MB maximum)."));
+    return cb(null, true);
+  },
+});
+
+function isValidListenerAvatar(file) {
+  if (!file?.buffer || !file.buffer.length) return false;
+  const bytes = file.buffer;
+  const mime = String(file.mimetype || "").toLowerCase();
+  if (mime === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (mime === "image/png") return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (mime === "image/webp") return bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP";
+  return false;
+}
 
 function uploadFolderFor(fieldname) {
   if (fieldname === "photo_file")
@@ -2247,6 +2274,7 @@ function serializeListener(db, listener) {
     phone: listener.phone || "",
     role: listener.role || "listener",
     artist_id: listener.artist_id || null,
+    avatar_url: listener.avatar_url || "",
     artist_application: serializeCompactArtistApplication(latestApplication),
     liked_song_ids: [...new Set(likedSongIds)],
     followed_artist_ids: [...new Set(followedArtistIds)],
@@ -2728,6 +2756,37 @@ app.get("/api/auth/me/", async (req, res) => {
   await saveDb(db);
   res.json({ listener: serializeListener(db, listener) });
 });
+
+// Update ONLY the authenticated listener's avatar. Never accept a listener ID
+// or an avatar URL from the client; the server determines both.
+app.post(
+  "/api/auth/me/avatar/",
+  async (req, res, next) => {
+    if (!USE_SUPABASE_PERSISTENCE) {
+      return res.status(503).json({ detail: "Profile photos require Supabase storage." });
+    }
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+    req.avatarListenerId = listener.id;
+    next();
+  },
+  listenerAvatarUpload.single("avatar_upload"),
+  async (req, res) => {
+    if (!req.file || !isValidListenerAvatar(req.file)) {
+      return res.status(400).json({ detail: "Select a valid JPG, PNG or WebP picture." });
+    }
+    // This field must exist before the upload is attempted. A missing migration
+    // now fails without leaving an orphaned object in Supabase Storage.
+    await supabasePersistence.getAdminPool().query(
+      "select avatar_url from tesohub_music.listeners where id = $1",
+      [req.avatarListenerId],
+    );
+    const avatarUrl = await uploadUrlFor(req.file);
+    const profile = await supabasePersistence.updateListenerAvatar(req.avatarListenerId, avatarUrl);
+    if (!profile) return res.status(403).json({ detail: "Account is unavailable." });
+    return res.json({ listener: profile });
+  },
+);
 
 app.put("/api/auth/me/", async (req, res) => {
   const db = await loadDb();
