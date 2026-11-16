@@ -11,6 +11,7 @@ import multer from "multer";
 import { perfMetricsMiddleware } from "./perfMetrics.js";
 import { discoveryOptions, selectDiscovery } from "./discovery.js";
 import { createSupabasePersistence } from "./supabasePersistence.js";
+import { googleLinkAccount, googleLinkStatus, googleSignIn, verifiedGoogleIdentity } from "./googleAuth.js";
 import { createSongRemovalStore } from "./songRemovalStore.js";
 import { createAdminAccounts } from "./adminAccounts.js";
 import { adminArtistPage, paginateAdminArtists, parseAdminArtistListQuery } from "./adminArtistPagination.js";
@@ -2739,6 +2740,56 @@ app.post("/api/auth/login/", async (req, res) => {
   const token = createAuthSession(db, listener, deviceId, deviceName);
   await saveDb(db);
   res.json(authResponse(db, listener, token));
+});
+
+// Google Identity Services sends a short-lived ID token. It must be verified on
+// the backend; an email address or subject supplied directly by the browser is never trusted.
+app.post("/api/auth/google/", async (req, res) => {
+  if (!USE_SUPABASE_PERSISTENCE) {
+    return res.status(503).json({ detail: "Google sign-in requires Supabase persistence." });
+  }
+  try {
+    const identity = await verifiedGoogleIdentity(req.body?.credential);
+    const settings = normalizePlatformSettings(await supabasePersistence.platformSettings());
+    const session = newAuthSessionPayload(req.body?.device_id, req.body?.device_name);
+    const result = await googleSignIn({
+      persistence: supabasePersistence,
+      identity,
+      session,
+      registrationEnabled: Boolean(settings.registration_enabled && settings.feature_flags.registrations_enabled),
+    });
+    return res.status(result.created ? 201 : 200).json(makeAuthTokenPayload(result.listener, session.token));
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ detail: error.message });
+    console.error("Google login failed:", error);
+    return res.status(503).json({ detail: "Google sign-in is temporarily unavailable." });
+  }
+});
+
+app.get("/api/auth/google/status/", async (req, res) => {
+  if (!USE_SUPABASE_PERSISTENCE) return res.status(503).json({ detail: "Unavailable." });
+  try {
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+    return res.json(await googleLinkStatus({ persistence: supabasePersistence, listenerId: listener.id }));
+  } catch (error) {
+    console.error("Google link status failed:", error);
+    return res.status(503).json({ detail: "Google account status is temporarily unavailable." });
+  }
+});
+
+app.post("/api/auth/google/link/", async (req, res) => {
+  if (!USE_SUPABASE_PERSISTENCE) return res.status(503).json({ detail: "Unavailable." });
+  try {
+    const listener = await requireSupabaseListener(req, res);
+    if (!listener) return;
+    const identity = await verifiedGoogleIdentity(req.body?.credential);
+    return res.json(await googleLinkAccount({ persistence: supabasePersistence, identity, listenerId: listener.id }));
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ detail: error.message });
+    console.error("Google account linking failed:", error);
+    return res.status(503).json({ detail: "Google account linking is temporarily unavailable." });
+  }
 });
 
 app.get("/api/auth/me/", async (req, res) => {
