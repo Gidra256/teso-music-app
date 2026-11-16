@@ -16,8 +16,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { BACKEND_CONNECTION_ERROR, resolveAccountAvatarUrl } from "../api/musicApi";
+import { BACKEND_CONNECTION_ERROR, getGoogleLinkStatus, resolveAccountAvatarUrl } from "../api/musicApi";
 import MiniPlayer from "../components/MiniPlayer";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 import { AccountRow, accountStyles } from "../components/AccountPage";
 import { useAuth } from "../context/AuthContext";
 import { colors, spacing } from "../theme";
@@ -28,13 +29,17 @@ export default function ProfileScreen({ navigation }) {
     listener,
     loading: authLoading,
     loginAccount,
+    loginWithGoogle,
+    linkGoogle,
     logout,
     refreshAccount,
     registerAccount,
   } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
+  const [googleLinked, setGoogleLinked] = useState(false);
+  const [googleMessage, setGoogleMessage] = useState("");
   const [error, setError] = useState("");
-  const [authMode, setAuthMode] = useState("");
+  const [authMode, setAuthMode] = useState("register");
   const [authForm, setAuthForm] = useState({
     email: "",
     identifier: "",
@@ -73,6 +78,20 @@ export default function ProfileScreen({ navigation }) {
         loadProfile({ refresh: true });
       }
     }, [isAuthenticated, loadProfile])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      if (isAuthenticated && Platform.OS === "web") {
+        getGoogleLinkStatus()
+          .then((result) => { if (active) setGoogleLinked(Boolean(result.linked)); })
+          .catch(() => { /* Login and account pages stay usable if Google is unavailable. */ });
+      } else {
+        setGoogleLinked(false);
+      }
+      return () => { active = false; };
+    }, [isAuthenticated, listener?.id])
   );
 
   const profileName = listener?.name || "Teso Listener";
@@ -129,13 +148,52 @@ export default function ProfileScreen({ navigation }) {
     }
   }
 
+  async function submitGoogleAuth(credential) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setError("");
+    try {
+      await loginWithGoogle(credential);
+      setAuthForm({ email: "", identifier: "", name: "", password: "", phone: "" });
+      navigation.navigate("TesoTabs", { screen: "Home" });
+    } catch (actionError) {
+      setError(messageFromError(actionError));
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  async function submitGoogleLink(credential) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setError("");
+    setGoogleMessage("");
+    try {
+      const result = await linkGoogle(credential);
+      setGoogleLinked(true);
+      setGoogleMessage(result.already_linked
+        ? "This Google account is already connected."
+        : "Google connected! You can now sign in with Google.");
+    } catch (actionError) {
+      setError(messageFromError(actionError));
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
   async function handleLogout() {
     if (submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
     try {
       await logout();
-      setAuthMode("");
+      setGoogleLinked(false);
+      setGoogleMessage("");
+      setAuthMode("register");
       setAuthForm({ email: "", identifier: "", name: "", password: "", phone: "" });
     } finally {
       submittingRef.current = false;
@@ -228,6 +286,7 @@ export default function ProfileScreen({ navigation }) {
             setAuthMode={setAuthMode}
             submitting={submitting}
             submitAuth={submitAuth}
+            onGoogleCredential={submitGoogleAuth}
             updateAuthField={updateAuthField}
           />
           <TouchableOpacity accessibilityRole="button" style={styles.keepListening} onPress={goBackOrHome}>
@@ -249,6 +308,18 @@ export default function ProfileScreen({ navigation }) {
             <AccountRow title="Settings" icon="settings-outline" onPress={() => navigation.navigate("Settings")} />
             <AccountRow title="Help & Support" accessibilityLabel="Open Help and Support" icon="help-buoy-outline" onPress={() => navigation.navigate("Support")} />
             <AccountRow title="About TesoHub Music" icon="information-circle-outline" onPress={() => navigation.navigate("About")} />
+            {Platform.OS === "web" ? (
+              <View style={styles.googleLinkPanel}>
+                <Text style={styles.googleLinkHeading}>Google sign-in</Text>
+                <Text style={styles.googleLinkDescription}>
+                  {googleLinked ? "Your Google account is connected." : "Connect Google to this account before using Google to sign in."}
+                </Text>
+                {!googleLinked ? (
+                  <GoogleSignInButton onCredential={submitGoogleLink} disabled={submitting} linkedMode />
+                ) : null}
+                {googleMessage ? <Text style={styles.googleLinkMessage}>{googleMessage}</Text> : null}
+              </View>
+            ) : null}
             <TouchableOpacity accessibilityRole="button" accessibilityLabel="Log out" disabled={submitting} activeOpacity={0.65} style={styles.logoutButton} onPress={handleLogout}>
               {submitting ? <ActivityIndicator color={colors.text} /> : <Ionicons name="log-out-outline" color={colors.text} size={22} />}
               <Text style={styles.editText}>{submitting ? "Logging out..." : "Log out"}</Text>
@@ -358,124 +429,204 @@ function ArtistAccessPanel({ application, navigation, role }) {
   );
 }
 
-function AuthCard({
-  authForm,
-  authMode,
-  error,
-  setAuthMode,
-  submitting,
-  submitAuth,
-  updateAuthField,
-}) {
+function AuthCard({ authForm, authMode, error, setAuthMode, submitting, submitAuth, onGoogleCredential, updateAuthField }) {
   const isLogin = authMode === "login";
-  const [showValidation, setShowValidation] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [attempted, setAttempted] = useState(false);
   const validationMessage = getAuthValidationMessage(authForm, isLogin);
-  const canSubmit = !validationMessage;
 
   useEffect(() => {
-    setShowValidation(false);
+    setAttempted(false);
+    setShowPassword(false);
   }, [authMode]);
 
-  function handleSubmitPress() {
+  function handleSubmit() {
     if (submitting) return;
     if (validationMessage) {
-      setShowValidation(true);
+      setAttempted(true);
       return;
     }
-
     submitAuth();
   }
 
   return (
-    <View style={styles.authPanel}>
-      <View style={styles.segment}>
+    <View style={styles.modernRegistrationPanel}>
+      <View style={styles.modernBrandRow}>
+        <View style={styles.modernBrandIcon}>
+          <Ionicons name="musical-notes" size={22} color={colors.background} />
+        </View>
+        <Text style={styles.modernBrandText}>TESOHUB MUSIC</Text>
+      </View>
+
+      <Text style={styles.modernTitle}>
+        {isLogin ? "Welcome back." : "Your music. Your world."}
+      </Text>
+
+      <Text style={styles.modernSubtitle}>
+        {isLogin
+          ? "Log in to pick up where the music left off."
+          : "Create a free account to discover artists, save favorites and make playlists."}
+      </Text>
+
+      <View style={styles.modernTabs}>
         <ModeButton
-          active={authMode === "register"}
-          label="Create Account"
+          active={!isLogin}
+          label="Sign up"
           disabled={submitting}
           onPress={() => setAuthMode("register")}
         />
-        <ModeButton active={isLogin} label="Log In" disabled={submitting} onPress={() => setAuthMode("login")} />
+        <ModeButton
+          active={isLogin}
+          label="Log in"
+          disabled={submitting}
+          onPress={() => setAuthMode("login")}
+        />
       </View>
-      {authMode ? <>
-      {!isLogin && (
-        <ProfileInput
-          icon="person"
-          placeholder="Profile name"
-          value={authForm.name}
-          onChangeText={(value) => updateAuthField("name", value)}
-        />
-      )}
 
-      {isLogin ? (
-        <ProfileInput
-          autoCapitalize="none"
-          icon="person-circle"
-          placeholder="Email or phone"
-          value={authForm.identifier}
-          onChangeText={(value) => updateAuthField("identifier", value)}
-        />
-      ) : (
+      <GoogleSignInButton onCredential={onGoogleCredential} disabled={submitting} />
+      {Platform.OS === "web" ? (
+        <Text style={styles.googleDivider}>OR CONTINUE WITH EMAIL</Text>
+      ) : null}
+
+      {!isLogin ? (
         <>
           <ProfileInput
-            autoCapitalize="none"
-            icon="mail"
-            keyboardType="email-address"
-            placeholder="Email"
-            value={authForm.email}
-            onChangeText={(value) => updateAuthField("email", value)}
+            label="Display name"
+            icon="person-outline"
+            placeholder="What should we call you?"
+            autoComplete="name"
+            value={authForm.name}
+            onChangeText={value => updateAuthField("name", value)}
           />
           <ProfileInput
-            icon="call"
-            keyboardType="phone-pad"
-            placeholder="Phone"
-            value={authForm.phone}
-            onChangeText={(value) => updateAuthField("phone", value)}
+            label="Email address"
+            icon="mail-outline"
+            placeholder="you@example.com"
+            autoCapitalize="none"
+            keyboardType="email-address"
+            autoComplete="email"
+            value={authForm.email}
+            onChangeText={value => updateAuthField("email", value)}
           />
+          <ProfileInput
+            label="Phone number"
+            icon="call-outline"
+            placeholder="Your phone number"
+            keyboardType="phone-pad"
+            autoComplete="tel"
+            value={authForm.phone}
+            onChangeText={value => updateAuthField("phone", value)}
+          />
+          <Text style={styles.modernHint}>
+            Add an email or phone number ? at least one is required.
+          </Text>
         </>
+      ) : (
+        <ProfileInput
+          label="Email or phone"
+          icon="person-circle-outline"
+          placeholder="Enter your email or phone"
+          autoCapitalize="none"
+          autoComplete="username"
+          value={authForm.identifier}
+          onChangeText={value => updateAuthField("identifier", value)}
+        />
       )}
 
-      <ProfileInput
-        icon="lock-closed"
-        placeholder="Password"
-        returnKeyType="done"
-        secureTextEntry
-        value={authForm.password}
-        onChangeText={(value) => updateAuthField("password", value)}
-        onSubmitEditing={handleSubmitPress}
-      />
+      <View style={styles.modernField}>
+        <Text style={styles.modernLabel}>Password</Text>
+        <View style={styles.modernPasswordBox}>
+          <Ionicons name="lock-closed-outline" color={colors.softText} size={20} />
 
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      {showValidation && validationMessage ? (
-        <Text style={styles.validationText}>{validationMessage}</Text>
+          <TextInput
+            accessibilityLabel="Password"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete={isLogin ? "current-password" : "new-password"}
+            placeholder="At least 6 characters"
+            placeholderTextColor={colors.muted}
+            secureTextEntry={!showPassword}
+            value={authForm.password}
+            onChangeText={value => updateAuthField("password", value)}
+            onSubmitEditing={handleSubmit}
+            returnKeyType="done"
+            style={styles.modernTextInput}
+          />
+
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={showPassword ? "Hide password" : "Show password"}
+            onPress={() => setShowPassword(value => !value)}
+            style={styles.modernEye}
+          >
+            <Ionicons
+              name={showPassword ? "eye-off-outline" : "eye-outline"}
+              color={colors.softText}
+              size={20}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {!isLogin && authForm.password.length > 0 ? (
+        <View style={styles.modernMeterRow}>
+          {[6, 8, 12].map(n => (
+            <View
+              key={n}
+              style={[
+                styles.modernMeter,
+                authForm.password.length >= n && styles.modernMeterOn
+              ]}
+            />
+          ))}
+          <Text style={styles.modernMeterLabel}>
+            {authForm.password.length < 6
+              ? "Too short"
+              : authForm.password.length < 8
+              ? "Minimum length met"
+              : authForm.password.length < 12
+              ? "Longer is better"
+              : "Good length"}
+          </Text>
+        </View>
+      ) : null}
+
+      {error ? (
+        <Text accessibilityRole="alert" style={styles.modernError}>{error}</Text>
+      ) : null}
+
+      {attempted && validationMessage ? (
+        <Text accessibilityRole="alert" style={styles.modernError}>
+          {validationMessage}
+        </Text>
       ) : null}
 
       <TouchableOpacity
-        accessibilityLabel={isLogin ? "Login" : "Create account"}
+        accessibilityRole="button"
+        accessibilityLabel={isLogin ? "Log in" : "Create account"}
         disabled={submitting}
-        style={[styles.primaryButton, submitting && styles.disabledButton]}
-        onPress={handleSubmitPress}
+        activeOpacity={0.8}
+        style={[styles.modernSubmit, submitting && { opacity: 0.65 }]}
+        onPress={handleSubmit}
       >
         {submitting ? (
-          <ActivityIndicator color={colors.text} />
+          <ActivityIndicator color={colors.background} />
         ) : (
           <>
-            <Ionicons
-              name={isLogin ? "log-in" : "person-add"}
-              color={colors.text}
-              size={19}
-            />
-            <Text style={styles.primaryButtonText}>
-              {isLogin ? "Login" : "Create account"}
+            <Text style={styles.modernSubmitText}>
+              {isLogin ? "Log in" : "Create my account"}
             </Text>
+            <Ionicons name="arrow-forward" size={20} color={colors.background} />
           </>
         )}
       </TouchableOpacity>
-      </> : null}
+
+      <Text style={styles.modernFooter}>
+        Free to join  ?  Discover, listen, connect
+      </Text>
     </View>
   );
 }
-
 function getAuthValidationMessage(authForm, isLogin) {
   if (isLogin) {
     if (!authForm.identifier.trim()) {
@@ -513,20 +664,197 @@ function ModeButton({ active, label, onPress, disabled }) {
   );
 }
 
-function ProfileInput({ icon, ...props }) {
+function ProfileInput({ label, icon, ...props }) {
+  const [focused, setFocused] = useState(false);
+
   return (
-    <View style={styles.inputShell}>
-      <Ionicons name={icon} color={colors.muted} size={18} />
-      <TextInput
-        placeholderTextColor={colors.muted}
-        style={styles.input}
-        {...props}
-      />
+    <View style={styles.modernField}>
+      <Text style={styles.modernLabel}>{label}</Text>
+      <View style={[
+        styles.modernInputBox,
+        focused && { borderColor: colors.primary }
+      ]}>
+        <Ionicons
+          name={icon}
+          color={focused ? colors.primary : colors.softText}
+          size={20}
+        />
+        <TextInput
+          accessibilityLabel={label}
+          placeholderTextColor={colors.muted}
+          style={styles.modernTextInput}
+          {...props}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+        />
+      </View>
     </View>
   );
 }
-
 const styles = StyleSheet.create({
+  googleDivider: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.softText,
+    letterSpacing: 1.1,
+    textAlign: "center",
+    marginVertical: 2,
+  },
+  googleLinkPanel: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 18,
+    gap: 12,
+    marginTop: 12,
+  },
+  googleLinkHeading: { color: colors.text, fontSize: 16, fontWeight: "800" },
+  googleLinkDescription: { color: colors.softText, fontSize: 13, lineHeight: 20 },
+  googleLinkMessage: { color: colors.primary, fontSize: 13 },
+
+  modernRegistrationPanel: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 24,
+    padding: 22,
+    gap: 16,
+    maxWidth: 560,
+    width: "100%",
+    alignSelf: "center"
+  },
+  modernBrandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 4
+  },
+  modernBrandIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  modernBrandText: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 2
+  },
+  modernTitle: {
+    color: colors.text,
+    fontSize: 27,
+    lineHeight: 32,
+    fontWeight: "900",
+    letterSpacing: -0.7
+  },
+  modernSubtitle: {
+    color: colors.softText,
+    lineHeight: 22,
+    fontSize: 14,
+    marginBottom: 2
+  },
+  modernTabs: {
+    flexDirection: "row",
+    backgroundColor: colors.elevated,
+    padding: 5,
+    borderRadius: 16,
+    gap: 6
+  },
+  modernField: { gap: 7 },
+  modernLabel: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  modernInputBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    minHeight: 54,
+    paddingHorizontal: 14,
+    backgroundColor: colors.surface
+  },
+  modernPasswordBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    minHeight: 54,
+    paddingHorizontal: 14,
+    backgroundColor: colors.surface
+  },
+  modernTextInput: {
+    color: colors.text,
+    fontSize: 15,
+    minWidth: 0,
+    flex: 1,
+    minHeight: 52
+  },
+  modernEye: {
+    padding: 8,
+    minWidth: 44,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  modernHint: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: -7
+  },
+  modernMeterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5
+  },
+  modernMeter: {
+    flex: 1,
+    height: 4,
+    borderRadius: 8,
+    backgroundColor: colors.border
+  },
+  modernMeterOn: { backgroundColor: colors.primary },
+  modernMeterLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    marginLeft: 7
+  },
+  modernError: {
+    color: "#FF8D94",
+    lineHeight: 20,
+    fontSize: 13
+  },
+  modernSubmit: {
+    minHeight: 54,
+    borderRadius: 15,
+    backgroundColor: colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    marginTop: 3
+  },
+  modernSubmitText: {
+    color: colors.background,
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  modernFooter: {
+    textAlign: "center",
+    color: colors.softText,
+    fontSize: 12,
+    marginTop: 2
+  },
+
   authInvitation: { gap: 8, marginBottom: 16 },
   invitationText: { color: colors.softText, fontSize: 15, lineHeight: 23 },
   keepListening: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10 },

@@ -1,3 +1,4 @@
+import AccountAvatarImage from "./src/components/AccountAvatarImage";
 import {
   NavigationContainer,
   createNavigationContainerRef,
@@ -328,6 +329,7 @@ function DesktopAccountButton() {
       ) : (
         <Ionicons name="person" color={colors.text} size={18} />
       )}
+      <AccountAvatarImage avatarUrl={isAuthenticated ? listener?.avatar_url : ""} size={42} />
     </TouchableOpacity>
   );
 }

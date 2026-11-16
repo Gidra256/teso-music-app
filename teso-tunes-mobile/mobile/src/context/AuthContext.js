@@ -4,6 +4,8 @@ import { Platform } from "react-native";
 
 import {
   getListenerAccount,
+  googleListenerAccount,
+  linkGoogleListenerAccount,
   loginListenerAccount,
   logoutListenerAccount,
   registerListenerAccount,
@@ -119,6 +121,22 @@ export function AuthProvider({ children }) {
     return result.listener;
   }
 
+  async function loginWithGoogle(credential) {
+    setAuthError("");
+    const result = await googleListenerAccount({
+      credential,
+      device_id: deviceId,
+      device_name: DEVICE_NAME,
+    });
+    await saveSession(result.token, result.listener);
+    return result.listener;
+  }
+
+  async function linkGoogle(credential) {
+    setAuthError("");
+    return linkGoogleListenerAccount({ credential });
+  }
+
   async function updateAccount(payload) {
     setAuthError("");
     const requestId = ++accountRequestRef.current;
@@ -155,6 +173,8 @@ export function AuthProvider({ children }) {
       listener,
       loading,
       loginAccount,
+      loginWithGoogle,
+      linkGoogle,
       logout,
       refreshAccount,
       registerAccount,

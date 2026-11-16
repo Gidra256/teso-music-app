@@ -1,3 +1,4 @@
+import AccountAvatarImage from "./AccountAvatarImage";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { StyleSheet, Text, TouchableOpacity } from "react-native";
@@ -43,6 +44,7 @@ export default function ProfileAvatarButton() {
       ) : (
         <Ionicons name="person" color={colors.text} size={18} />
       )}
+      <AccountAvatarImage avatarUrl={isAuthenticated ? listener?.avatar_url : ""} size={40} />
     </TouchableOpacity>
   );
 }

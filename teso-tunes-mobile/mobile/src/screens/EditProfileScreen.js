@@ -1,28 +1,41 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { CommonActions, usePreventRemove } from "@react-navigation/native";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Image, Keyboard, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 import { resolveAccountAvatarUrl } from "../api/musicApi";
+import AvatarCropEditor from "../components/AvatarCropEditor";
 import AccountPage from "../components/AccountPage";
 import { useAuth } from "../context/AuthContext";
 import { colors } from "../theme";
 
-const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
-
-async function avatarFileFromAsset(asset) {
-  const type = String(asset.mimeType || asset.file?.type || "image/jpeg").toLowerCase();
-  const extension = type === "image/png" ? ".png" : type === "image/webp" ? ".webp" : ".jpg";
-  const name = asset.fileName || asset.file?.name || asset.name || `listener-avatar${extension}`;
-  if (Platform.OS === "web") {
-    if (asset.file) return asset.file;
-    const response = await fetch(asset.uri);
-    if (!response.ok) throw new Error("Could not read the selected picture.");
-    const blob = await response.blob();
-    return new File([blob], name, { type: blob.type || type });
+// Native picker already provides a square crop UI. Always re-encode a small
+// JPEG after cropping so large camera originals can upload successfully.
+async function optimizeNativeAvatar(asset) {
+  if (!asset?.uri) throw new Error("Could not open the selected picture.");
+  const editor = ImageManipulator.ImageManipulator.manipulate(asset.uri);
+  if (asset.width > 0 && asset.height > 0 && asset.width !== asset.height) {
+    const side = Math.min(asset.width, asset.height);
+    editor.crop({
+      originX: Math.floor((asset.width - side) / 2),
+      originY: Math.floor((asset.height - side) / 2),
+      width: side,
+      height: side,
+    });
   }
-  return { uri: asset.uri, name, type };
+  editor.resize({ width: 720, height: 720 });
+  const rendered = await editor.renderAsync();
+  const result = await rendered.saveAsync({
+    format: ImageManipulator.SaveFormat.JPEG,
+    compress: 0.82,
+  });
+  return {
+    uri: result.uri,
+    name: `listener-avatar-${Date.now()}.jpg`,
+    type: "image/jpeg",
+  };
 }
 
 function accountFields(listener) {
@@ -40,6 +53,8 @@ export default function EditProfileScreen({ navigation }) {
   const [avatarUploading, setAvatarUploading] = useState(false);
   const avatarUploadingRef = useRef(false);
   const [avatarMessage, setAvatarMessage] = useState("");
+  const [avatarAsset, setAvatarAsset] = useState(null);
+  const [avatarCropError, setAvatarCropError] = useState("");
   const avatarUri = resolveAccountAvatarUrl(listener?.avatar_url);
   const initials = (listener?.name || "Teso Listener").trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase()).join("") || "TT";
   const dirty = Object.keys(saved).some(key => form[key].trim() !== saved[key]);
@@ -60,45 +75,63 @@ export default function EditProfileScreen({ navigation }) {
   });
 
   useEffect(() => {
-    if (Platform.OS !== "web" || (!dirty && !saving)) return;
+    if (Platform.OS !== "web" || (!dirty && !saving && !avatarUploading && !avatarAsset)) return;
     const warn = event => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty, saving]);
+  }, [dirty, saving, avatarUploading, avatarAsset]);
 
-  async function changeAvatar() {
-    if (savingRef.current || avatarUploadingRef.current) return;
+  async function uploadPreparedAvatar(file) {
+    if (savingRef.current || avatarUploadingRef.current) return false;
+    avatarUploadingRef.current = true;
+    setAvatarUploading(true);
     setError("");
-    setAvatarMessage("");
+    setAvatarCropError("");
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        allowsEditing: true,
-        aspect: [1, 1],
-        mediaTypes: ["images"],
-        quality: 0.85,
-      });
-      if (result.canceled || !result.assets?.[0]) return;
-      const asset = result.assets[0];
-      if (Number(asset.fileSize || asset.size || asset.file?.size || 0) > AVATAR_MAX_BYTES) {
-        setError("Profile picture must be 5 MB or smaller.");
-        return;
-      }
-      avatarUploadingRef.current = true;
-      setAvatarUploading(true);
       const formData = new FormData();
-      const file = await avatarFileFromAsset(asset);
       if (Platform.OS === "web") {
         formData.append("avatar_upload", file, file.name || "listener-avatar.jpg");
       } else {
         formData.append("avatar_upload", file);
       }
       await updateAvatar(formData);
+      setAvatarAsset(null);
       setAvatarMessage("Profile picture updated.");
+      return true;
     } catch (uploadError) {
-      setError(uploadError?.detail || uploadError?.message || "Could not upload your profile picture.");
+      const message = uploadError?.detail || uploadError?.message || "Could not upload your profile picture.";
+      if (Platform.OS === "web") setAvatarCropError(message);
+      else setError(message);
+      return false;
     } finally {
       avatarUploadingRef.current = false;
       setAvatarUploading(false);
+    }
+  }
+
+  async function changeAvatar() {
+    if (savingRef.current || avatarUploadingRef.current) return;
+    setError("");
+    setAvatarMessage("");
+    setAvatarCropError("");
+    try {
+      // This launches immediately from the button press, as web browsers require.
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: Platform.OS !== "web",
+        aspect: [1, 1],
+        mediaTypes: ["images"],
+        quality: 0.86,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      if (Platform.OS === "web") {
+        setAvatarAsset(asset); // Crop and compress before POST, irrespective of original file size.
+        return;
+      }
+      const optimized = await optimizeNativeAvatar(asset);
+      await uploadPreparedAvatar(optimized);
+    } catch (error) {
+      setError(error?.detail || error?.message || "Could not prepare your photo.");
     }
   }
 
@@ -128,12 +161,22 @@ export default function EditProfileScreen({ navigation }) {
 
   function back() {
     if (savingRef.current || avatarUploadingRef.current) return;
+    if (avatarAsset) { setAvatarAsset(null); return; }
     if (navigation.canGoBack()) navigation.goBack();
     else navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: "Profile" }] }));
   }
 
   return (
     <AccountPage title="Edit Profile" navigation={navigation} onBack={back} busy={saving || avatarUploading}>
+      {Platform.OS === "web" ? (
+        <AvatarCropEditor
+          asset={avatarAsset}
+          busy={avatarUploading}
+          uploadError={avatarCropError}
+          onCancel={() => { if (!avatarUploadingRef.current) { setAvatarAsset(null); setAvatarCropError(""); } }}
+          onApply={uploadPreparedAvatar}
+        />
+      ) : null}
       <View style={styles.photoSection}>
         <View style={styles.photoCircle}>
           {avatarUri ? (
@@ -152,7 +195,7 @@ export default function EditProfileScreen({ navigation }) {
           {avatarUploading ? <ActivityIndicator color={colors.text} /> : <Ionicons name="camera-outline" color={colors.text} size={18} />}
           <Text style={styles.photoButtonText}>{avatarUploading ? "Uploading photo..." : avatarUri ? "Change photo" : "Add profile photo"}</Text>
         </TouchableOpacity>
-        <Text style={styles.photoHint}>JPG, PNG or WebP · up to 5 MB</Text>
+        <Text style={styles.photoHint}>Choose a photo, crop it, and we’ll optimize it automatically</Text>
         {avatarMessage ? <Text accessibilityLiveRegion="polite" style={styles.message}>{avatarMessage}</Text> : null}
       </View>
       {[

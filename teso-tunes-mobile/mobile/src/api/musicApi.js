@@ -173,6 +173,26 @@ export async function loginListenerAccount(payload) {
   });
 }
 
+export async function googleListenerAccount(payload) {
+  return fetchJson("/auth/google/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function linkGoogleListenerAccount(payload) {
+  return fetchJson("/auth/google/link/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getGoogleLinkStatus() {
+  return fetchJson("/auth/google/status/");
+}
+
 export async function getListenerAccount() {
   return fetchJson("/auth/me/");
 }
